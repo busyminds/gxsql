@@ -1,0 +1,1 @@
+{"schema_version":"gxsql.report.v1","target":{"table":"users"},"results":[{"id":"age-range","kind":"between","display_name":"age between","column":"age","policy_verdict":"fail","execution_outcome":"policy_failure","row_denominator":"available","counts":{"total":2,"failed":1,"failed_percent":50}}]}

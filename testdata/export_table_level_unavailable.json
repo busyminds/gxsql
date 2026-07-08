@@ -1,0 +1,1 @@
+{"schema_version":"gxsql.report.v1","target":{"table":"orders"},"results":[{"kind":"distinct_count_equal","display_name":"id distinct count: got 3","column":"id","policy_verdict":"pass","execution_outcome":"ok","row_denominator":"unavailable","facts":{"observed_count":3,"configured_count":3}}]}

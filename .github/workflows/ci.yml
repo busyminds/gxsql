@@ -1,0 +1,211 @@
+name: gxsql CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+
+jobs:
+  fmt:
+    name: gofmt
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: 1.26.x
+
+      - name: Check formatting
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+
+  test:
+    name: go test (Go ${{ matrix.go }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        go:
+          - 1.24.x
+          - 1.26.x
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: Run race-enabled tests
+        run: go test -count=1 -race ./...
+
+  analysis:
+    name: lint and audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: 1.26.x
+
+      - name: Lint
+        run: make lint
+
+      - name: Audit
+        run: make audit
+
+  postgres-integration:
+    name: PostgreSQL conformance (Go ${{ matrix.go }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        go:
+          - 1.24.x
+          - 1.26.x
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: gxsql
+          POSTGRES_USER: gxsql
+          POSTGRES_PASSWORD: gxsql
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U gxsql -d gxsql"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=12
+    env:
+      GXSQL_POSTGRES_DSN: postgres://gxsql:gxsql@localhost:5432/gxsql?sslmode=disable
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: Run PostgreSQL conformance tests
+        working-directory: integration
+        run: go test -count=1 -race -run '^TestPostgresConformance$' ./...
+
+  mysql-integration:
+    name: MySQL conformance (Go ${{ matrix.go }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        go:
+          - 1.24.x
+          - 1.26.x
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: gxsql
+          MYSQL_USER: gxsql
+          MYSQL_PASSWORD: gxsql
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -u gxsql -pgxsql"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=12
+    env:
+      GXSQL_MYSQL_DSN: 'gxsql:gxsql@tcp(localhost:3306)/gxsql?parseTime=true&charset=utf8mb4&collation=utf8mb4_bin'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: Run MySQL conformance tests
+        working-directory: integration
+        run: go test -count=1 -race -run '^TestMySQLConformance$' ./...
+
+  sqlite-integration:
+    name: SQLite conformance (Go ${{ matrix.go }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        go:
+          - 1.24.x
+          - 1.26.x
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: Run SQLite conformance tests
+        working-directory: integration
+        run: go test -count=1 -race -run '^TestSQLiteConformance$' ./...
+
+  duckdb-integration:
+    name: DuckDB conformance (Go ${{ matrix.go }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        go:
+          - 1.24.x
+          - 1.26.x
+    env:
+      CGO_ENABLED: 1
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: Run DuckDB conformance tests
+        working-directory: integration
+        run: go test -count=1 -race -run '^TestDuckDBConformance$' ./...

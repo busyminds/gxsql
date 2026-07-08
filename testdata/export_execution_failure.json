@@ -1,0 +1,1 @@
+{"schema_version":"gxsql.report.v1","target":{"schema":"public","table":"users"},"results":[{"id":"email","kind":"not_empty","display_name":"email not empty","column":"email","policy_verdict":"unevaluated","execution_outcome":"execution_failure","row_denominator":"unavailable","errors":[{"category":"database","message":"gxsql: database"}]}]}

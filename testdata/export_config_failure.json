@@ -1,0 +1,1 @@
+{"schema_version":"gxsql.report.v1","results":[{"id":"bad-in","kind":"in","display_name":"status in (...)","policy_verdict":"unevaluated","execution_outcome":"config_failure","row_denominator":"unavailable","errors":[{"category":"invalid_config","message":"gxsql: invalid_config"}]}]}

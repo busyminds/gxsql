@@ -1,0 +1,1 @@
+{"schema_version":"gxsql.report.v1","target":{"table":"users"},"results":[{"id":"rows","kind":"row_count_equal","display_name":"row count: got 2","policy_verdict":"pass","execution_outcome":"ok","row_denominator":"unavailable","facts":{"observed_count":2,"configured_count":2}}]}

@@ -166,3 +166,17 @@ func categorizeRenderError(err error) error {
 	}
 	return &CategorizedError{Category: CategoryRendering, Err: err}
 }
+
+var (
+	errScopeIdentityRequired       = errors.New("scope identity is required")
+	errScopePredicateRequired      = errors.New("scope predicate is required")
+	errScopeValuesWithoutPredicate = errors.New("scope values require a predicate")
+)
+
+func scopeArityError(slots, values int) error {
+	return fmt.Errorf("scope predicate has %d placeholders but %d values", slots, values)
+}
+
+func unsupportedScopePredicateError(msg string) error {
+	return &CategorizedError{Category: CategoryUnsupported, Err: fmt.Errorf("gxsql: %s", msg)}
+}

@@ -34,6 +34,8 @@ type evalOptions struct {
 	keyColumns         []string
 	summaryOnly        bool
 	captureDiagnostics bool
+	//lint:ignore U1000 reserved for internal scope threading in the next validation slice
+	scope *trustedScope
 }
 
 // rowPredicate is a SQL WHERE clause that is true for failing rows.
@@ -43,17 +45,29 @@ type rowPredicate struct {
 }
 
 type argBinder struct {
-	dialect Dialect
-	args    []any
+	dialect           Dialect
+	args              []any
+	placeholderOffset int
 }
 
 func newArgBinder(d Dialect) *argBinder {
 	return &argBinder{dialect: d}
 }
 
+// newScopedArgBinder returns a binder whose placeholders begin after scope
+// values. Expectation values bind from the next slot; scope values are
+// prepended separately at composition time.
+func newScopedArgBinder(d Dialect, scope *trustedScope) *argBinder {
+	scopePrefix := 0
+	if scope != nil {
+		scopePrefix = len(scope.values)
+	}
+	return &argBinder{dialect: d, placeholderOffset: scopePrefix}
+}
+
 func (b *argBinder) bind(v any) string {
 	b.args = append(b.args, v)
-	return b.dialect.Placeholder(len(b.args))
+	return b.dialect.Placeholder(b.placeholderOffset + len(b.args))
 }
 
 func withWhere(where string, args []any) rowPredicate {

@@ -74,8 +74,8 @@ func (c ColumnBuilder) In(vals ...any) Expectation {
 		preflightCheck: func() error {
 			return newConfigError(validateInListValues(c.column, "in", vals))
 		},
-		build: func(d Dialect, col string) (rowPredicate, error) {
-			return inPredicate(d, col, vals)
+		build: func(d Dialect, col string, scope *trustedScope) (rowPredicate, error) {
+			return inPredicate(d, col, vals, scope)
 		},
 	}
 }
@@ -92,8 +92,8 @@ func (c ColumnBuilder) NotIn(vals ...any) Expectation {
 		preflightCheck: func() error {
 			return newConfigError(validateInListValues(c.column, "not in", vals))
 		},
-		build: func(d Dialect, col string) (rowPredicate, error) {
-			return notInPredicate(d, col, vals)
+		build: func(d Dialect, col string, scope *trustedScope) (rowPredicate, error) {
+			return notInPredicate(d, col, vals, scope)
 		},
 	}
 }
@@ -116,8 +116,8 @@ func (c NumberColumn) Between(lo, hi any) Expectation {
 		name:   fmt.Sprintf("%s between [%v,%v]", c.column, lo, hi),
 		kind:   KindBetween,
 		facts:  ResultFacts{ConfiguredBoundLower: lo, ConfiguredBoundUpper: hi},
-		build: func(d Dialect, col string) (rowPredicate, error) {
-			return orderedBetweenPredicate(d, col, lo, hi)
+		build: func(d Dialect, col string, scope *trustedScope) (rowPredicate, error) {
+			return orderedBetweenPredicate(d, col, lo, hi, scope)
 		},
 	}
 }
@@ -168,8 +168,8 @@ func (c StringColumn) LenEqual(n int) Expectation {
 		name:   fmt.Sprintf("%s length == %d", c.column, n),
 		kind:   KindLenEqual,
 		facts:  ResultFacts{ConfiguredCount: intFact(n)},
-		build: func(d Dialect, col string) (rowPredicate, error) {
-			return stringLenComparePredicate(d, col, "=", n)
+		build: func(d Dialect, col string, scope *trustedScope) (rowPredicate, error) {
+			return stringLenComparePredicate(d, col, "=", n, scope)
 		},
 	}
 }
@@ -183,13 +183,13 @@ func (c StringColumn) LenBetween(lo, hi int) Expectation {
 		name:   fmt.Sprintf("%s length in [%d,%d]", c.column, lo, hi),
 		kind:   KindLenBetween,
 		facts:  ResultFacts{ConfiguredCountLower: intFact(lo), ConfiguredCountUpper: intFact(hi)},
-		build: func(d Dialect, col string) (rowPredicate, error) {
-			return stringLenBetweenPredicate(d, col, lo, hi)
+		build: func(d Dialect, col string, scope *trustedScope) (rowPredicate, error) {
+			return stringLenBetweenPredicate(d, col, lo, hi, scope)
 		},
 	}
 }
 
-type predicateBuilder func(d Dialect, column string) (rowPredicate, error)
+type predicateBuilder func(d Dialect, column string, scope *trustedScope) (rowPredicate, error)
 
 type perRowExpectation struct {
 	column         string
@@ -217,7 +217,7 @@ func (e perRowExpectation) preflight() error {
 func (e perRowExpectation) evaluateSQL(
 	ctx context.Context, db DB, table TableRef, opts evalOptions,
 ) (Result, error) {
-	pred, err := e.build(opts.dialect, e.column)
+	pred, err := e.build(opts.dialect, e.column, opts.scope)
 	if err != nil {
 		return Result{Kind: e.kind, Name: e.name, Column: e.column, RowDenominator: RowDenominatorUnavailable}, categorizeRenderError(err)
 	}
@@ -230,8 +230,8 @@ func numberComparison(column, op string, bound any) Expectation {
 		name:   fmt.Sprintf("%s %s %v", column, op, bound),
 		kind:   comparisonKind(op),
 		facts:  ResultFacts{ConfiguredBound: bound},
-		build: func(d Dialect, col string) (rowPredicate, error) {
-			return orderedComparePredicate(d, col, op, bound)
+		build: func(d Dialect, col string, scope *trustedScope) (rowPredicate, error) {
+			return orderedComparePredicate(d, col, op, bound, scope)
 		},
 	}
 }
@@ -251,7 +251,7 @@ func comparisonKind(op string) ExpectationKind {
 	}
 }
 
-func isNullPredicate(d Dialect, column string) (rowPredicate, error) {
+func isNullPredicate(d Dialect, column string, scope *trustedScope) (rowPredicate, error) {
 	col, err := quoteIdent(d, column)
 	if err != nil {
 		return rowPredicate{}, err
@@ -259,7 +259,7 @@ func isNullPredicate(d Dialect, column string) (rowPredicate, error) {
 	return withWhere(col+" IS NOT NULL", nil), nil
 }
 
-func notNullPredicate(d Dialect, column string) (rowPredicate, error) {
+func notNullPredicate(d Dialect, column string, scope *trustedScope) (rowPredicate, error) {
 	col, err := quoteIdent(d, column)
 	if err != nil {
 		return rowPredicate{}, err
@@ -279,7 +279,7 @@ func validateInListValues(column, op string, vals []any) error {
 	return nil
 }
 
-func inPredicate(d Dialect, column string, vals []any) (rowPredicate, error) {
+func inPredicate(d Dialect, column string, vals []any, scope *trustedScope) (rowPredicate, error) {
 	col, err := quoteIdent(d, column)
 	if err != nil {
 		return rowPredicate{}, err
@@ -287,7 +287,7 @@ func inPredicate(d Dialect, column string, vals []any) (rowPredicate, error) {
 	if err := validateInListValues(column, "in", vals); err != nil {
 		return rowPredicate{}, err
 	}
-	b := newArgBinder(d)
+	b := newScopedArgBinder(d, scope)
 	placeholders := make([]string, len(vals))
 	for i, v := range vals {
 		placeholders[i] = b.bind(v)
@@ -296,7 +296,7 @@ func inPredicate(d Dialect, column string, vals []any) (rowPredicate, error) {
 	return withWhere(where, b.args), nil
 }
 
-func notInPredicate(d Dialect, column string, vals []any) (rowPredicate, error) {
+func notInPredicate(d Dialect, column string, vals []any, scope *trustedScope) (rowPredicate, error) {
 	col, err := quoteIdent(d, column)
 	if err != nil {
 		return rowPredicate{}, err
@@ -304,7 +304,7 @@ func notInPredicate(d Dialect, column string, vals []any) (rowPredicate, error) 
 	if err := validateInListValues(column, "not in", vals); err != nil {
 		return rowPredicate{}, err
 	}
-	b := newArgBinder(d)
+	b := newScopedArgBinder(d, scope)
 	placeholders := make([]string, len(vals))
 	for i, v := range vals {
 		placeholders[i] = b.bind(v)
@@ -313,19 +313,19 @@ func notInPredicate(d Dialect, column string, vals []any) (rowPredicate, error) 
 	return withWhere(where, b.args), nil
 }
 
-func orderedBetweenPredicate(d Dialect, column string, lo, hi any) (rowPredicate, error) {
+func orderedBetweenPredicate(d Dialect, column string, lo, hi any, scope *trustedScope) (rowPredicate, error) {
 	col, err := quoteIdent(d, column)
 	if err != nil {
 		return rowPredicate{}, err
 	}
-	b := newArgBinder(d)
+	b := newScopedArgBinder(d, scope)
 	pLo := b.bind(lo)
 	pHi := b.bind(hi)
 	where := fmt.Sprintf("%s IS NULL OR %s < %s OR %s > %s", col, col, pLo, col, pHi)
 	return withWhere(where, b.args), nil
 }
 
-func orderedComparePredicate(d Dialect, column, op string, bound any) (rowPredicate, error) {
+func orderedComparePredicate(d Dialect, column, op string, bound any, scope *trustedScope) (rowPredicate, error) {
 	col, err := quoteIdent(d, column)
 	if err != nil {
 		return rowPredicate{}, err
@@ -334,7 +334,7 @@ func orderedComparePredicate(d Dialect, column, op string, bound any) (rowPredic
 	if !ok {
 		return rowPredicate{}, fmt.Errorf("gxsql: unsupported comparison %q", op)
 	}
-	b := newArgBinder(d)
+	b := newScopedArgBinder(d, scope)
 	p := b.bind(bound)
 	where := fmt.Sprintf("%s IS NULL OR %s %s %s", col, col, failOp, p)
 	return withWhere(where, b.args), nil
@@ -357,7 +357,7 @@ func failComparisonOp(op string) (string, bool) {
 	}
 }
 
-func notEmptyPredicate(d Dialect, column string) (rowPredicate, error) {
+func notEmptyPredicate(d Dialect, column string, scope *trustedScope) (rowPredicate, error) {
 	col, err := quoteIdent(d, column)
 	if err != nil {
 		return rowPredicate{}, err
@@ -366,7 +366,7 @@ func notEmptyPredicate(d Dialect, column string) (rowPredicate, error) {
 	return withWhere(where, nil), nil
 }
 
-func emptyPredicate(d Dialect, column string) (rowPredicate, error) {
+func emptyPredicate(d Dialect, column string, scope *trustedScope) (rowPredicate, error) {
 	col, err := quoteIdent(d, column)
 	if err != nil {
 		return rowPredicate{}, err
@@ -375,7 +375,7 @@ func emptyPredicate(d Dialect, column string) (rowPredicate, error) {
 	return withWhere(where, nil), nil
 }
 
-func stringLenComparePredicate(d Dialect, column, op string, n int) (rowPredicate, error) {
+func stringLenComparePredicate(d Dialect, column, op string, n int, scope *trustedScope) (rowPredicate, error) {
 	col, err := quoteIdent(d, column)
 	if err != nil {
 		return rowPredicate{}, err
@@ -389,7 +389,7 @@ func stringLenComparePredicate(d Dialect, column, op string, n int) (rowPredicat
 	return withWhere(where, nil), nil
 }
 
-func stringLenBetweenPredicate(d Dialect, column string, lo, hi int) (rowPredicate, error) {
+func stringLenBetweenPredicate(d Dialect, column string, lo, hi int, scope *trustedScope) (rowPredicate, error) {
 	col, err := quoteIdent(d, column)
 	if err != nil {
 		return rowPredicate{}, err

@@ -96,16 +96,26 @@ func evalPerRow(
 		return Result{Kind: kind, Name: displayName, Column: column, RowDenominator: RowDenominatorUnavailable}, categorizeRenderError(err)
 	}
 
-	failQuery, failArgs := failedCountDiagnostics(tbl, pred)
+	failPred, err := composeRowPredicateWithScope(opts.scope, pred, opts.dialect)
+	if err != nil {
+		return Result{Kind: kind, Name: displayName, Column: column, RowDenominator: RowDenominatorUnavailable}, categorizeRenderError(err)
+	}
 
-	total, err := queryCount(ctx, db, tbl, "", nil)
+	totalPred, err := composeRowPredicateWithScope(opts.scope, rowPredicate{}, opts.dialect)
+	if err != nil {
+		return Result{Kind: kind, Name: displayName, Column: column, RowDenominator: RowDenominatorUnavailable}, categorizeRenderError(err)
+	}
+
+	failQuery, failArgs := failedCountDiagnostics(tbl, failPred)
+
+	total, err := queryCount(ctx, db, tbl, totalPred.where, totalPred.args)
 	if err != nil {
 		res := Result{Kind: kind, Name: displayName, Column: column, RowDenominator: RowDenominatorUnavailable}
 		captureDiagnostics(&res, opts, failQuery, failArgs)
 		return res, categorizeExecutionError(ctx, err)
 	}
 
-	failed, err := queryCount(ctx, db, tbl, pred.where, pred.args)
+	failed, err := queryCount(ctx, db, tbl, failPred.where, failPred.args)
 	if err != nil {
 		res := Result{Kind: kind, Name: displayName, Column: column, RowDenominator: RowDenominatorUnavailable}
 		captureDiagnostics(&res, opts, failQuery, failArgs)
@@ -119,7 +129,7 @@ func evalPerRow(
 	}
 
 	if opts.sampleCap > 0 {
-		samples, err := queryColumnSamples(ctx, db, tbl, column, pred, opts, opts.sampleCap)
+		samples, err := queryColumnSamples(ctx, db, tbl, column, failPred, opts, opts.sampleCap)
 		if err != nil {
 			return res, categorizeExecutionError(ctx, err)
 		}
@@ -127,7 +137,7 @@ func evalPerRow(
 	}
 
 	if !opts.summaryOnly && len(opts.keyColumns) > 0 {
-		keys, err := queryFailedKeys(ctx, db, tbl, opts, pred)
+		keys, err := queryFailedKeys(ctx, db, tbl, opts, failPred)
 		if err != nil {
 			return res, categorizeExecutionError(ctx, err)
 		}

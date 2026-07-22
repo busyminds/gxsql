@@ -34,8 +34,7 @@ type evalOptions struct {
 	keyColumns         []string
 	summaryOnly        bool
 	captureDiagnostics bool
-	//lint:ignore U1000 reserved for internal scope threading in the next validation slice
-	scope *trustedScope
+	scope              *trustedScope
 }
 
 // rowPredicate is a SQL WHERE clause that is true for failing rows.
@@ -48,10 +47,6 @@ type argBinder struct {
 	dialect           Dialect
 	args              []any
 	placeholderOffset int
-}
-
-func newArgBinder(d Dialect) *argBinder {
-	return &argBinder{dialect: d}
 }
 
 // newScopedArgBinder returns a binder whose placeholders begin after scope

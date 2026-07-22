@@ -192,7 +192,7 @@ func TestComposeScopedPredicateWithEmptyExpectation(t *testing.T) {
 }
 
 func TestComposeScopedPredicateNilScopeReturnsOriginal(t *testing.T) {
-	exp, err := orderedComparePredicate(Postgres(), "age", ">", 18)
+	exp, err := orderedComparePredicate(Postgres(), "age", ">", 18, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +259,7 @@ func TestComposeScopedPredicateSQLiteArgsOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	exp, err := orderedComparePredicate(SQLite(), "age", ">", 18)
+	exp, err := orderedComparePredicate(SQLite(), "age", ">", 18, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

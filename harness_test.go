@@ -277,9 +277,17 @@ func rowMatchesWhere(where string, args []any, row map[string]any, tableRef stri
 		return isDuplicateColumnValue(col, row[col], allRows)
 	}
 
-	if strings.Contains(where, " OR ") {
-		parts := splitTopLevelOR(where)
-		for _, part := range parts {
+	if andParts := splitTopLevel(where, " AND "); len(andParts) > 1 {
+		for _, part := range andParts {
+			if !rowMatchesWhere(strings.TrimSpace(part), args, row, tableRef, allRows) {
+				return false
+			}
+		}
+		return true
+	}
+
+	if orParts := splitTopLevel(where, " OR "); len(orParts) > 1 {
+		for _, part := range orParts {
 			if evalWhereAtom(strings.TrimSpace(part), args, row) {
 				return true
 			}
@@ -303,26 +311,50 @@ func isDuplicateColumnValue(col string, val any, allRows []map[string]any) bool 
 	return n > 1
 }
 
-func splitTopLevelOR(where string) []string {
+func splitTopLevel(where, sep string) []string {
 	var parts []string
 	depth := 0
 	start := 0
-	for i := 0; i < len(where); i++ {
+	sepLen := len(sep)
+	for i := 0; i <= len(where)-sepLen; i++ {
 		switch where[i] {
 		case '(':
 			depth++
 		case ')':
 			depth--
 		default:
-			if depth == 0 && strings.HasPrefix(where[i:], " OR ") {
+			if depth == 0 && strings.HasPrefix(where[i:], sep) {
 				parts = append(parts, where[start:i])
-				start = i + 4
-				i += 3
+				start = i + sepLen
+				i += sepLen - 1
 			}
 		}
 	}
 	parts = append(parts, where[start:])
 	return parts
+}
+
+func stripOuterParens(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "(") || !strings.HasSuffix(s, ")") {
+		return s, false
+	}
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 && i < len(s)-1 {
+				return s, false
+			}
+		}
+	}
+	if depth != 0 {
+		return s, false
+	}
+	return strings.TrimSpace(s[1 : len(s)-1]), true
 }
 
 func bindQuestionMarks(atom string, args []any) (string, []any) {
@@ -348,6 +380,9 @@ func bindQuestionMarks(atom string, args []any) (string, []any) {
 
 func evalWhereAtom(atom string, args []any, row map[string]any) bool {
 	atom = strings.TrimSpace(atom)
+	if inner, ok := stripOuterParens(atom); ok {
+		return rowMatchesWhere(inner, args, row, "", nil)
+	}
 
 	if before, ok := strings.CutSuffix(atom, " IS NULL"); ok {
 		col := unquoteIdent(before)
@@ -418,6 +453,12 @@ func evalWhereAtom(atom string, args []any, row map[string]any) bool {
 		hi, _ := strconv.Atoi(m[3])
 		s, _ := row[col].(string)
 		return len(s) > hi
+	}
+
+	if m := regexp.MustCompile(`^(.+?)\s*=\s*(\$\d+|\?|'.+?'|-?\d+(?:\.\d+)?|\S+)$`).FindStringSubmatch(atom); m != nil {
+		col := unquoteIdent(m[1])
+		bound := resolveBound(m[2], args)
+		return valuesEqual(row[col], bound)
 	}
 
 	if m := regexp.MustCompile(`^(.+?)\s*(<=|>=|<>|<|>)\s*(\$\d+|\?|'.+?'|-?\d+(?:\.\d+)?)$`).FindStringSubmatch(atom); m != nil {
@@ -713,4 +754,37 @@ func openCloseErrorDB(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db
+}
+
+func TestHarnessWhereTopLevelAND(t *testing.T) {
+	where := `(tenant_id = $1) AND ("age" IS NULL OR "age" > $2)`
+	args := []any{"t1", int64(120)}
+
+	pass := map[string]any{"tenant_id": "t1", "age": int64(200)}
+	if !rowMatchesWhere(where, args, pass, "users", nil) {
+		t.Fatal("expected in-scope failing row to match scoped failure predicate")
+	}
+
+	inScopePass := map[string]any{"tenant_id": "t1", "age": int64(25)}
+	if rowMatchesWhere(where, args, inScopePass, "users", nil) {
+		t.Fatal("expected in-scope passing row to miss scoped failure predicate")
+	}
+
+	outOfScope := map[string]any{"tenant_id": "t2", "age": int64(200)}
+	if rowMatchesWhere(where, args, outOfScope, "users", nil) {
+		t.Fatal("expected out-of-scope row to miss scoped failure predicate")
+	}
+}
+
+func TestHarnessWhereEqualityBinding(t *testing.T) {
+	row := map[string]any{"tenant_id": "t1", "status": "active"}
+	if !rowMatchesWhere(`tenant_id = $1`, []any{"t1"}, row, "users", nil) {
+		t.Fatal("expected $n equality match")
+	}
+	if rowMatchesWhere(`tenant_id = $1`, []any{"t2"}, row, "users", nil) {
+		t.Fatal("expected $n equality mismatch")
+	}
+	if !rowMatchesWhere(`status = ?`, []any{"active"}, row, "users", nil) {
+		t.Fatal("expected ? equality match after bindQuestionMarks")
+	}
 }

@@ -129,7 +129,7 @@ func TestRenderTableQualified(t *testing.T) {
 
 func TestPredicateRenderingUsesPlaceholders(t *testing.T) {
 	d := Postgres()
-	pred, err := orderedBetweenPredicate(d, "age", 0, 120)
+	pred, err := orderedBetweenPredicate(d, "age", 0, 120, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestPredicateRenderingUsesPlaceholders(t *testing.T) {
 
 func TestInPredicateRenderingPostgres(t *testing.T) {
 	d := Postgres()
-	pred, err := inPredicate(d, "status", []any{"active", "pending"})
+	pred, err := inPredicate(d, "status", []any{"active", "pending"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestInPredicateRenderingPostgres(t *testing.T) {
 }
 
 func TestStringLenPredicateUsesDialectLength(t *testing.T) {
-	pg, err := stringLenBetweenPredicate(Postgres(), "code", 2, 2)
+	pg, err := stringLenBetweenPredicate(Postgres(), "code", 2, 2, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestStringLenPredicateUsesDialectLength(t *testing.T) {
 		t.Fatalf("postgres length expr missing: %q", pg.where)
 	}
 
-	sl, err := stringLenBetweenPredicate(SQLite(), "code", 2, 2)
+	sl, err := stringLenBetweenPredicate(SQLite(), "code", 2, 2, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

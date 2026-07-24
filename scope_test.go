@@ -40,6 +40,28 @@ func TestTrustedScopeCopiesByteSliceValues(t *testing.T) {
 	}
 }
 
+func TestTrustedScopePublicConstructorDefersValidation(t *testing.T) {
+	payload := []byte("tenant-a")
+	args := []any{payload}
+	scope := TrustedScope("   ", "data ?? ?", args...)
+
+	if scope.identity != "   " {
+		t.Fatalf("scope identity = %q, want unvalidated identity", scope.identity)
+	}
+	if scope.predicate != "data ?? ?" {
+		t.Fatalf("scope predicate = %q, want unvalidated predicate", scope.predicate)
+	}
+	args[0] = "mutated"
+	payload[0] = 'x'
+	stored, ok := scope.values[0].([]byte)
+	if !ok {
+		t.Fatalf("scope value type = %T, want []byte", scope.values[0])
+	}
+	if string(stored) != "tenant-a" {
+		t.Fatalf("scope value = %q, want tenant-a", stored)
+	}
+}
+
 func TestTrustedScopeRejectsBlankIdentity(t *testing.T) {
 	_, err := newTrustedScope("   ", "active = ?", []any{true})
 	if err == nil {

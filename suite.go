@@ -52,6 +52,17 @@ type validateConfig struct {
 	summaryOnly        bool
 	continueOnError    bool
 	captureDiagnostics bool
+	scope              Scope
+	hasScope           bool
+}
+
+// WithScope limits every expectation to rows matching the trusted predicate.
+// Scope configuration is validated when ValidateTable starts.
+func WithScope(scope Scope) Option {
+	return func(cfg *validateConfig) {
+		cfg.scope = scope
+		cfg.hasScope = true
+	}
 }
 
 // WithDialect selects the SQL dialect used to render queries.
@@ -94,7 +105,7 @@ func SummaryOnly() Option {
 // ContinueOnError records expectation preflight issues and execution errors on
 // individual results and keeps evaluating later expectations. Preflight issues
 // occupy their declaration-order slots with Result.Err set. Run-level option
-// errors (invalid dialect, caps, or key columns) still abort ValidateTable
+// errors (invalid dialect, caps, key columns, or scope) still abort ValidateTable
 // with a top-level error before evaluation starts. By default, the first
 // preflight or execution error aborts ValidateTable with a zero report.
 func ContinueOnError() Option {
@@ -114,9 +125,9 @@ func CaptureQueryDiagnostics() Option {
 //
 // Validation-policy failures are returned as (report, nil); gate with
 // report.Err(), which yields a *ValidationError recoverable via errors.As.
-// Run-level option errors abort with (zero Report, err) before evaluation
-// starts. Expectation preflight failures collected before SQL starts return a
-// zero Report and *PreflightErrors unless ContinueOnError is set, in which case
+// Run-level option errors (including invalid scope) abort with (zero Report, err)
+// before evaluation starts. Expectation preflight failures collected before SQL
+// starts return a zero Report and *PreflightErrors unless ContinueOnError is set,
 // each affected slot records Result.Err. The first database, rendering, scan,
 // or context error aborts with a zero Report and error unless ContinueOnError
 // is set, when the error is recorded on that result and evaluation continues.
@@ -143,6 +154,15 @@ func (s *Suite) ValidateTable(
 	if cfg.failedKeysCap < 0 {
 		return Report{}, newConfigError(fmt.Errorf("failed keys cap must be non-negative"))
 	}
+	var validatedScope *trustedScope
+	if cfg.hasScope {
+		scope, err := validateScope(cfg.scope)
+		if err != nil {
+			return Report{}, err
+		}
+		validatedScope = &scope
+	}
+
 	if !cfg.summaryOnly && len(cfg.keyColumns) == 0 {
 		cfg.summaryOnly = true
 	}
@@ -169,6 +189,7 @@ func (s *Suite) ValidateTable(
 		keyColumns:         cfg.keyColumns,
 		summaryOnly:        cfg.summaryOnly,
 		captureDiagnostics: cfg.captureDiagnostics,
+		scope:              validatedScope,
 	}
 
 	results := make([]Result, len(s.expectations))
@@ -204,6 +225,10 @@ func (s *Suite) ValidateTable(
 		}
 		results[i] = res
 	}
+	scopeID := ""
+	if validatedScope != nil {
+		scopeID = validatedScope.identity
+	}
 	target := table
-	return Report{Results: results, Target: &target}, nil
+	return Report{Results: results, Target: &target, ScopeID: scopeID}, nil
 }

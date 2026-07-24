@@ -67,8 +67,8 @@ type ExportedTarget struct {
 	Table string `json:"table"`
 }
 
-// ExportedScope is reserved for a validation scope and is omitted by the
-// current release.
+// ExportedScope identifies a validation scope by its stable ID. Predicate and
+// bound arguments are not included in exports.
 type ExportedScope struct {
 	// ID is a stable scope identifier when scope is available.
 	ID string `json:"id,omitempty"`
@@ -255,6 +255,9 @@ func ExportReport(report Report, opts ...ExportOption) (ExportedReport, error) {
 			Schema: report.Target.Schema,
 			Table:  report.Target.Name,
 		}
+	}
+	if report.ScopeID != "" {
+		out.Scope = &ExportedScope{ID: report.ScopeID}
 	}
 
 	for _, res := range report.Results {

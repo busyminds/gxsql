@@ -5,48 +5,73 @@ import (
 	"strings"
 )
 
-// trustedScope is an immutable internal scope: caller identity, a dialect-neutral
-// predicate authored with ? placeholders, and bound values copied at construction.
-type trustedScope struct {
+// Scope is an immutable scope definition containing a caller identity, a
+// dialect-neutral predicate authored with ? placeholders, and bound values.
+// Its fields are intentionally unexported so scope data cannot be modified
+// after construction.
+type Scope struct {
 	identity  string
 	predicate string
 	values    []any
 }
 
-func newTrustedScope(identity, predicate string, values []any) (trustedScope, error) {
-	id := strings.TrimSpace(identity)
+// trustedScope preserves the internal Spec 05 scope name while exposing the
+// validated Scope representation to existing package code.
+type trustedScope = Scope
+
+// TrustedScope constructs a Scope from trusted Go-code predicate input.
+// Validation is deferred until the scope is attached to ValidateTable.
+func TrustedScope(id, predicate string, args ...any) Scope {
+	return Scope{
+		identity:  id,
+		predicate: predicate,
+		values:    copyScopeValues(args),
+	}
+}
+
+// validateScope normalizes and validates a scope at the ValidateTable
+// boundary. The returned value is independent of the caller's Scope storage.
+func validateScope(scope Scope) (trustedScope, error) {
+	id := strings.TrimSpace(scope.identity)
 	if id == "" {
 		return trustedScope{}, newConfigError(errScopeIdentityRequired)
 	}
 
-	trimmedPredicate := strings.TrimSpace(predicate)
+	trimmedPredicate := strings.TrimSpace(scope.predicate)
 	if trimmedPredicate == "" {
-		if len(values) > 0 {
+		if len(scope.values) > 0 {
 			return trustedScope{}, newConfigError(errScopeValuesWithoutPredicate)
 		}
 		return trustedScope{}, newConfigError(errScopePredicateRequired)
 	}
 
-	slots, err := scanNeutralSlots(predicate)
+	slots, err := scanNeutralSlots(scope.predicate)
 	if err != nil {
 		return trustedScope{}, err
 	}
-	if slots != len(values) {
-		return trustedScope{}, newConfigError(scopeArityError(slots, len(values)))
+	if slots != len(scope.values) {
+		return trustedScope{}, newConfigError(scopeArityError(slots, len(scope.values)))
 	}
 
+	return trustedScope{
+		identity:  id,
+		predicate: scope.predicate,
+		values:    copyScopeValues(scope.values),
+	}, nil
+}
+
+func newTrustedScope(identity, predicate string, values []any) (trustedScope, error) {
+	return validateScope(Scope{identity: identity, predicate: predicate, values: values})
+}
+
+func copyScopeValues(values []any) []any {
 	storedValues := append([]any(nil), values...)
 	for i, value := range storedValues {
 		if bytes, ok := value.([]byte); ok {
 			storedValues[i] = append([]byte(nil), bytes...)
 		}
 	}
-
-	return trustedScope{
-		identity:  id,
-		predicate: predicate,
-		values:    storedValues,
-	}, nil
+	return storedValues
 }
 
 func (s trustedScope) render(d Dialect) (rowPredicate, error) {

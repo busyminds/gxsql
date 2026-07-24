@@ -3,6 +3,7 @@ package gxsql
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -316,5 +317,116 @@ func TestValidationErrorSupportsErrorsAs(t *testing.T) {
 	}
 	if len(ve.Report.Results) != 1 {
 		t.Fatalf("wrapped report results = %d", len(ve.Report.Results))
+	}
+}
+
+func TestValidateTableScopeThreadsPredicateAndIdentity(t *testing.T) {
+	setHarnessData(t, scopedHarnessUsers("tenant_id", "tenant-a",
+		map[string]any{"id": int64(1), "age": int64(25)},
+	))
+	db := openRecordingHarnessDB(t)
+
+	rep, err := NewSuite(Int("age").Between(0, 120)).ValidateTable(
+		context.Background(), db, Table("users"),
+		WithDialect(Postgres()),
+		WithScope(TrustedScope(" tenant-run ", "tenant_id = ?", "tenant-a")),
+	)
+	if err != nil {
+		t.Fatalf("ValidateTable error = %v", err)
+	}
+	if rep.ScopeID != "tenant-run" {
+		t.Fatalf("scope ID = %q, want tenant-run", rep.ScopeID)
+	}
+	if len(db.queries) == 0 {
+		t.Fatal("valid scoped validation should execute SQL")
+	}
+	if !strings.Contains(db.queries[0].text, "tenant_id") {
+		t.Fatalf("query = %q, want scope predicate", db.queries[0].text)
+	}
+}
+
+func TestValidateTableInvalidScopeAbortsBeforeSQL(t *testing.T) {
+	tests := []struct {
+		name  string
+		scope Scope
+	}{
+		{name: "blank identity", scope: TrustedScope(" ", "tenant_id = ?", "tenant-a")},
+		{name: "missing predicate", scope: TrustedScope("tenant", "")},
+		{name: "values without predicate", scope: TrustedScope("tenant", " ", "tenant-a")},
+		{name: "placeholder arity mismatch", scope: TrustedScope("tenant", "tenant_id = ?", "a", "b")},
+		{name: "unsupported question mark", scope: TrustedScope("tenant", "note = 'what?'")},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			setHarnessData(t, scopedHarnessUsers("tenant_id", "tenant-a",
+				map[string]any{"id": int64(1), "age": int64(25)},
+			))
+			db := openCountingHarnessDB(t)
+
+			rep, err := NewSuite(Int("age").Between(0, 120)).ValidateTable(
+				context.Background(), db, Table("users"),
+				WithDialect(Postgres()), WithScope(tc.scope),
+			)
+			if err == nil {
+				t.Fatal("expected invalid scope error")
+			}
+			if len(rep.Results) != 0 || rep.Target != nil || rep.ScopeID != "" {
+				t.Fatalf("report = %#v, want zero report", rep)
+			}
+			if db.queries != 0 {
+				t.Fatalf("queries = %d, want 0", db.queries)
+			}
+			if !errors.Is(err, ErrCategoryInvalidConfig) && tc.name != "unsupported question mark" {
+				t.Fatalf("error category = %v, want invalid_config", err)
+			}
+		})
+	}
+}
+
+func TestValidateTableInvalidScopeAbortsWithContinueOnError(t *testing.T) {
+	setHarnessData(t, scopedHarnessUsers("tenant_id", "tenant-a",
+		map[string]any{"id": int64(1), "age": int64(25)},
+	))
+	db := openCountingHarnessDB(t)
+
+	rep, err := NewSuite(Int("age").Between(0, 120)).ValidateTable(
+		context.Background(), db, Table("users"),
+		WithDialect(Postgres()),
+		WithScope(TrustedScope("tenant", "tenant_id = ? AND region = ?", "tenant-a")),
+		ContinueOnError(),
+	)
+	if err == nil {
+		t.Fatal("expected invalid scope error")
+	}
+	if len(rep.Results) != 0 || rep.Target != nil || rep.ScopeID != "" {
+		t.Fatalf("report = %#v, want zero report", rep)
+	}
+	if db.queries != 0 {
+		t.Fatalf("queries = %d, want 0", db.queries)
+	}
+}
+
+func TestValidateTableScopeCopiesCallerBytes(t *testing.T) {
+	setHarnessData(t, scopedHarnessUsers("tenant_id", "tenant-a",
+		map[string]any{"id": int64(1), "age": int64(25)},
+	))
+	db := openRecordingHarnessDB(t)
+	payload := []byte("tenant-a")
+	scope := TrustedScope("tenant", "tenant_id = ?", payload)
+	payload[0] = 'x'
+
+	_, err := NewSuite(Int("age").Between(0, 120)).ValidateTable(
+		context.Background(), db, Table("users"),
+		WithDialect(Postgres()), WithScope(scope),
+	)
+	if err != nil {
+		t.Fatalf("ValidateTable error = %v", err)
+	}
+	if len(db.queries) == 0 || len(db.queries[0].args) == 0 {
+		t.Fatalf("queries = %#v, want scoped argument", db.queries)
+	}
+	got, ok := db.queries[0].args[0].([]byte)
+	if !ok || string(got) != "tenant-a" {
+		t.Fatalf("scope argument = %#v, want copied tenant-a bytes", db.queries[0].args[0])
 	}
 }

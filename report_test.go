@@ -27,7 +27,10 @@ func TestReportErrNilOnSuccess(t *testing.T) {
 }
 
 func TestReportErrValidationError(t *testing.T) {
-	rep := Report{Results: []Result{{Name: "age between [0,120]", Success: false}}}
+	rep := Report{
+		ScopeID: "tenant-acme",
+		Results: []Result{{Name: "age between [0,120]", Success: false}},
+	}
 	err := rep.Err()
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -35,6 +38,9 @@ func TestReportErrValidationError(t *testing.T) {
 	var ve *ValidationError
 	if !errors.As(err, &ve) {
 		t.Fatalf("got %T", err)
+	}
+	if ve.Report.ScopeID != rep.ScopeID {
+		t.Fatalf("validation error ScopeID = %q, want %q", ve.Report.ScopeID, rep.ScopeID)
 	}
 	if !strings.Contains(err.Error(), "age between") {
 		t.Fatalf("error text = %q", err.Error())

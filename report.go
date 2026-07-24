@@ -108,6 +108,9 @@ type Report struct {
 	// Target names the validated table. Set by ValidateTable; nil when unavailable
 	// (for example when a Report is assembled manually).
 	Target *TableRef
+	// ScopeID identifies the validation scope. It is empty when validation is
+	// unscoped.
+	ScopeID string
 }
 
 // OK reports whether every expectation passed (Success is true for all results).

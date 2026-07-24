@@ -20,6 +20,9 @@
 //		// Validation completed, but one or more policies failed.
 //	}
 //
+// For scoped validation, use [TrustedScope] with [WithScope]. A scoped report
+// exposes only the caller-supplied stable identity through [Report.ScopeID].
+//
 // Failed policies are collected in declaration order. Use [WithKey] to retain
 // failed-row identities, [WithID] to give expectations stable machine identity,
 // and [ExportReport] for the versioned JSON DTO. For Go tests, use the

@@ -290,6 +290,53 @@ func TestExportDefaultOmitsSensitiveFields(t *testing.T) {
 		}
 	}
 }
+func TestExportScopedIncludesOnlyScopeID(t *testing.T) {
+	rep := Report{
+		ScopeID: "tenant-acme",
+		Results: []Result{{
+			diagnostics: &resultDiagnostics{
+				query: "tenant_id = $1",
+				args:  []any{"sensitive-scope-value"},
+			},
+		}},
+	}
+	dto, err := ExportReport(rep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dto.Scope == nil {
+		t.Fatal("expected scoped export")
+	}
+	if dto.Scope.ID != rep.ScopeID {
+		t.Fatalf("scope.id = %q, want %q", dto.Scope.ID, rep.ScopeID)
+	}
+	data, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"tenant_id = $1", "sensitive-scope-value"} {
+		if bytes.Contains(data, []byte(forbidden)) {
+			t.Fatalf("default scoped export leaked %q in %s", forbidden, data)
+		}
+	}
+}
+
+func TestExportUnscopedOmitsScope(t *testing.T) {
+	dto, err := ExportReport(Report{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dto.Scope != nil {
+		t.Fatalf("scope = %#v, want nil", dto.Scope)
+	}
+	data, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte(`"scope"`)) {
+		t.Fatalf("unscoped export included scope: %s", data)
+	}
+}
 
 func TestExportRedactorErrorReturnsNoDTO(t *testing.T) {
 	rep := Report{

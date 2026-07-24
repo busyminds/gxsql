@@ -344,41 +344,61 @@ func queryAggregateFloat(
 	opts evalOptions,
 	column, agg string,
 ) (float64, bool, string, error) {
+	observed, ok, query, _, err := queryAggregateFloatWithArgs(ctx, db, table, opts, column, agg)
+	return observed, ok, query, err
+}
+
+func queryAggregateFloatWithArgs(
+	ctx context.Context,
+	db DB,
+	table TableRef,
+	opts evalOptions,
+	column, agg string,
+) (float64, bool, string, []any, error) {
 	tbl, err := renderTable(opts.dialect, table)
 	if err != nil {
-		return 0, false, "", categorizeRenderError(err)
+		return 0, false, "", nil, categorizeRenderError(err)
 	}
 	col, err := quoteIdent(opts.dialect, column)
 	if err != nil {
-		return 0, false, "", categorizeRenderError(err)
+		return 0, false, "", nil, categorizeRenderError(err)
+	}
+
+	scopePred, err := composeRowPredicateWithScope(opts.scope, rowPredicate{}, opts.dialect)
+	if err != nil {
+		return 0, false, "", nil, categorizeRenderError(err)
 	}
 
 	query := fmt.Sprintf("SELECT %s(%s) FROM %s", agg, col, tbl)
-	rows, err := db.QueryContext(ctx, query)
+	if scopePred.where != "" {
+		query += " WHERE " + scopePred.where
+	}
+	args := append([]any(nil), scopePred.args...)
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return 0, false, query, categorizeExecutionError(ctx, err)
+		return 0, false, query, args, categorizeExecutionError(ctx, err)
 	}
 
 	var v sql.NullFloat64
 	if !rows.Next() {
 		if err := rows.Err(); err != nil {
 			_ = rows.Close()
-			return 0, false, query, categorizeScanError(ctx, err)
+			return 0, false, query, args, categorizeScanError(ctx, err)
 		}
 		if err := rows.Close(); err != nil {
-			return 0, false, query, categorizeScanError(ctx, err)
+			return 0, false, query, args, categorizeScanError(ctx, err)
 		}
-		return 0, false, query, categorizeScanError(ctx, sql.ErrNoRows)
+		return 0, false, query, args, categorizeScanError(ctx, sql.ErrNoRows)
 	}
 	if err := rows.Scan(&v); err != nil {
 		_ = rows.Close()
-		return 0, false, query, categorizeScanError(ctx, err)
+		return 0, false, query, args, categorizeScanError(ctx, err)
 	}
 	if err := finishRowsRead(ctx, rows); err != nil {
-		return 0, false, query, err
+		return 0, false, query, args, err
 	}
 	if !v.Valid {
-		return 0, false, query, nil
+		return 0, false, query, args, nil
 	}
-	return v.Float64, true, query, nil
+	return v.Float64, true, query, args, nil
 }

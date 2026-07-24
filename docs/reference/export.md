@@ -16,6 +16,47 @@ constants cover row-count, per-row predicate, distinct-count, and aggregate
 builders; `KindCustom` means built-in metadata is unavailable. Use `Kind` and
 `ID` for machine joins, not display text.
 
+## Scoped reports and privacy
+
+`TrustedScope(id, predicate, args...)` creates a scope for trusted Go-code
+predicate input. The predicate is not a SQL sandbox: never pass
+user-authored predicate text to it. Keep values separate from the predicate
+with `?` placeholders; tenant, batch, and half-open time-window values are
+bound as arguments:
+
+```go
+tenantID := "tenant-acme"
+batchID := int64(42)
+start := time.Date(2025, time.January, 2, 0, 0, 0, 0, time.UTC)
+end := time.Date(2025, time.January, 3, 0, 0, 0, 0, time.UTC)
+scope := gxsql.TrustedScope(
+    "tenant-acme/batch-42",
+    "tenant_id = ? AND batch_id = ? AND event_at >= ? AND event_at < ?",
+    tenantID, batchID, start, end,
+)
+report, err := suite.ValidateTable(ctx, db, gxsql.Table("events"),
+    gxsql.WithDialect(gxsql.Postgres()),
+    gxsql.WithScope(scope),
+)
+if err != nil {
+    return err
+}
+exported, err := gxsql.ExportReport(report)
+```
+
+`Report.ScopeID` and exported `scope.id` carry only the caller-supplied scope
+identity. They do not serialize the scope predicate text or bound arguments.
+Default `Report.Err()`, `Report.String()`, and `Result.String()` output omit
+those scope fields, as does default `ExportReport` output. Ordinary samples and
+failed keys remain subject to the usual report redaction guidance.
+`IncludeCapturedDiagnostics()` or `IncludeCapturedArguments()` deliberately
+opts into sensitive SQL diagnostics; use those options only with appropriate
+redaction.
+
+Production callers should validate with a context deadline and a database role
+restricted to read-only validation access. Export itself is encoding-only, but
+the scoped validation immediately before it still executes database queries.
+
 ## ExportReport
 
 `ExportSchemaVersion` is currently `gxsql.report.v1`.
@@ -29,9 +70,10 @@ exported, err := gxsql.ExportReport(report,
 `ExportReport(report, opts...) (ExportedReport, error)` converts a `Report` to a
 versioned, encoding-only JSON DTO. On error it returns no partial DTO.
 
-Defaults protect diagnostics: samples, failed keys, captured SQL, and bound
-arguments are omitted. Configured thresholds are exported in
-`facts.configured_*`, and default `display_name` redacts bound literals.
+Defaults protect diagnostics: samples, failed keys, captured SQL, bound
+arguments, and scoped predicate details are omitted. Configured thresholds are
+exported in `facts.configured_*`, and default `display_name` redacts bound
+literals.
 
 | `ExportOption`                 | Effect                                                                                                                      |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
@@ -52,7 +94,7 @@ A redactor error or panic fails export closed.
 | --------------------- | -------------------------------------------------------------------------------------- |
 | `ExportedReport`      | Schema version, optional target/scope, and declaration-ordered results.                |
 | `ExportedTarget`      | Optional schema and table name.                                                        |
-| `ExportedScope`       | Reserved scope field; omitted by the current release.                                  |
+| `ExportedScope`       | Optional stable caller scope identity as `scope.id`; predicate and bound values are not included. |
 | `ExportedResult`      | Identity, verdicts, counts, facts, caps, opted-in diagnostics, and categorized errors. |
 | `ExportedCounts`      | Optional total, failed count, and failed percentage.                                   |
 | `ExportedFacts`       | Observations and configured thresholds.                                                |

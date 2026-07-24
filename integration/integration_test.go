@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	_ "github.com/duckdb/duckdb-go/v2"
 	_ "github.com/go-sql-driver/mysql"
@@ -56,7 +57,7 @@ func TestDuckDBConformance(t *testing.T) {
 func TestPostgresConformance(t *testing.T) {
 	dsn := os.Getenv("GXSQL_POSTGRES_DSN")
 	if dsn == "" {
-		t.Skip("GXSQL_POSTGRES_DSN is not set")
+		t.Fatal("GXSQL_POSTGRES_DSN is not set")
 	}
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
@@ -76,7 +77,7 @@ func TestPostgresConformance(t *testing.T) {
 func TestMySQLConformance(t *testing.T) {
 	dsn := os.Getenv("GXSQL_MYSQL_DSN")
 	if dsn == "" {
-		t.Skip("GXSQL_MYSQL_DSN is not set")
+		t.Fatal("GXSQL_MYSQL_DSN is not set")
 	}
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
@@ -121,8 +122,8 @@ func transactionFactory(db *sql.DB) func(context.Context) (gxsql.DB, func() erro
 func setupSQLite(t *testing.T, db *sql.DB) {
 	t.Helper()
 	for _, query := range []string{
-		`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER, score REAL, nullable TEXT, payload BLOB)`,
-		`CREATE TABLE empty_users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER, score REAL, nullable TEXT, payload BLOB)`,
+		`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER, score REAL, nullable TEXT, payload BLOB, tenant_id TEXT, batch_id INTEGER, event_at TIMESTAMP)`,
+		`CREATE TABLE empty_users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER, score REAL, nullable TEXT, payload BLOB, tenant_id TEXT, batch_id INTEGER, event_at TIMESTAMP)`,
 	} {
 		if _, err := db.Exec(query); err != nil {
 			t.Fatalf("SQLite schema: %v", err)
@@ -140,8 +141,8 @@ func setupDuckDB(t *testing.T, db *sql.DB) {
 		t.Fatalf("DuckDB cleanup empty_users: %v", err)
 	}
 	for _, query := range []string{
-		`CREATE TABLE users (id BIGINT PRIMARY KEY, name VARCHAR, age INTEGER, score DOUBLE, nullable VARCHAR, payload BLOB)`,
-		`CREATE TABLE empty_users (id BIGINT PRIMARY KEY, name VARCHAR, age INTEGER, score DOUBLE, nullable VARCHAR, payload BLOB)`,
+		`CREATE TABLE users (id BIGINT PRIMARY KEY, name VARCHAR, age INTEGER, score DOUBLE, nullable VARCHAR, payload BLOB, tenant_id VARCHAR, batch_id BIGINT, event_at TIMESTAMP)`,
+		`CREATE TABLE empty_users (id BIGINT PRIMARY KEY, name VARCHAR, age INTEGER, score DOUBLE, nullable VARCHAR, payload BLOB, tenant_id VARCHAR, batch_id BIGINT, event_at TIMESTAMP)`,
 	} {
 		if _, err := db.Exec(query); err != nil {
 			t.Fatalf("DuckDB schema: %v", err)
@@ -156,8 +157,8 @@ func setupPostgres(t *testing.T, db *sql.DB) {
 		t.Fatalf("PostgreSQL cleanup: %v", err)
 	}
 	for _, query := range []string{
-		`CREATE TABLE public.users (id BIGINT PRIMARY KEY, name TEXT, age INTEGER, score DOUBLE PRECISION, nullable TEXT, payload BYTEA)`,
-		`CREATE TABLE public.empty_users (id BIGINT PRIMARY KEY, name TEXT, age INTEGER, score DOUBLE PRECISION, nullable TEXT, payload BYTEA)`,
+		`CREATE TABLE public.users (id BIGINT PRIMARY KEY, name TEXT, age INTEGER, score DOUBLE PRECISION, nullable TEXT, payload BYTEA, tenant_id TEXT, batch_id BIGINT, event_at TIMESTAMP WITH TIME ZONE)`,
+		`CREATE TABLE public.empty_users (id BIGINT PRIMARY KEY, name TEXT, age INTEGER, score DOUBLE PRECISION, nullable TEXT, payload BYTEA, tenant_id TEXT, batch_id BIGINT, event_at TIMESTAMP WITH TIME ZONE)`,
 	} {
 		if _, err := db.Exec(query); err != nil {
 			t.Fatalf("PostgreSQL schema: %v", err)
@@ -172,8 +173,8 @@ func setupMySQL(t *testing.T, db *sql.DB) {
 		`DROP TABLE IF EXISTS users`,
 		`DROP TABLE IF EXISTS empty_users`,
 		`DROP TABLE IF EXISTS utf8_char_length`,
-		`CREATE TABLE users (id BIGINT PRIMARY KEY, name VARCHAR(255), age INTEGER, score DOUBLE, nullable TEXT, payload BLOB) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
-		`CREATE TABLE empty_users (id BIGINT PRIMARY KEY, name VARCHAR(255), age INTEGER, score DOUBLE, nullable TEXT, payload BLOB) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
+		`CREATE TABLE users (id BIGINT PRIMARY KEY, name VARCHAR(255), age INTEGER, score DOUBLE, nullable TEXT, payload BLOB, tenant_id VARCHAR(255), batch_id BIGINT, event_at DATETIME(6)) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
+		`CREATE TABLE empty_users (id BIGINT PRIMARY KEY, name VARCHAR(255), age INTEGER, score DOUBLE, nullable TEXT, payload BLOB, tenant_id VARCHAR(255), batch_id BIGINT, event_at DATETIME(6)) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
 		`CREATE TABLE utf8_char_length (id BIGINT PRIMARY KEY, name VARCHAR(255)) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
 	} {
 		if _, err := db.Exec(query); err != nil {
@@ -193,7 +194,7 @@ func setupMySQL(t *testing.T, db *sql.DB) {
 
 func insertFixtures(t *testing.T, db *sql.DB, placeholder, table string) {
 	t.Helper()
-	argsPlaceholders := make([]string, 6)
+	argsPlaceholders := make([]string, 9)
 	for i := range argsPlaceholders {
 		if placeholder == "?" {
 			argsPlaceholders[i] = placeholder
@@ -201,8 +202,8 @@ func insertFixtures(t *testing.T, db *sql.DB, placeholder, table string) {
 		}
 		argsPlaceholders[i] = fmt.Sprintf("%s%d", placeholder, i+1)
 	}
-	query := fmt.Sprintf("INSERT INTO %s (id, name, age, score, nullable, payload) VALUES (%s, %s, %s, %s, %s, %s)",
-		table, argsPlaceholders[0], argsPlaceholders[1], argsPlaceholders[2], argsPlaceholders[3], argsPlaceholders[4], argsPlaceholders[5])
+	query := fmt.Sprintf("INSERT INTO %s (id, name, age, score, nullable, payload, tenant_id, batch_id, event_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+		table, argsPlaceholders[0], argsPlaceholders[1], argsPlaceholders[2], argsPlaceholders[3], argsPlaceholders[4], argsPlaceholders[5], argsPlaceholders[6], argsPlaceholders[7], argsPlaceholders[8])
 	fixtures := []struct {
 		id       int64
 		name     string
@@ -210,15 +211,18 @@ func insertFixtures(t *testing.T, db *sql.DB, placeholder, table string) {
 		score    any
 		nullable any
 		payload  []byte
+		tenantID string
+		batchID  int64
+		eventAt  time.Time
 	}{
-		{1, "alice", 20, 1.5, "present", []byte{1, 2}},
-		{2, "", nil, 2.5, nil, []byte{3}},
-		{3, "alice", 200, nil, "present", []byte{4}},
-		{4, "zed", 10, 3.5, "present", []byte{5}},
+		{1, "alice", 20, 1.5, "present", []byte{1, 2}, "tenant-a", 1, time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},
+		{2, "", nil, 2.5, nil, []byte{3}, "tenant-a", 2, time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)},
+		{3, "alice", 200, nil, "present", []byte{4}, "tenant-b", 1, time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)},
+		{4, "zed", 10, 3.5, "present", []byte{5}, "tenant-b", 2, time.Date(2025, 1, 4, 0, 0, 0, 0, time.UTC)},
 	}
 	for _, fixture := range fixtures {
 		if _, err := db.Exec(query, fixture.id, fixture.name, fixture.age, fixture.score,
-			fixture.nullable, fixture.payload); err != nil {
+			fixture.nullable, fixture.payload, fixture.tenantID, fixture.batchID, fixture.eventAt); err != nil {
 			t.Fatalf("insert fixture %d: %v", fixture.id, err)
 		}
 	}

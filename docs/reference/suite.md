@@ -29,19 +29,82 @@ per-expectation failure in the report.
 `Option` is an opaque function configuring one validation run. Per-run options
 override suite-level caps.
 
-| Option                       | Effect                                                                        |
-| ---------------------------- | ----------------------------------------------------------------------------- |
-| `WithDialect(d Dialect)`     | Selects the SQL renderer. Defaults to `Postgres()`.                           |
-| `WithSampleCap(n int)`       | Overrides the maximum retained sample values; `0` disables sample collection. |
-| `WithFailedKeysCap(n int)`   | Overrides the maximum retained failed keys; `0` is unlimited.                 |
-| `WithKey(columns ...string)` | Retains supplied row-key columns and disables summary-only mode.              |
-| `SummaryOnly()`              | Does not load failed-row identities.                                          |
-| `ContinueOnError()`          | Records preflight and execution errors on results and continues.              |
-| `CaptureQueryDiagnostics()`  | Records SQL and arguments for optional export only.                           |
+| Option                                                      | Effect                                                                                                  |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `WithDialect(d Dialect)`                                   | Selects the SQL renderer. Defaults to `Postgres()`.                                                     |
+| `WithSampleCap(n int)`                                     | Overrides the maximum retained sample values; `0` disables sample collection.                           |
+| `WithFailedKeysCap(n int)`                                 | Overrides the maximum retained failed keys; `0` is unlimited.                                           |
+| `WithKey(columns ...string)`                               | Retains supplied row-key columns and disables summary-only mode.                                        |
+| `SummaryOnly()`                                            | Does not load failed-row identities.                                                                    |
+| `ContinueOnError()`                                        | Records preflight and execution errors on results and continues.                                        |
+| `CaptureQueryDiagnostics()`                                | Records SQL and arguments for optional export only.                                                     |
+| `WithScope(scope Scope)`                                   | Limits every expectation to rows matching the scope predicate; validates the scope when the run starts. |
 
 When neither `WithKey` nor `SummaryOnly` is supplied, results contain counts and
 capped samples but no failed-row identities. Invalid run-level options—such as a
-nil dialect, negative caps, or invalid key columns—always prevent evaluation.
+nil dialect, negative caps, invalid key columns, or invalid scopes—always
+prevent evaluation.
+
+## Scoped validation
+
+`TrustedScope(id, predicate string, args ...any) Scope` constructs a `Scope`; it
+is not an `Option`. Attach the returned scope to a run with `WithScope`.
+
+`TrustedScope` predicates are trusted Go-code input. They are SQL fragments, not
+a sandbox for untrusted SQL. Keep the predicate text fixed in application code;
+callers must never pass user-authored predicate text. Values bind separately
+through `?` placeholders, and the number of placeholders must match the values
+passed to `TrustedScope`.
+
+Use a stable caller identity and bind tenant, batch, and time-window values:
+
+```go
+tenantID := "tenant-a"
+tenantScope := gxsql.TrustedScope("tenant-a", "tenant_id = ?", tenantID)
+
+batchID := int64(42)
+batchScope := gxsql.TrustedScope("batch-42", "batch_id = ?", batchID)
+
+start := time.Date(2025, time.January, 1, 0, 0, 0, 0, time.UTC)
+end := start.Add(24 * time.Hour)
+windowScope := gxsql.TrustedScope(
+    "events-2025-01-01",
+    "event_at >= ? AND event_at < ?",
+    start, end,
+)
+```
+
+Attach one scope to a run with `WithScope`; the dialect renders the neutral
+placeholders for the selected driver:
+
+```go
+report, err := suite.ValidateTable(
+    ctx, readOnlyDB, gxsql.Table("events"),
+    gxsql.WithDialect(gxsql.Postgres()),
+    gxsql.WithScope(windowScope),
+)
+```
+
+`Report.ScopeID` and exported `scope.id` carry caller identity only; neither
+serializes the scope predicate text or bound arguments. Default validation
+errors, display output, and exports omit those scope fields. Ordinary samples
+and failed keys remain subject to the usual report redaction guidance. Captured
+SQL and arguments require explicit diagnostic capture and export options; treat
+them as sensitive.
+
+Production callers should use a database role with read-only permissions and
+pass a context with a deadline:
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+report, err := suite.ValidateTable(ctx, readOnlyDB, gxsql.Table("events"),
+    gxsql.WithScope(tenantScope),
+)
+```
+
+Check both `err` and `report.Err()` according to the run and policy failure
+rules described above.
 
 ## Test helpers
 

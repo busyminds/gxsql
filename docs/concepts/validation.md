@@ -84,6 +84,69 @@ row identities. Add `WithKey("id")` to retain caller-selected keys, or use
 `SummaryOnly()` to state that counts and samples are intended. Per-run options
 override suite-level caps.
 
+## Scoped validation
+
+Use `TrustedScope` with `WithScope` when one suite should validate only a
+selected population of rows. `TrustedScope` takes a stable caller identity, a
+predicate written in trusted Go code, and values for its `?` placeholders:
+
+```go
+tenantID := authenticatedTenantID()
+scope := gxsql.TrustedScope("tenant-acme", "tenant_id = ?", tenantID)
+
+report, err := suite.ValidateTable(
+    ctx,
+    db,
+    gxsql.Table("orders"),
+    gxsql.WithDialect(gxsql.Postgres()),
+    gxsql.WithScope(scope),
+)
+```
+
+The predicate is trusted Go-code input, not a sandbox for untrusted SQL.
+Callers must never pass user-authored predicate text to `TrustedScope`.
+Choose from predicates defined by the application, and pass request-derived
+data only as separately bound values. `gxsql` binds scope values before the
+expectation values and renders the placeholders for the selected dialect; do
+not interpolate values into the predicate.
+
+The same pattern handles other bounded populations:
+
+```go
+batchID := int64(42)
+batchScope := gxsql.TrustedScope("batch-42", "batch_id = ?", batchID)
+
+start := time.Date(2025, time.January, 1, 0, 0, 0, 0, time.UTC)
+end := time.Date(2025, time.January, 2, 0, 0, 0, 0, time.UTC)
+windowScope := gxsql.TrustedScope(
+    "events-2025-01-01",
+    "event_at >= ? AND event_at < ?",
+    start,
+    end,
+)
+```
+
+Use a half-open time window (`>= start` and `< end`) to make adjacent windows
+unambiguous. Attach a scope with `gxsql.WithScope` in the `ValidateTable`
+options. Scope configuration, including placeholder arity, is validated before
+SQL runs.
+
+`Report.ScopeID` contains only the normalized caller identity and is empty for
+an unscoped run. It does not serialize the scope predicate text or bound
+arguments. `Report.Err()` and its default `ValidationError.Error()` text
+likewise omit those scope fields. `Report.String()` may still include ordinary
+result samples or failed keys, so redact those as appropriate; it does not
+serialize the scope predicate or its arguments.
+
+`ExportReport` emits the caller identity as `scope.id` only: default exports
+omit scope predicate text and bound arguments, along with captured SQL and
+arguments. Enable diagnostic export only deliberately and apply redaction when
+those values may be sensitive.
+
+In production, pass a context with a deadline to every `ValidateTable` call and
+use a read-only database role, preferably one restricted to the validation
+tables or views.
+
 ## Error handling
 
 | Situation                                | `ValidateTable`                              | Result data                                      |

@@ -81,13 +81,15 @@ import (
     "context"
     "database/sql"
     "log"
+    "time"
 
     _ "github.com/jackc/pgx/v5/stdlib" // or your database/sql driver
     "github.com/busyminds/gxsql"
 )
 
 func main() {
-    ctx := context.Background()
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
 
     db, err := sql.Open("pgx", "postgres://localhost/mydb?sslmode=disable")
     if err != nil {
@@ -114,6 +116,81 @@ func main() {
     }
 }
 ```
+
+## Scoped validation
+
+Use `TrustedScope` with `WithScope` to limit every expectation to rows matching
+a caller-defined predicate. Predicate text is trusted Go-code input, not an
+untrusted SQL sandbox: callers must not pass user-authored predicate text.
+Keep predicate text fixed in Go, use `?` placeholders, and pass each dynamic
+value as a separate argument so the dialect renderer and `database/sql` bind
+the values without string interpolation. The following examples assume `ctx`,
+`db`, and `suite` from the quick start:
+
+```go
+tenantID := "tenant-acme"
+tenantScope := gxsql.TrustedScope("tenant-acme", "tenant_id = ?", tenantID)
+
+tenantReport, err := suite.ValidateTable(ctx, db, gxsql.Table("users"),
+    gxsql.WithDialect(gxsql.Postgres()),
+    gxsql.WithScope(tenantScope),
+)
+if err != nil {
+    log.Fatal(err)
+}
+if err := tenantReport.Err(); err != nil {
+    log.Fatal(err)
+}
+```
+
+```go
+batchID := int64(42)
+batchScope := gxsql.TrustedScope("batch-42", "batch_id = ?", batchID)
+
+batchReport, err := suite.ValidateTable(ctx, db, gxsql.Table("events"),
+    gxsql.WithDialect(gxsql.Postgres()),
+    gxsql.WithScope(batchScope),
+)
+if err != nil {
+    log.Fatal(err)
+}
+if err := batchReport.Err(); err != nil {
+    log.Fatal(err)
+}
+```
+
+Use a half-open time window (`>= start` and `< end`) with both bounds supplied
+as separate values:
+
+```go
+start := time.Date(2025, time.January, 1, 0, 0, 0, 0, time.UTC)
+end := time.Date(2025, time.January, 2, 0, 0, 0, 0, time.UTC)
+windowScope := gxsql.TrustedScope(
+    "events-2025-01-01",
+    "event_at >= ? AND event_at < ?",
+    start,
+    end,
+)
+
+windowReport, err := suite.ValidateTable(ctx, db, gxsql.Table("events"),
+    gxsql.WithDialect(gxsql.Postgres()),
+    gxsql.WithScope(windowScope),
+)
+if err != nil {
+    log.Fatal(err)
+}
+if err := windowReport.Err(); err != nil {
+    log.Fatal(err)
+}
+```
+
+`Report.ScopeID` and the exported JSON `scope.id` carry caller identity only;
+they do not serialize the scope predicate text or bound arguments. Default
+errors, `Report.String()` display output, and default `ExportReport` output omit
+those scope fields. Ordinary samples and failed keys remain subject to the
+usual report redaction guidance. For production validation, use a read-only
+database role (ideally limited to validation views) and set a context deadline
+on every `ValidateTable` call.
 
 ## Why gxsql
 

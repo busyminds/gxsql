@@ -114,7 +114,7 @@ func harnessUsers(rows ...map[string]any) map[string][]map[string]any {
 
 var (
 	countRe         = regexp.MustCompile(`(?is)^SELECT\s+COUNT\(\*\)\s+FROM\s+(.+?)(?:\s+WHERE\s+(.+))?$`)
-	countDistinctRe = regexp.MustCompile(`(?is)^SELECT\s+COUNT\(DISTINCT\s+(.+?)\)\s+FROM\s+(.+?)$`)
+	countDistinctRe = regexp.MustCompile(`(?is)^SELECT\s+COUNT\(DISTINCT\s+(.+?)\)\s+FROM\s+(.+?)(?:\s+WHERE\s+(.+))?$`)
 	aggRe           = regexp.MustCompile(`(?is)^SELECT\s+(AVG|MIN|MAX)\((.+?)\)\s+FROM\s+(.+?)$`)
 	selectRe        = regexp.MustCompile(`(?is)^SELECT\s+(.+?)\s+FROM\s+(.+?)(?:\s+WHERE\s+(.+?))?(?:\s+ORDER\s+BY\s+(.+?))?(?:\s+LIMIT\s+(.+))?$`)
 	subUniqueRe     = regexp.MustCompile(
@@ -145,6 +145,16 @@ func executeHarnessQuery(query string, args []any, tables map[string][]map[strin
 		table, err := resolveTable(m[2], tables)
 		if err != nil {
 			return nil, nil, err
+		}
+		where := strings.TrimSpace(m[3])
+		if where != "" {
+			filtered := make([]map[string]any, 0, len(table))
+			for _, row := range table {
+				if rowMatchesWhere(where, args, row, m[2], table) {
+					filtered = append(filtered, row)
+				}
+			}
+			table = filtered
 		}
 		n := distinctCountColumn(table, col)
 		return []string{"count"}, [][]driver.Value{{int64(n)}}, nil

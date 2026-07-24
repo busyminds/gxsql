@@ -260,9 +260,15 @@ func evalTableCount(
 		return Result{Kind: kind, Name: label, RowDenominator: RowDenominatorUnavailable}, categorizeRenderError(err)
 	}
 
-	tableQuery, tableArgs := countQuery(tbl, "")
+	scopePred, err := composeRowPredicateWithScope(opts.scope, rowPredicate{}, opts.dialect)
+	if err != nil {
+		return Result{Kind: kind, Name: label, RowDenominator: RowDenominatorUnavailable}, categorizeRenderError(err)
+	}
 
-	count, err := queryCount(ctx, db, tbl, "", nil)
+	tableQuery, _ := countQuery(tbl, scopePred.where)
+	tableArgs := append([]any(nil), scopePred.args...)
+
+	count, err := queryCount(ctx, db, tbl, scopePred.where, scopePred.args)
 	if err != nil {
 		res := Result{Kind: kind, Name: label, RowDenominator: RowDenominatorUnavailable}
 		captureDiagnostics(&res, opts, tableQuery, tableArgs)
@@ -288,15 +294,21 @@ func evalDistinctCount(
 	check func(int) bool,
 	configured ResultFacts,
 ) (Result, error) {
-	query, prepErr := distinctCountQuery(opts.dialect, table, column)
+	scopePred, err := composeRowPredicateWithScope(opts.scope, rowPredicate{}, opts.dialect)
+	if err != nil {
+		return Result{Kind: kind, Name: label, Column: column, RowDenominator: RowDenominatorUnavailable}, categorizeRenderError(err)
+	}
+
+	query, prepErr := distinctCountQuery(opts.dialect, table, column, scopePred.where)
 	if prepErr != nil {
 		return Result{Kind: kind, Name: label, Column: column, RowDenominator: RowDenominatorUnavailable}, categorizeRenderError(prepErr)
 	}
 
-	count, err := queryScalarInt(ctx, db, query)
+	args := append([]any(nil), scopePred.args...)
+	count, err := queryScalarInt(ctx, db, query, args...)
 	if err != nil {
 		res := Result{Kind: kind, Name: label, Column: column, RowDenominator: RowDenominatorUnavailable}
-		captureDiagnostics(&res, opts, query, nil)
+		captureDiagnostics(&res, opts, query, args)
 		return res, categorizeExecutionError(ctx, err)
 	}
 
@@ -305,11 +317,11 @@ func evalDistinctCount(
 	countCopy := count
 	facts.ObservedCount = &countCopy
 	res := tableLevelResult(kind, column, name, check(count), facts)
-	captureDiagnostics(&res, opts, query, nil)
+	captureDiagnostics(&res, opts, query, args)
 	return res, nil
 }
 
-func distinctCountQuery(d Dialect, table TableRef, column string) (string, error) {
+func distinctCountQuery(d Dialect, table TableRef, column, where string) (string, error) {
 	tbl, err := renderTable(d, table)
 	if err != nil {
 		return "", err
@@ -318,7 +330,11 @@ func distinctCountQuery(d Dialect, table TableRef, column string) (string, error
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("SELECT COUNT(DISTINCT %s) FROM %s", col, tbl), nil
+	query := fmt.Sprintf("SELECT COUNT(DISTINCT %s) FROM %s", col, tbl)
+	if where != "" {
+		query += " WHERE " + where
+	}
+	return query, nil
 }
 
 func queryAggregateFloat(

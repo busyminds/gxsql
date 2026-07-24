@@ -39,6 +39,27 @@ func expectationID(exp Expectation) string {
 	return w.id
 }
 
+// unwrapExpectation peels WithID wrappers to the underlying expectation.
+func unwrapExpectation(exp Expectation) Expectation {
+	for {
+		w, ok := exp.(*idExpectation)
+		if !ok || w == nil {
+			return exp
+		}
+		exp = w.inner
+	}
+}
+
+// usesRowDenominator reports whether exp needs a row-population total COUNT(*).
+func usesRowDenominator(exp Expectation) bool {
+	switch unwrapExpectation(exp).(type) {
+	case perRowExpectation, uniqueExpectation:
+		return true
+	default:
+		return false
+	}
+}
+
 func configErrorResult(exp Expectation, err error) Result {
 	kind := expectationKind(exp)
 	name := "<configuration error>"

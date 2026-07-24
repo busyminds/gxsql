@@ -77,6 +77,37 @@ func queryCount(ctx context.Context, db DB, table, where string, args []any) (in
 	return queryScalarInt(ctx, db, query, args...)
 }
 
+// loadScopedTotal issues the shared scoped COUNT(*) for the evaluated population.
+func loadScopedTotal(ctx context.Context, db DB, table TableRef, opts evalOptions) (int, error) {
+	tbl, err := renderTable(opts.dialect, table)
+	if err != nil {
+		return 0, categorizeRenderError(err)
+	}
+	totalPred, err := composeRowPredicateWithScope(opts.scope, rowPredicate{}, opts.dialect)
+	if err != nil {
+		return 0, categorizeRenderError(err)
+	}
+	total, err := queryCount(ctx, db, tbl, totalPred.where, totalPred.args)
+	if err != nil {
+		return 0, categorizeExecutionError(ctx, err)
+	}
+	return total, nil
+}
+
+// resolveScopedTotal returns the scoped total row count, reusing opts.scopedTotal
+// when ValidateTable attached a cache. With a nil cache, each call loads locally.
+func resolveScopedTotal(ctx context.Context, db DB, table TableRef, opts evalOptions) (int, error) {
+	if opts.scopedTotal == nil {
+		return loadScopedTotal(ctx, db, table, opts)
+	}
+	c := opts.scopedTotal
+	if !c.loaded {
+		c.total, c.err = loadScopedTotal(ctx, db, table, opts)
+		c.loaded = true
+	}
+	return c.total, c.err
+}
+
 func evalPerRow(
 	ctx context.Context,
 	db DB,
@@ -101,18 +132,13 @@ func evalPerRow(
 		return Result{Kind: kind, Name: displayName, Column: column, RowDenominator: RowDenominatorUnavailable}, categorizeRenderError(err)
 	}
 
-	totalPred, err := composeRowPredicateWithScope(opts.scope, rowPredicate{}, opts.dialect)
-	if err != nil {
-		return Result{Kind: kind, Name: displayName, Column: column, RowDenominator: RowDenominatorUnavailable}, categorizeRenderError(err)
-	}
-
 	failQuery, failArgs := failedCountDiagnostics(tbl, failPred)
 
-	total, err := queryCount(ctx, db, tbl, totalPred.where, totalPred.args)
+	total, err := resolveScopedTotal(ctx, db, table, opts)
 	if err != nil {
 		res := Result{Kind: kind, Name: displayName, Column: column, RowDenominator: RowDenominatorUnavailable}
 		captureDiagnostics(&res, opts, failQuery, failArgs)
-		return res, categorizeExecutionError(ctx, err)
+		return res, err
 	}
 
 	failed, err := queryCount(ctx, db, tbl, failPred.where, failPred.args)

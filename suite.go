@@ -182,6 +182,14 @@ func (s *Suite) ValidateTable(
 		return Report{}, &PreflightErrors{Issues: pf.issues}
 	}
 
+	var scopedTotal *scopedTotalCache
+	for _, exp := range s.expectations {
+		if usesRowDenominator(exp) {
+			scopedTotal = &scopedTotalCache{}
+			break
+		}
+	}
+
 	evalOpts := evalOptions{
 		dialect:            cfg.dialect,
 		sampleCap:          cfg.sampleCap,
@@ -190,6 +198,7 @@ func (s *Suite) ValidateTable(
 		summaryOnly:        cfg.summaryOnly,
 		captureDiagnostics: cfg.captureDiagnostics,
 		scope:              validatedScope,
+		scopedTotal:        scopedTotal,
 	}
 
 	results := make([]Result, len(s.expectations))

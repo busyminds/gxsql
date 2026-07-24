@@ -35,6 +35,16 @@ type evalOptions struct {
 	summaryOnly        bool
 	captureDiagnostics bool
 	scope              *trustedScope
+	// scopedTotal caches one shared COUNT(*) for denominator-using expectations
+	// within a ValidateTable call. Nil means each resolve loads locally.
+	scopedTotal *scopedTotalCache
+}
+
+// scopedTotalCache holds the once-per-ValidateTable scoped total COUNT(*).
+type scopedTotalCache struct {
+	loaded bool
+	total  int
+	err    error
 }
 
 // rowPredicate is a SQL WHERE clause that is true for failing rows.

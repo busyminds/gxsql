@@ -42,17 +42,13 @@ func (e uniqueExpectation) evaluateSQL(
 	if err != nil {
 		return Result{Kind: KindUnique, Name: e.Name(), Column: e.column, RowDenominator: RowDenominatorUnavailable}, categorizeRenderError(err)
 	}
-	totalPred, err := composeRowPredicateWithScope(opts.scope, rowPredicate{}, opts.dialect)
-	if err != nil {
-		return Result{Kind: KindUnique, Name: e.Name(), Column: e.column, RowDenominator: RowDenominatorUnavailable}, categorizeRenderError(err)
-	}
 	failQuery, failArgs := failedCountDiagnostics(tbl, failPred)
 
-	total, err := queryCount(ctx, db, tbl, totalPred.where, totalPred.args)
+	total, err := resolveScopedTotal(ctx, db, table, opts)
 	if err != nil {
 		res := Result{Kind: KindUnique, Name: e.Name(), Column: e.column, RowDenominator: RowDenominatorUnavailable}
 		captureDiagnostics(&res, opts, failQuery, failArgs)
-		return res, categorizeExecutionError(ctx, err)
+		return res, err
 	}
 
 	failed, err := queryCount(ctx, db, tbl, failPred.where, failPred.args)

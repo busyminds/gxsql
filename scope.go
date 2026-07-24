@@ -50,10 +50,14 @@ func newTrustedScope(identity, predicate string, values []any) (trustedScope, er
 }
 
 func (s trustedScope) render(d Dialect) (rowPredicate, error) {
+	return s.renderAt(d, 0)
+}
+
+func (s trustedScope) renderAt(d Dialect, offset int) (rowPredicate, error) {
 	if d == nil {
 		return rowPredicate{}, fmt.Errorf("gxsql: dialect is required")
 	}
-	where, err := renderNeutralPredicate(d, s.predicate)
+	where, err := renderNeutralPredicateAt(d, s.predicate, offset)
 	if err != nil {
 		return rowPredicate{}, err
 	}
@@ -89,7 +93,11 @@ func scanNeutralSlots(fragment string) (int, error) {
 }
 
 func renderNeutralPredicate(d Dialect, fragment string) (string, error) {
-	rendered, _, err := walkNeutralPredicate(fragment, d)
+	return renderNeutralPredicateAt(d, fragment, 0)
+}
+
+func renderNeutralPredicateAt(d Dialect, fragment string, offset int) (string, error) {
+	rendered, _, err := walkNeutralPredicateAt(fragment, d, offset)
 	return rendered, err
 }
 
@@ -98,6 +106,10 @@ func renderNeutralPredicate(d Dialect, fragment string) (string, error) {
 // non-nil, validated slots are replaced with d.Placeholder(n) and all other
 // source bytes are preserved verbatim.
 func walkNeutralPredicate(fragment string, d Dialect) (string, int, error) {
+	return walkNeutralPredicateAt(fragment, d, 0)
+}
+
+func walkNeutralPredicateAt(fragment string, d Dialect, offset int) (string, int, error) {
 	render := d != nil
 	var b strings.Builder
 	if render {
@@ -214,7 +226,7 @@ func walkNeutralPredicate(fragment string, d Dialect) (string, int, error) {
 		flush(i, &start)
 		count++
 		if render {
-			b.WriteString(d.Placeholder(count))
+			b.WriteString(d.Placeholder(offset + count))
 		}
 		start = i + 1
 	}

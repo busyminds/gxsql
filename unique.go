@@ -34,17 +34,28 @@ func (e uniqueExpectation) evaluateSQL(
 		return Result{Kind: KindUnique, Name: e.Name(), Column: e.column, RowDenominator: RowDenominatorUnavailable}, categorizeRenderError(err)
 	}
 
-	pred := duplicateValuePredicate(tbl, col)
-	failQuery, failArgs := failedCountDiagnostics(tbl, pred)
+	dupPred, err := duplicateValuePredicateWithScope(tbl, col, opts.dialect, opts.scope)
+	if err != nil {
+		return Result{Kind: KindUnique, Name: e.Name(), Column: e.column, RowDenominator: RowDenominatorUnavailable}, categorizeRenderError(err)
+	}
+	failPred, err := composeRowPredicateWithScope(opts.scope, dupPred, opts.dialect)
+	if err != nil {
+		return Result{Kind: KindUnique, Name: e.Name(), Column: e.column, RowDenominator: RowDenominatorUnavailable}, categorizeRenderError(err)
+	}
+	totalPred, err := composeRowPredicateWithScope(opts.scope, rowPredicate{}, opts.dialect)
+	if err != nil {
+		return Result{Kind: KindUnique, Name: e.Name(), Column: e.column, RowDenominator: RowDenominatorUnavailable}, categorizeRenderError(err)
+	}
+	failQuery, failArgs := failedCountDiagnostics(tbl, failPred)
 
-	total, err := queryCount(ctx, db, tbl, "", nil)
+	total, err := queryCount(ctx, db, tbl, totalPred.where, totalPred.args)
 	if err != nil {
 		res := Result{Kind: KindUnique, Name: e.Name(), Column: e.column, RowDenominator: RowDenominatorUnavailable}
 		captureDiagnostics(&res, opts, failQuery, failArgs)
 		return res, categorizeExecutionError(ctx, err)
 	}
 
-	failed, err := queryCount(ctx, db, tbl, pred.where, pred.args)
+	failed, err := queryCount(ctx, db, tbl, failPred.where, failPred.args)
 	if err != nil {
 		res := Result{Kind: KindUnique, Name: e.Name(), Column: e.column, RowDenominator: RowDenominatorUnavailable}
 		captureDiagnostics(&res, opts, failQuery, failArgs)
@@ -58,7 +69,7 @@ func (e uniqueExpectation) evaluateSQL(
 	}
 
 	if opts.sampleCap > 0 {
-		samples, err := queryColumnSamples(ctx, db, tbl, e.column, pred, opts, opts.sampleCap)
+		samples, err := queryColumnSamples(ctx, db, tbl, e.column, failPred, opts, opts.sampleCap)
 		if err != nil {
 			return res, categorizeExecutionError(ctx, err)
 		}
@@ -66,7 +77,7 @@ func (e uniqueExpectation) evaluateSQL(
 	}
 
 	if !opts.summaryOnly && len(opts.keyColumns) > 0 {
-		keys, err := queryFailedKeys(ctx, db, tbl, opts, pred)
+		keys, err := queryFailedKeys(ctx, db, tbl, opts, failPred)
 		if err != nil {
 			return res, categorizeExecutionError(ctx, err)
 		}
@@ -75,10 +86,22 @@ func (e uniqueExpectation) evaluateSQL(
 	return res, nil
 }
 
-func duplicateValuePredicate(table, column string) rowPredicate {
+func duplicateValuePredicateWithScope(table, column string, d Dialect, scope *trustedScope) (rowPredicate, error) {
+	if scope == nil {
+		where := fmt.Sprintf(
+			"%s IS NOT NULL AND %s IN (SELECT %s FROM %s GROUP BY %s HAVING COUNT(*) > 1)",
+			column, column, column, table, column,
+		)
+		return withWhere(where, nil), nil
+	}
+
+	scopePred, err := scope.renderAt(d, len(scope.values))
+	if err != nil {
+		return rowPredicate{}, err
+	}
 	where := fmt.Sprintf(
-		"%s IS NOT NULL AND %s IN (SELECT %s FROM %s GROUP BY %s HAVING COUNT(*) > 1)",
-		column, column, column, table, column,
+		"%s IS NOT NULL AND %s IN (SELECT %s FROM %s WHERE (%s) GROUP BY %s HAVING COUNT(*) > 1)",
+		column, column, column, table, scopePred.where, column,
 	)
-	return withWhere(where, nil)
+	return withWhere(where, scopePred.args), nil
 }

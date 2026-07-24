@@ -79,10 +79,10 @@ func (e aggregateExpectation) evaluateSQL(
 		ConfiguredFloatLower: floatFact(e.lo),
 		ConfiguredFloatUpper: floatFact(e.hi),
 	}
-	observed, ok, query, err := queryAggregateFloat(ctx, db, table, opts, e.column, e.agg)
+	observed, ok, query, args, err := queryAggregateFloatWithArgs(ctx, db, table, opts, e.column, e.agg)
 	if err != nil {
 		res := Result{Kind: KindAverageBetween, Name: e.label, Column: e.column, RowDenominator: RowDenominatorUnavailable}
-		captureDiagnostics(&res, opts, query, nil)
+		captureDiagnostics(&res, opts, query, args)
 		var ce *CategorizedError
 		if errors.As(err, &ce) {
 			return res, err
@@ -91,7 +91,7 @@ func (e aggregateExpectation) evaluateSQL(
 	}
 	if !ok {
 		res := tableLevelResult(KindAverageBetween, e.column, e.label, true, configured)
-		captureDiagnostics(&res, opts, query, nil)
+		captureDiagnostics(&res, opts, query, args)
 		return res, nil
 	}
 	name := fmt.Sprintf("%s: got %g", e.label, observed)
@@ -99,7 +99,7 @@ func (e aggregateExpectation) evaluateSQL(
 	facts := configured
 	facts.ObservedFloat = floatFact(observed)
 	res := tableLevelResult(KindAverageBetween, e.column, name, success, facts)
-	captureDiagnostics(&res, opts, query, nil)
+	captureDiagnostics(&res, opts, query, args)
 	return res, nil
 }
 
@@ -136,10 +136,10 @@ func (e aggregateBoundExpectation) evaluateSQL(
 ) (Result, error) {
 	kind := e.expectationKind()
 	configured := ResultFacts{ConfiguredFloatBound: floatFact(e.bound)}
-	observed, ok, query, err := queryAggregateFloat(ctx, db, table, opts, e.column, e.agg)
+	observed, ok, query, args, err := queryAggregateFloatWithArgs(ctx, db, table, opts, e.column, e.agg)
 	if err != nil {
 		res := Result{Kind: kind, Name: e.label, Column: e.column, RowDenominator: RowDenominatorUnavailable}
-		captureDiagnostics(&res, opts, query, nil)
+		captureDiagnostics(&res, opts, query, args)
 		var ce *CategorizedError
 		if errors.As(err, &ce) {
 			return res, err
@@ -148,7 +148,7 @@ func (e aggregateBoundExpectation) evaluateSQL(
 	}
 	if !ok {
 		res := tableLevelResult(kind, e.column, e.label, true, configured)
-		captureDiagnostics(&res, opts, query, nil)
+		captureDiagnostics(&res, opts, query, args)
 		return res, nil
 	}
 	name := fmt.Sprintf("%s: got %g", e.label, observed)
@@ -156,7 +156,7 @@ func (e aggregateBoundExpectation) evaluateSQL(
 	facts := configured
 	facts.ObservedFloat = floatFact(observed)
 	res := tableLevelResult(kind, e.column, name, success, facts)
-	captureDiagnostics(&res, opts, query, nil)
+	captureDiagnostics(&res, opts, query, args)
 	return res, nil
 }
 

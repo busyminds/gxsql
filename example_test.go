@@ -201,6 +201,38 @@ func ExampleSuite_failedRowKeysAndSummary() {
 	// [[2] [3]]
 }
 
+func ExampleWithMaxFailedCount() {
+	db, err := openExampleDB("keys")
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+
+	report, err := gxsql.NewSuite(
+		gxsql.WithMaxFailedCount(2, gxsql.Int("age").Between(0, 120)),
+	).WithSampleCap(0).ValidateTable(
+		context.Background(), db, gxsql.Table("users"),
+		gxsql.WithDialect(gxsql.SQLite()),
+		gxsql.WithKey("id"),
+		gxsql.WithFailedKeysCap(0),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(report.OK())
+	fmt.Println(report.Results[0].Tolerated)
+	fmt.Println(*report.Results[0].Facts.ConfiguredMaxFailedCount)
+	fmt.Println(report.String())
+
+	// Output:
+	// true
+	// true
+	// 2
+	// gxsql report: 1/1 expectations passed
+	//   ✓ age between [0,120]  tolerated  2/3 failed (66.7%)  e.g. [] @ [[2] [3]]
+}
+
 func ExampleSuite_continueOnError() {
 	db, err := openExampleDB("error")
 	if err != nil {

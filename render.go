@@ -9,12 +9,25 @@ const maxDisplay = 10
 
 // String renders one [Result] as a single human-readable line prefixed with ✓
 // or ✗. Successful per-row results include Total only when Total is greater
-// than zero. Failing per-row results include FailedCount, FailedPercent, sample
-// values, and failed keys. Table-level results omit row denominators; failing lines show Name
-// only when FailedCount is zero. Sample values and failed keys are truncated to
-// maxDisplay (10) entries with an ellipsis.
+// than zero. Tolerated results explicitly say "tolerated" and still show raw
+// FailedCount, Total, FailedPercent, sample values, and failed keys under the
+// existing display caps. Failing per-row results include FailedCount,
+// FailedPercent, sample values, and failed keys. Table-level results omit row
+// denominators; failing lines show Name only when FailedCount is zero. Sample
+// values and failed keys are truncated to maxDisplay (10) entries with an
+// ellipsis.
 func (r Result) String() string {
 	if r.Success {
+		if r.Tolerated {
+			return fmt.Sprintf("✓ %s  tolerated  %d/%d failed (%.1f%%)  e.g. %s @ %s",
+				r.Name,
+				r.FailedCount,
+				r.Total,
+				r.FailedPercent,
+				truncList(r.SampleValues, maxDisplay),
+				truncKeys(r.FailedKeys, maxDisplay),
+			)
+		}
 		if r.Total > 0 {
 			return fmt.Sprintf("✓ %s (%d rows)", r.Name, r.Total)
 		}

@@ -46,6 +46,11 @@ type ResultFacts struct {
 	ConfiguredBoundLower any
 	// ConfiguredBoundUpper is the inclusive per-row upper bound.
 	ConfiguredBoundUpper any
+
+	// ConfiguredMaxFailedCount is the inclusive maximum failed-row bound when a
+	// WithMaxFailedCount policy decorated this result. Nil means no tolerance
+	// was applied.
+	ConfiguredMaxFailedCount *int
 }
 
 // resultDiagnostics holds captured SQL text and bound arguments for export.
@@ -103,6 +108,11 @@ type Result struct {
 	FailedKeys []RowKey
 	// Err is a categorized configuration or execution failure when non-nil.
 	Err error
+
+	// Tolerated is true when a nonzero raw FailedCount passed within a
+	// configured WithMaxFailedCount bound. Clean passes, above-bound failures,
+	// empty populations, and errors are never tolerated.
+	Tolerated bool
 
 	shape       resultShape
 	diagnostics *resultDiagnostics

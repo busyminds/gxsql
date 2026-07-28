@@ -54,6 +54,29 @@
 // and arguments, including driver-error text. [CaptureQueryDiagnostics] is an
 // opt-in export-only path subject to existing redactors.
 //
+// Bounded failure tolerance uses [WithMaxFailedCount] around an eligible
+// per-row or uniqueness expectation. max is an inclusive non-negative
+// failed-row bound; equality passes. Tolerance changes only the policy
+// verdict—raw Total, FailedCount, FailedPercent, samples, and failed keys
+// stay under existing caps. Gate with [Report.Err]; tolerated results count
+// as successful and are omitted from [Report.Failures], so inspect
+// [Report.Results] and [Result.Tolerated] for remediation. Table-level,
+// aggregate, distinct-count, row-count, and custom-count wrappers fail
+// preflight. Execution and configuration errors are never tolerated:
+//
+//	suite := gxsql.NewSuite(
+//		gxsql.WithMaxFailedCount(2, gxsql.String("email").NotEmpty()),
+//	)
+//	report, err := suite.ValidateTable(ctx, db, gxsql.Table("users"),
+//		gxsql.WithDialect(gxsql.Postgres()),
+//	)
+//	if err != nil {
+//		// Configuration or execution error; no complete report is available.
+//	}
+//	if err := report.Err(); err != nil {
+//		// Above-bound or other policy failures.
+//	}
+//
 // Failed policies are collected in declaration order. Use [WithKey] to retain
 // failed-row identities, [WithID] to give expectations stable machine identity,
 // and [ExportReport] for the versioned JSON DTO. For Go tests, use the

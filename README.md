@@ -48,14 +48,14 @@ Built-in dialect renderers are `gxsql.Postgres()`, `gxsql.SQLite()`,
 `gxsql.DuckDB()`, and `gxsql.MySQL()`. The matrix below separates dialect/API
 support from engines exercised in CI conformance jobs.
 
-| Area               | Level                | Floor / active coverage                                            | Notes                                                                                      |
-| ------------------ | -------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| Go toolchain       | supported            | minimum Go 1.24; actively tested on Go 1.24.x and 1.26.x           | required to build and run the module                                                       |
-| Ubuntu             | supported            | `ubuntu-24.04` in CI                                               | first-class CI target                                                                      |
-| PostgreSQL         | supported            | PostgreSQL 16 in CI via `github.com/jackc/pgx/v5/stdlib`           | built-in `gxsql.Postgres()`; the driver is a conformance-only test dependency              |
-| SQLite             | supported            | SQLite 3.50.4 in CI via `modernc.org/sqlite` v1.39.1               | built-in `gxsql.SQLite()`; the driver is a conformance-only test dependency                |
-| DuckDB             | supported            | DuckDB 1.5.4 in CI via `github.com/duckdb/duckdb-go/v2` v2.10504.0 | built-in `gxsql.DuckDB()`; the driver is a conformance-only test dependency                |
-| MySQL              | supported            | MySQL 8.4 in CI via `github.com/go-sql-driver/mysql` v1.10.0       | built-in `gxsql.MySQL()`; the driver is a conformance-only test dependency                 |
+| Area         | Level     | Floor / active coverage                                            | Notes                                                                         |
+| ------------ | --------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| Go toolchain | supported | minimum Go 1.24; actively tested on Go 1.24.x and 1.26.x           | required to build and run the module                                          |
+| Ubuntu       | supported | `ubuntu-24.04` in CI                                               | first-class CI target                                                         |
+| PostgreSQL   | supported | PostgreSQL 16 in CI via `github.com/jackc/pgx/v5/stdlib`           | built-in `gxsql.Postgres()`; the driver is a conformance-only test dependency |
+| SQLite       | supported | SQLite 3.50.4 in CI via `modernc.org/sqlite` v1.39.1               | built-in `gxsql.SQLite()`; the driver is a conformance-only test dependency   |
+| DuckDB       | supported | DuckDB 1.5.4 in CI via `github.com/duckdb/duckdb-go/v2` v2.10504.0 | built-in `gxsql.DuckDB()`; the driver is a conformance-only test dependency   |
+| MySQL        | supported | MySQL 8.4 in CI via `github.com/go-sql-driver/mysql` v1.10.0       | built-in `gxsql.MySQL()`; the driver is a conformance-only test dependency    |
 
 `gxsql` is intentionally driver-neutral: the core package validates against a
 caller-selected `database/sql` driver, while PostgreSQL, SQLite, DuckDB, and
@@ -64,7 +64,7 @@ dependencies.
 
 ## Example entry points
 
-The five most common entry points are below and are expanded in the rest of this
+The most common entry points are below and are expanded in the rest of this
 README:
 
 1. `ValidateTable` quick start.
@@ -72,6 +72,7 @@ README:
 3. `gxsqltest.Check` and `gxsqltest.Require` for `testing.T`.
 4. `ExportReport` for machine-readable JSON export.
 5. `TrustedCountQuery` / `CustomCount` for portable join and aggregate counts.
+6. `WithMaxFailedCount` for a known failed-row allowance.
 
 ## Quick start
 
@@ -122,11 +123,11 @@ func main() {
 
 Use `TrustedScope` with `WithScope` to limit every expectation to rows matching
 a caller-defined predicate. Predicate text is trusted Go-code input, not an
-untrusted SQL sandbox: callers must not pass user-authored predicate text.
-Keep predicate text fixed in Go, use `?` placeholders, and pass each dynamic
-value as a separate argument so the dialect renderer and `database/sql` bind
-the values without string interpolation. The following examples assume `ctx`,
-`db`, and `suite` from the quick start:
+untrusted SQL sandbox: callers must not pass user-authored predicate text. Keep
+predicate text fixed in Go, use `?` placeholders, and pass each dynamic value as
+a separate argument so the dialect renderer and `database/sql` bind the values
+without string interpolation. The following examples assume `ctx`, `db`, and
+`suite` from the quick start:
 
 ```go
 tenantID := "tenant-acme"
@@ -188,10 +189,10 @@ if err := windowReport.Err(); err != nil {
 `Report.ScopeID` and the exported JSON `scope.id` carry caller identity only;
 they do not serialize the scope predicate text or bound arguments. Default
 errors, `Report.String()` display output, and default `ExportReport` output omit
-those scope fields. Ordinary samples and failed keys remain subject to the
-usual report redaction guidance. For production validation, use a read-only
-database role (ideally limited to validation views) and set a context deadline
-on every `ValidateTable` call.
+those scope fields. Ordinary samples and failed keys remain subject to the usual
+report redaction guidance. For production validation, use a read-only database
+role (ideally limited to validation views) and set a context deadline on every
+`ValidateTable` call.
 
 ## Custom count checks
 
@@ -210,10 +211,9 @@ the query uses table aliases. Custom `?` placeholders must come after
 arguments. Preflight rejects invalid markers, placeholder placement, and arity
 mismatches before any custom-count SQL runs.
 
-The query must return one row and one non-negative signed-integer count;
-textual numerics are not coerced. Results
-use `KindCustom` with a complete `FailedCount` and `RowDenominatorUnavailable`;
-samples and failed keys are unavailable.
+The query must return one row and one non-negative signed-integer count; textual
+numerics are not coerced. Results use `KindCustom` with a complete `FailedCount`
+and `RowDenominatorUnavailable`; samples and failed keys are unavailable.
 
 ```go
 joinCount := gxsql.TrustedCountQuery(`SELECT COUNT(*)
@@ -405,6 +405,58 @@ individual `Result.Err` values while later expectations still run. Inspect
 `report.Err()` and per-result errors — a nil top-level error is not success in
 that mode.
 
+## Bounded failure tolerance
+
+Use `WithMaxFailedCount` when a known number of bad rows may remain visible
+without failing the run. Wrap one eligible per-row or uniqueness expectation
+with an inclusive non-negative maximum failed-row count. Equality passes. There
+is no percentage, pass-rate, `Mostly`, rounding, or compound policy.
+
+```go
+suite := gxsql.NewSuite(
+    gxsql.WithMaxFailedCount(2, gxsql.String("email").NotEmpty()),
+)
+
+report, err := suite.ValidateTable(ctx, db, gxsql.Table("users"),
+    gxsql.WithDialect(gxsql.Postgres()),
+    gxsql.WithKey("id"),
+)
+if err != nil {
+    log.Fatalf("gxsql execution error: %v", err)
+}
+if err := report.Err(); err != nil {
+    log.Fatalf("data quality check failed: %v", err)
+}
+for _, result := range report.Results {
+    if result.Tolerated {
+        // raw FailedCount, samples, and keys remain for remediation
+        fmt.Println(result.String())
+    }
+}
+```
+
+In that example, two failed rows pass the inclusive bound (`FailedCount <= 2`)
+with `Success: true` and `Tolerated: true`. A third failed row fails the policy.
+Tolerance changes only the policy verdict. Raw `Total`, `FailedCount`,
+`FailedPercent`, samples, and failed keys stay intact under the normal cap
+settings. Empty evaluated populations pass without division by zero or `NaN` and
+are not tolerated. Scope remains the evaluated population for all raw counts.
+
+`report.OK()` and `report.Err()` treat tolerated results as successful;
+`report.Failures()` omits them. They remain explicit in `Result.Tolerated`,
+`Report.String()`, and exported JSON. For remediation, walk `Report.Results` and
+inspect `Result.Tolerated`—do not rely on `Failures()` alone.
+
+Only per-row and uniqueness expectations qualify. Wrapping a table-level,
+aggregate, distinct-count, row-count, or custom-count declaration fails
+preflight. Execution and configuration errors are never tolerated. Export stays
+privacy-safe by default: JSON exposes the tolerance flag, configured bound, and
+raw counts; samples, keys, query diagnostics, and arguments keep their existing
+opt-in and redaction rules. See the [results](docs/concepts/results.md),
+[suite](docs/reference/suite.md), [reports](docs/reference/results.md), and
+[export](docs/reference/export.md) references for eligibility, display, and
+privacy-safe JSON fields.
+
 ## Testing with gxsqltest
 
 The `gxsqltest` package adapts suite validation to Go's `testing` package:
@@ -504,7 +556,8 @@ policy, value encodings, and privacy defaults.
 | Machine consumption used `Result.Name` only | Wrap expectations with `WithID` and gate on `Kind`                              |
 | Logs included sample values by default      | Use `ExportReport` privacy defaults; opt in to sensitive fields                 |
 | Empty `In()` / `NotIn()`                    | Still configuration errors before SQL; use `ContinueOnError()` to collect slots |
-| Tolerance / severity                        | Not yet implemented — deferred to Spec 07                                       |
+| Exact-zero failure gating only              | Wrap eligible per-row or uniqueness expectations with `WithMaxFailedCount`      |
+| Warning / info severity                     | Not implemented                                                                 |
 
 ## Documentation
 

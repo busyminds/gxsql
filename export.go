@@ -88,6 +88,9 @@ type ExportedResult struct {
 	PolicyVerdict PolicyVerdict `json:"policy_verdict"`
 	// ExecutionOutcome distinguishes policy failure from execution/config failure.
 	ExecutionOutcome ExecutionOutcome `json:"execution_outcome"`
+	// Tolerated is true when a nonzero raw failure count passed within
+	// WithMaxFailedCount. Omitted unless true.
+	Tolerated bool `json:"tolerated,omitempty"`
 	// RowDenominator reports whether total and failed_percent are meaningful.
 	RowDenominator RowDenominator `json:"row_denominator"`
 	// Counts holds row counts when applicable.
@@ -137,6 +140,9 @@ type ExportedFacts struct {
 	ConfiguredBound      *NormalizedValue `json:"configured_bound,omitempty"`
 	ConfiguredBoundLower *NormalizedValue `json:"configured_bound_lower,omitempty"`
 	ConfiguredBoundUpper *NormalizedValue `json:"configured_bound_upper,omitempty"`
+	// ConfiguredMaxFailedCount is the inclusive WithMaxFailedCount bound when
+	// that decorator was applied.
+	ConfiguredMaxFailedCount *int `json:"configured_max_failed_count,omitempty"`
 }
 
 // ExportedCaps reports diagnostic truncation metadata.
@@ -278,6 +284,7 @@ func exportResult(res Result, target *TableRef, cfg exportConfig) (ExportedResul
 		Column:           res.Column,
 		PolicyVerdict:    policyVerdict(res),
 		ExecutionOutcome: executionOutcome(res),
+		Tolerated:        res.Tolerated,
 		RowDenominator:   res.RowDenominator,
 	}
 
@@ -463,6 +470,10 @@ func exportFacts(facts ResultFacts) (*ExportedFacts, error) {
 			return nil, err
 		}
 		out.ConfiguredBoundUpper = &nv
+		has = true
+	}
+	if facts.ConfiguredMaxFailedCount != nil {
+		out.ConfiguredMaxFailedCount = facts.ConfiguredMaxFailedCount
 		has = true
 	}
 	if !has {

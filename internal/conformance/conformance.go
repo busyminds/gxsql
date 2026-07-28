@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -416,6 +417,264 @@ func Run(t *testing.T, cfg Config) {
 		}
 	})
 
+	t.Run("tolerance max-failed-count boundaries", func(t *testing.T) {
+		cases := []struct {
+			name          string
+			bare          gxsql.Expectation
+			tol           gxsql.Expectation
+			wantFailed    int
+			wantSuccess   bool
+			wantTolerated bool
+		}{
+			{
+				name:          "perRow/zero",
+				bare:          gxsql.Column("id").NotNull(),
+				tol:           gxsql.WithMaxFailedCount(0, gxsql.Column("id").NotNull()),
+				wantFailed:    0,
+				wantSuccess:   true,
+				wantTolerated: false,
+			},
+			{
+				name:          "perRow/below",
+				bare:          gxsql.String("name").NotEmpty(),
+				tol:           gxsql.WithMaxFailedCount(2, gxsql.String("name").NotEmpty()),
+				wantFailed:    1,
+				wantSuccess:   true,
+				wantTolerated: true,
+			},
+			{
+				name:          "perRow/exact",
+				bare:          gxsql.Int("age").Between(0, 120),
+				tol:           gxsql.WithMaxFailedCount(2, gxsql.Int("age").Between(0, 120)),
+				wantFailed:    2,
+				wantSuccess:   true,
+				wantTolerated: true,
+			},
+			{
+				name:          "perRow/above",
+				bare:          gxsql.Int("age").Between(15, 25),
+				tol:           gxsql.WithMaxFailedCount(2, gxsql.Int("age").Between(15, 25)),
+				wantFailed:    3,
+				wantSuccess:   false,
+				wantTolerated: false,
+			},
+			{
+				name:          "unique/zero",
+				bare:          gxsql.Column("id").Unique(),
+				tol:           gxsql.WithMaxFailedCount(0, gxsql.Column("id").Unique()),
+				wantFailed:    0,
+				wantSuccess:   true,
+				wantTolerated: false,
+			},
+			{
+				name:          "unique/below",
+				bare:          gxsql.Column("name").Unique(),
+				tol:           gxsql.WithMaxFailedCount(3, gxsql.Column("name").Unique()),
+				wantFailed:    2,
+				wantSuccess:   true,
+				wantTolerated: true,
+			},
+			{
+				name:          "unique/exact",
+				bare:          gxsql.Column("name").Unique(),
+				tol:           gxsql.WithMaxFailedCount(2, gxsql.Column("name").Unique()),
+				wantFailed:    2,
+				wantSuccess:   true,
+				wantTolerated: true,
+			},
+			{
+				name:          "unique/above",
+				bare:          gxsql.Column("nullable").Unique(),
+				tol:           gxsql.WithMaxFailedCount(2, gxsql.Column("nullable").Unique()),
+				wantFailed:    3,
+				wantSuccess:   false,
+				wantTolerated: false,
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				bareReport, err := gxsql.NewSuite(tc.bare).ValidateTable(
+					context.Background(), cfg.DB, cfg.Table,
+					gxsql.WithDialect(cfg.Dialect), gxsql.WithKey("id"), gxsql.WithSampleCap(10))
+				if err != nil {
+					t.Fatalf("bare ValidateTable: %v", err)
+				}
+				tolReport, err := gxsql.NewSuite(tc.tol).ValidateTable(
+					context.Background(), cfg.DB, cfg.Table,
+					gxsql.WithDialect(cfg.Dialect), gxsql.WithKey("id"), gxsql.WithSampleCap(10))
+				if err != nil {
+					t.Fatalf("tolerant ValidateTable: %v", err)
+				}
+				bareRes := bareReport.Results[0]
+				tolRes := tolReport.Results[0]
+				assertToleranceRawPreservation(t, bareRes, tolRes)
+				if tolRes.FailedCount != tc.wantFailed || tolRes.Success != tc.wantSuccess || tolRes.Tolerated != tc.wantTolerated {
+					t.Fatalf("FailedCount=%d Success=%v Tolerated=%v, want %d/%v/%v",
+						tolRes.FailedCount, tolRes.Success, tolRes.Tolerated,
+						tc.wantFailed, tc.wantSuccess, tc.wantTolerated)
+				}
+				if tolRes.Facts.ConfiguredMaxFailedCount == nil {
+					t.Fatal("ConfiguredMaxFailedCount is nil")
+				}
+				if bareRes.FailedCount != tc.wantFailed {
+					t.Fatalf("bare FailedCount=%d, want %d (fixture drift)", bareRes.FailedCount, tc.wantFailed)
+				}
+			})
+		}
+	})
+
+	t.Run("tolerance scoped population ignores out-of-scope failures", func(t *testing.T) {
+		scope := gxsql.TrustedScope("tenant-a", "tenant_id = ?", "tenant-a")
+		db := &recordingDB{DB: cfg.DB}
+
+		unscoped, err := gxsql.NewSuite(
+			gxsql.Int("age").Between(0, 120),
+			gxsql.Column("name").Unique(),
+		).ValidateTable(context.Background(), cfg.DB, cfg.Table,
+			gxsql.WithDialect(cfg.Dialect), gxsql.WithKey("id"), gxsql.WithSampleCap(10))
+		if err != nil {
+			t.Fatalf("unscoped ValidateTable: %v", err)
+		}
+		if unscoped.Results[0].FailedCount != 2 {
+			t.Fatalf("unscoped age FailedCount = %d, want 2 (includes out-of-scope row)", unscoped.Results[0].FailedCount)
+		}
+		if unscoped.Results[1].FailedCount != 2 {
+			t.Fatalf("unscoped unique FailedCount = %d, want 2 (includes out-of-scope row)", unscoped.Results[1].FailedCount)
+		}
+
+		scoped, err := gxsql.NewSuite(
+			gxsql.WithMaxFailedCount(1, gxsql.Int("age").Between(0, 120)),
+			gxsql.WithMaxFailedCount(0, gxsql.Column("name").Unique()),
+		).ValidateTable(context.Background(), db, cfg.Table,
+			gxsql.WithDialect(cfg.Dialect), gxsql.WithScope(scope),
+			gxsql.WithKey("id"), gxsql.WithSampleCap(10))
+		if err != nil {
+			t.Fatalf("scoped ValidateTable: %v", err)
+		}
+		assertScopedQueries(t, db, "tenant_id", false, "tenant-a")
+		if scoped.ScopeID != "tenant-a" || len(scoped.Results) != 2 {
+			t.Fatalf("scope/results = %q/%d, want tenant-a/2", scoped.ScopeID, len(scoped.Results))
+		}
+
+		age := scoped.Results[0]
+		if age.Total != 2 || age.FailedCount != 1 || age.FailedPercent != 50 ||
+			!age.Success || !age.Tolerated || age.RowDenominator != gxsql.RowDenominatorAvailable {
+			t.Fatalf("scoped age = %#v, want total=2 failed=1 percent=50 tolerated pass", age)
+		}
+		if len(age.FailedKeys) != 1 || len(age.FailedKeys[0]) != 1 || age.FailedKeys[0][0] != int64(2) {
+			t.Fatalf("scoped age FailedKeys = %#v, want only in-scope id 2", age.FailedKeys)
+		}
+		if len(age.SampleValues) != 1 || age.SampleValues[0] != nil {
+			t.Fatalf("scoped age SampleValues = %#v, want only the in-scope NULL failure", age.SampleValues)
+		}
+
+		unique := scoped.Results[1]
+		if unique.Total != 2 || unique.FailedCount != 0 || unique.FailedPercent != 0 ||
+			!unique.Success || unique.Tolerated || unique.RowDenominator != gxsql.RowDenominatorAvailable {
+			t.Fatalf("scoped unique = %#v, want total=2 failed=0 clean pass", unique)
+		}
+		if len(unique.FailedKeys) != 0 || len(unique.SampleValues) != 0 {
+			t.Fatalf("scoped unique diagnostics = keys %#v samples %#v, want empty", unique.FailedKeys, unique.SampleValues)
+		}
+
+		// Out-of-scope failure volume must not change the scoped verdict: the same
+		// max=1 age policy fails unscoped (2 failures) and passes scoped (1 failure).
+		unscopedTol, err := gxsql.NewSuite(
+			gxsql.WithMaxFailedCount(1, gxsql.Int("age").Between(0, 120)),
+		).ValidateTable(context.Background(), cfg.DB, cfg.Table,
+			gxsql.WithDialect(cfg.Dialect), gxsql.WithKey("id"))
+		if err != nil {
+			t.Fatalf("unscoped tolerant ValidateTable: %v", err)
+		}
+		if unscopedTol.Results[0].Success || unscopedTol.Results[0].Tolerated || unscopedTol.Results[0].FailedCount != 2 {
+			t.Fatalf("unscoped tolerant age = %#v, want above-bound failure with FailedCount=2", unscopedTol.Results[0])
+		}
+		if age.Success == unscopedTol.Results[0].Success {
+			t.Fatal("scoped and unscoped verdicts must differ when out-of-scope failures tip the bound")
+		}
+	})
+
+	t.Run("tolerance empty scope is not tolerated", func(t *testing.T) {
+		scope := gxsql.TrustedScope("tenant-empty", "tenant_id = ?", "tenant-none")
+		db := &recordingDB{DB: cfg.DB}
+		report, err := gxsql.NewSuite(
+			gxsql.WithMaxFailedCount(0, gxsql.String("name").NotEmpty()),
+			gxsql.WithMaxFailedCount(2, gxsql.Column("name").Unique()),
+		).ValidateTable(context.Background(), db, cfg.Table,
+			gxsql.WithDialect(cfg.Dialect), gxsql.WithScope(scope), gxsql.WithKey("id"))
+		if err != nil {
+			t.Fatalf("ValidateTable: %v", err)
+		}
+		assertScopedQueries(t, db, "tenant_id", false, "tenant-none")
+		if report.ScopeID != "tenant-empty" || len(report.Results) != 2 {
+			t.Fatalf("scope/results = %q/%d, want tenant-empty/2", report.ScopeID, len(report.Results))
+		}
+		for i, res := range report.Results {
+			if !res.Success || res.Tolerated || res.Err != nil ||
+				res.RowDenominator != gxsql.RowDenominatorAvailable ||
+				res.Total != 0 || res.FailedCount != 0 || res.FailedPercent != 0 ||
+				math.IsNaN(res.FailedPercent) {
+				t.Fatalf("empty-scope result %d = %#v, want clean zero pass without NaN", i, res)
+			}
+			if res.Facts.ConfiguredMaxFailedCount == nil {
+				t.Fatalf("empty-scope result %d missing ConfiguredMaxFailedCount", i)
+			}
+		}
+	})
+
+	t.Run("tolerance adds no statements and reuses scoped total", func(t *testing.T) {
+		bareDB := &recordingDB{DB: cfg.DB}
+		if _, err := gxsql.NewSuite(
+			gxsql.Int("age").Between(0, 120),
+			gxsql.Column("name").Unique(),
+		).ValidateTable(context.Background(), bareDB, cfg.Table,
+			gxsql.WithDialect(cfg.Dialect), gxsql.WithKey("id")); err != nil {
+			t.Fatalf("bare ValidateTable: %v", err)
+		}
+
+		tolDB := &recordingDB{DB: cfg.DB}
+		tolReport, err := gxsql.NewSuite(
+			gxsql.WithMaxFailedCount(2, gxsql.Int("age").Between(0, 120)),
+			gxsql.WithMaxFailedCount(2, gxsql.Column("name").Unique()),
+		).ValidateTable(context.Background(), tolDB, cfg.Table,
+			gxsql.WithDialect(cfg.Dialect), gxsql.WithKey("id"))
+		if err != nil {
+			t.Fatalf("tolerant ValidateTable: %v", err)
+		}
+		if len(tolDB.queries) != len(bareDB.queries) {
+			t.Fatalf("tolerant queries = %d, bare = %d; wrapper must not add statements",
+				len(tolDB.queries), len(bareDB.queries))
+		}
+		if !tolReport.Results[0].Success || !tolReport.Results[0].Tolerated || tolReport.Results[0].FailedCount != 2 {
+			t.Fatalf("tolerant age = %#v, want exact-bound tolerated pass", tolReport.Results[0])
+		}
+		if !tolReport.Results[1].Success || !tolReport.Results[1].Tolerated || tolReport.Results[1].FailedCount != 2 {
+			t.Fatalf("tolerant unique = %#v, want exact-bound tolerated pass", tolReport.Results[1])
+		}
+
+		scope := gxsql.TrustedScope("tenant-a", "tenant_id = ?", "tenant-a")
+		scopedDB := &recordingDB{DB: cfg.DB}
+		scopedReport, err := gxsql.NewSuite(
+			gxsql.WithMaxFailedCount(1, gxsql.Int("age").Between(0, 120)),
+			gxsql.WithMaxFailedCount(0, gxsql.String("name").NotEmpty()),
+			gxsql.WithMaxFailedCount(0, gxsql.Column("name").Unique()),
+		).ValidateTable(context.Background(), scopedDB, cfg.Table,
+			gxsql.WithDialect(cfg.Dialect), gxsql.WithScope(scope), gxsql.WithKey("id"))
+		if err != nil {
+			t.Fatalf("scoped ValidateTable: %v", err)
+		}
+		totals := scopedDenominatorTotalQueries(scopedDB.queries)
+		if len(totals) != 1 {
+			t.Fatalf("scoped denominator totals = %d, want exactly 1 shared total", len(totals))
+		}
+		assertScopedQueries(t, &recordingDB{DB: cfg.DB, queries: totals}, "tenant_id", false, "tenant-a")
+		for i, res := range scopedReport.Results {
+			if res.Total != 2 || res.RowDenominator != gxsql.RowDenominatorAvailable {
+				t.Fatalf("scoped result %d = %#v, want shared total 2", i, res)
+			}
+		}
+	})
+
 	if cfg.Transaction != nil {
 		t.Run("narrow DB handles including transactions", func(t *testing.T) {
 			tx, rollback, err := cfg.Transaction(context.Background())
@@ -436,4 +695,41 @@ func Run(t *testing.T, cfg Config) {
 		t.Log("narrow DB handles including transactions: transaction callback not supplied")
 	}
 
+}
+
+func assertToleranceRawPreservation(t *testing.T, bare, tol gxsql.Result) {
+	t.Helper()
+	if tol.Total != bare.Total || tol.FailedCount != bare.FailedCount || tol.FailedPercent != bare.FailedPercent {
+		t.Fatalf("raw counts changed: bare total/failed/percent=%d/%d/%v tol=%d/%d/%v",
+			bare.Total, bare.FailedCount, bare.FailedPercent,
+			tol.Total, tol.FailedCount, tol.FailedPercent)
+	}
+	if !reflect.DeepEqual(tol.SampleValues, bare.SampleValues) {
+		t.Fatalf("SampleValues changed: bare=%#v tol=%#v", bare.SampleValues, tol.SampleValues)
+	}
+	if !reflect.DeepEqual(tol.FailedKeys, bare.FailedKeys) {
+		t.Fatalf("FailedKeys changed: bare=%#v tol=%#v", bare.FailedKeys, tol.FailedKeys)
+	}
+	if tol.Kind != bare.Kind || tol.Name != bare.Name || tol.Column != bare.Column {
+		t.Fatalf("identity changed: bare kind/name/col=%q/%q/%q tol=%q/%q/%q",
+			bare.Kind, bare.Name, bare.Column, tol.Kind, tol.Name, tol.Column)
+	}
+	if tol.RowDenominator != bare.RowDenominator {
+		t.Fatalf("RowDenominator changed: bare=%q tol=%q", bare.RowDenominator, tol.RowDenominator)
+	}
+}
+
+func scopedDenominatorTotalQueries(queries []recordedQuery) []recordedQuery {
+	var out []recordedQuery
+	for _, q := range queries {
+		upper := strings.ToUpper(q.text)
+		if !strings.Contains(upper, "SELECT COUNT(*)") {
+			continue
+		}
+		if strings.Contains(q.text, ") AND (") {
+			continue
+		}
+		out = append(out, q)
+	}
+	return out
 }

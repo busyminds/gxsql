@@ -5,13 +5,13 @@
 `Report` aggregates a validation run. It exposes `Results []Result` in suite
 order and `Target *TableRef`, which `ValidateTable` sets.
 
-| API                          | Description                                                                      |
-| ---------------------------- | -------------------------------------------------------------------------------- |
-| `Report.OK() bool`           | True when every result passed.                                                   |
-| `Report.Failures() []Result` | Results with `Success == false`, including errors recorded by `ContinueOnError`. |
-| `Report.Err() error`         | Nil for a passing report; otherwise `*ValidationError` with the complete report. |
-| `Report.String() string`     | Human-readable report summary and result lines.                                  |
-| `Result.String() string`     | Human-readable line prefixed by a pass or failure marker.                        |
+| API                          | Description                                                                                                  |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `Report.OK() bool`           | True when every result passed, including tolerated policy passes.                                            |
+| `Report.Failures() []Result` | Results with `Success == false`, including errors recorded by `ContinueOnError`. Omits tolerated results.    |
+| `Report.Err() error`         | Nil for a passing report (tolerated passes included); otherwise `*ValidationError` with the complete report. |
+| `Report.String() string`     | Human-readable report summary and result lines; tolerated passes stay visible.                               |
+| `Result.String() string`     | Human-readable line prefixed by a pass or failure marker; says `tolerated` when applicable.                  |
 
 `Result` is the outcome of one expectation. Its exported fields are:
 
@@ -20,18 +20,27 @@ order and `Target *TableRef`, which `ValidateTable` sets.
 | `ID`, `Kind`                                              | Machine-facing identity.                                                    |
 | `Name`, `Column`                                          | Human-facing check description and affected column. Do not parse `Name`.    |
 | `Success`, `Err`                                          | Policy outcome and a per-expectation failure recorded by `ContinueOnError`. |
-| `RowDenominator`, `Total`, `FailedCount`, `FailedPercent` | Population metrics; `FailedCount` uses the expectation-specific unit. |
+| `Tolerated`                                               | True when a nonzero raw failure count passed within `WithMaxFailedCount`.   |
+| `RowDenominator`, `Total`, `FailedCount`, `FailedPercent` | Population metrics; `FailedCount` uses the expectation-specific unit.       |
 | `Facts`                                                   | Structured observed values and configured thresholds.                       |
 | `SampleValues`, `FailedKeys`                              | Capped diagnostic data.                                                     |
 
 `RowDenominatorAvailable` means `Total` and `FailedPercent` describe a per-row
 population. `RowDenominatorUnavailable` marks a table-level check; `Total == 0`
-does not mean the table was empty.
-Custom-count results are the exception to the usual denominator interpretation:
-they use `KindCustom` and `RowDenominatorUnavailable`, but `FailedCount` is a
-complete non-negative count even though `Total` and `FailedPercent` are
-unavailable. `Column` is blank and custom counts never retain samples or failed
-keys; `WithKey`, sample caps, and `SummaryOnly()` do not change this shape.
+does not mean the table was empty. Custom-count results are the exception to the
+usual denominator interpretation: they use `KindCustom` and
+`RowDenominatorUnavailable`, but `FailedCount` is a complete non-negative count
+even though `Total` and `FailedPercent` are unavailable. `Column` is blank and
+custom counts never retain samples or failed keys; `WithKey`, sample caps, and
+`SummaryOnly()` do not change this shape.
+
+`WithMaxFailedCount` applies only to per-row and uniqueness shapes
+(`RowDenominatorAvailable`). It changes `Success` only. Raw observations stay
+complete under existing caps. Empty evaluated populations pass without division
+by zero or `NaN` and are not tolerated. Scope remains the evaluated population
+for all raw counts. Table-level, aggregate, distinct-count, row-count, and
+custom-count wrappers fail preflight. Execution and configuration errors keep
+`Success: false` and `Tolerated: false`.
 
 `RowKey` is `[]any` containing caller-supplied `WithKey` values in the same
 column order.
@@ -47,6 +56,9 @@ column order.
   hold aggregate thresholds.
 - `ConfiguredBound`, `ConfiguredBoundLower`, and `ConfiguredBoundUpper` retain
   driver-bound per-row comparison values.
+- `ConfiguredMaxFailedCount` holds the inclusive `WithMaxFailedCount` bound when
+  that decorator was applied, including raw-zero, above-bound, and
+  `ContinueOnError` execution-error outcomes.
 
 Built-in expectations populate threshold fields at construction time.
 
@@ -70,10 +82,17 @@ unwraps its issue errors.
 ## Display output
 
 `Result.String()` includes at most ten sample values and ten failed keys in
-display output, even if more were retained. `Report.String()` renders
+display output, even if more were retained. A tolerated result explicitly says
+`tolerated` and still shows raw failed count, total, failed percentage, samples,
+and failed keys under those display caps. `Report.String()` renders
 `gxsql report: X/Y expectations passed` followed by one result line per
-expectation. Treat this output as operator-facing text; prefer `Facts`, IDs, and
-exported DTOs for machines.
+expectation in declaration order; a tolerated policy pass counts as passed and
+keeps its tolerance marker. Treat this output as operator-facing text; prefer
+`Facts`, IDs, `Tolerated`, and exported DTOs for machines.
+
+For remediation, walk `Report.Results` and read `Result.Tolerated`. Do not rely
+on `Failures()` alone: tolerated results have `Success: true` and are omitted
+from that slice while remaining in `Results`, display text, and JSON.
 
 ## Limits
 

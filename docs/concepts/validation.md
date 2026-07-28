@@ -22,13 +22,13 @@ suite := gxsql.NewSuite(
 
 Built-in builders create the expectations `gxsql` supports:
 
-| Builder                     | Examples                                                      |
-| --------------------------- | ------------------------------------------------------------- |
-| `RowCount()`                | `Equal`, `Between`, `GreaterOrEqual`                          |
-| `Column(name)`              | `IsNull`, `NotNull`, `In`, `NotIn`, `Unique`, `DistinctCount` |
-| `Int(name)` / `Float(name)` | range and comparison checks, plus aggregate checks            |
-| `String(name)`              | `Empty`, `NotEmpty`, `LenEqual`, `LenBetween`                 |
-| `TrustedCountQuery` + `CustomCount` | Trusted SQL count returning one non-negative failure count |
+| Builder                             | Examples                                                      |
+| ----------------------------------- | ------------------------------------------------------------- |
+| `RowCount()`                        | `Equal`, `Between`, `GreaterOrEqual`                          |
+| `Column(name)`                      | `IsNull`, `NotNull`, `In`, `NotIn`, `Unique`, `DistinctCount` |
+| `Int(name)` / `Float(name)`         | range and comparison checks, plus aggregate checks            |
+| `String(name)`                      | `Empty`, `NotEmpty`, `LenEqual`, `LenBetween`                 |
+| `TrustedCountQuery` + `CustomCount` | Trusted SQL count returning one non-negative failure count    |
 
 Do not implement `Expectation` outside `gxsql`. It is a sealed interface;
 construct expectations with these builders. The
@@ -104,12 +104,12 @@ report, err := suite.ValidateTable(
 )
 ```
 
-The predicate is trusted Go-code input, not a sandbox for untrusted SQL.
-Callers must never pass user-authored predicate text to `TrustedScope`.
-Choose from predicates defined by the application, and pass request-derived
-data only as separately bound values. `gxsql` binds scope values before the
-expectation values and renders the placeholders for the selected dialect; do
-not interpolate values into the predicate.
+The predicate is trusted Go-code input, not a sandbox for untrusted SQL. Callers
+must never pass user-authored predicate text to `TrustedScope`. Choose from
+predicates defined by the application, and pass request-derived data only as
+separately bound values. `gxsql` binds scope values before the expectation
+values and renders the placeholders for the selected dialect; do not interpolate
+values into the predicate.
 
 The same pattern handles other bounded populations:
 
@@ -169,12 +169,12 @@ names, and invalid scope composition before any custom-count SQL runs.
 
 The query must return exactly one row and one column. Signed integer driver
 values (`int`, `int8`, `int16`, `int32`, or `int64`) are accepted; textual
-numerics are not coerced. The count must be non-negative and representable as
-Go `int`. On success the result uses
-`KindCustom`, blank `Column`, `RowDenominatorUnavailable`, and a complete
-`FailedCount` (including zero). `Total`, `FailedPercent`, `SampleValues`, and
-`FailedKeys` are unavailable. `WithKey`, sample caps, and `SummaryOnly()` add no
-diagnostics for custom counts—appropriate for gates, not row-level remediation.
+numerics are not coerced. The count must be non-negative and representable as Go
+`int`. On success the result uses `KindCustom`, blank `Column`,
+`RowDenominatorUnavailable`, and a complete `FailedCount` (including zero).
+`Total`, `FailedPercent`, `SampleValues`, and `FailedKeys` are unavailable.
+`WithKey`, sample caps, and `SummaryOnly()` add no diagnostics for custom
+counts—appropriate for gates, not row-level remediation.
 
 Portable join count (scoped; qualify `{{scope}}` for the table alias):
 
@@ -212,8 +212,8 @@ report, err := suite.ValidateTable(ctx, db, gxsql.Table("order_lines"),
 ```
 
 Default reports, errors, and `ExportReport` omit template SQL and bound
-arguments, including driver-error text. `CaptureQueryDiagnostics()` is an
-opt-in export-only path subject to existing redactors.
+arguments, including driver-error text. `CaptureQueryDiagnostics()` is an opt-in
+export-only path subject to existing redactors.
 
 ## Error handling
 

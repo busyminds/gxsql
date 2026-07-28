@@ -26,6 +26,42 @@ if err := report.Err(); err != nil {
 }
 ```
 
+## Raw observations versus policy verdict
+
+`Success` is the policy verdict. Raw observations (`Total`, `FailedCount`,
+`FailedPercent`, samples, and failed keys) stay intact under their normal cap
+settings even when a policy pass is tolerated.
+
+`WithMaxFailedCount(max, exp)` sets an inclusive non-negative maximum failed-row
+count. Equality passes. There is no percentage, pass-rate, `Mostly`, rounding,
+or compound policy. Tolerance changes only the verdict: a nonzero raw failure
+count at or below `max` yields `Success: true` and `Tolerated: true`. Above the
+bound, `Success` is false and `Tolerated` is false. A raw-zero or empty
+evaluated population passes and is not tolerated; empty populations do not
+divide by zero or produce `NaN`. Scope remains the evaluated population for all
+raw counts.
+
+Tolerated results count as successful for `report.OK()` and `report.Err()`;
+`report.Failures()` omits them. They remain visible in `Result.Tolerated`,
+`Report.String()`, and exported JSON. For remediation, walk `Report.Results` and
+inspect `Result.Tolerated`—do not rely on `Failures()` alone. Read the
+configured bound from `Result.Facts.ConfiguredMaxFailedCount`.
+
+Only per-row and uniqueness expectations qualify. Wrapping a table-level,
+aggregate, distinct-count, row-count, or custom-count declaration fails
+preflight. Execution and configuration errors are never tolerated.
+
+```go
+if err := report.Err(); err != nil {
+    return err // above-bound or other policy failures
+}
+for _, result := range report.Results {
+    if result.Tolerated {
+        // raw FailedCount/samples/keys remain for remediation
+    }
+}
+```
+
 ## Read a result
 
 Per-row checks set `RowDenominator` to `RowDenominatorAvailable` and populate:
@@ -35,6 +71,9 @@ Per-row checks set `RowDenominator` to `RowDenominatorAvailable` and populate:
   failures.
 - `SampleValues`: capped examples of offending values.
 - `FailedKeys`: optional caller-selected row identities.
+- `Tolerated`: true when a nonzero raw failure count passed within
+  `WithMaxFailedCount`; false for clean passes, above-bound failures, empty
+  populations, and errors.
 
 Table-level checks—row count, distinct count, numeric aggregates, and custom
 counts—use `RowDenominatorUnavailable`. Their `Total` remains zero because no

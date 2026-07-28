@@ -29,16 +29,16 @@ per-expectation failure in the report.
 `Option` is an opaque function configuring one validation run. Per-run options
 override suite-level caps.
 
-| Option                                                      | Effect                                                                                                  |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `WithDialect(d Dialect)`                                   | Selects the SQL renderer. Defaults to `Postgres()`.                                                     |
-| `WithSampleCap(n int)`                                     | Overrides the maximum retained sample values; `0` disables sample collection.                           |
-| `WithFailedKeysCap(n int)`                                 | Overrides the maximum retained failed keys; `0` is unlimited.                                           |
-| `WithKey(columns ...string)`                               | Retains supplied row-key columns and disables summary-only mode.                                        |
-| `SummaryOnly()`                                            | Does not load failed-row identities.                                                                    |
-| `ContinueOnError()`                                        | Records preflight and execution errors on results and continues.                                        |
-| `CaptureQueryDiagnostics()`                                | Records SQL and arguments for optional export only.                                                     |
-| `WithScope(scope Scope)`                                   | Limits every expectation to rows matching the scope predicate; validates the scope when the run starts. |
+| Option                       | Effect                                                                                                  |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `WithDialect(d Dialect)`     | Selects the SQL renderer. Defaults to `Postgres()`.                                                     |
+| `WithSampleCap(n int)`       | Overrides the maximum retained sample values; `0` disables sample collection.                           |
+| `WithFailedKeysCap(n int)`   | Overrides the maximum retained failed keys; `0` is unlimited.                                           |
+| `WithKey(columns ...string)` | Retains supplied row-key columns and disables summary-only mode.                                        |
+| `SummaryOnly()`              | Does not load failed-row identities.                                                                    |
+| `ContinueOnError()`          | Records preflight and execution errors on results and continues.                                        |
+| `CaptureQueryDiagnostics()`  | Records SQL and arguments for optional export only.                                                     |
+| `WithScope(scope Scope)`     | Limits every expectation to rows matching the scope predicate; validates the scope when the run starts. |
 
 When neither `WithKey` nor `SummaryOnly` is supplied, results contain counts and
 capped samples but no failed-row identities. Invalid run-level options—such as a
@@ -108,33 +108,35 @@ rules described above.
 
 ## Custom count checks
 
-| API | Description |
-| --- | --- |
-| `TrustedCountQuery(template string, args ...any) CountQuery` | Builds an immutable trusted SQL count template with bound custom arguments. |
-| `CustomCount(name string, query CountQuery) Expectation` | Executes the template and treats the scalar result as a failure count. `name` must be non-blank. |
-| `CountQuery` | Immutable carrier for template and arguments; construct only with `TrustedCountQuery`. |
+| API                                                          | Description                                                                                      |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `TrustedCountQuery(template string, args ...any) CountQuery` | Builds an immutable trusted SQL count template with bound custom arguments.                      |
+| `CustomCount(name string, query CountQuery) Expectation`     | Executes the template and treats the scalar result as a failure count. `name` must be non-blank. |
+| `CountQuery`                                                 | Immutable carrier for template and arguments; construct only with `TrustedCountQuery`.           |
 
-Template SQL is trusted Go-code input, not a sandbox for untrusted text.
-Callers must never insert user-authored SQL into templates. A template contains
-exactly one `{{target}}` and one `{{scope}}`, both outside SQL strings and
-comments. The library renders `{{target}}` only from the validated `TableRef`.
-`{{scope}}` renders `TRUE` for an unscoped run or the parenthesized scope
-predicate from `WithScope`. Place both markers in syntactically valid SQL and
-qualify scope column references when the query uses table aliases; `gxsql` does
-not parse or rewrite joins, `GROUP BY`, `HAVING`, or aliases.
+Template SQL is trusted Go-code input, not a sandbox for untrusted text. Callers
+must never insert user-authored SQL into templates. A template contains exactly
+one `{{target}}` and one `{{scope}}`, both outside SQL strings and comments. The
+library renders `{{target}}` only from the validated `TableRef`. `{{scope}}`
+renders `TRUE` for an unscoped run or the parenthesized scope predicate from
+`WithScope`. Place both markers in syntactically valid SQL and qualify scope
+column references when the query uses table aliases; `gxsql` does not parse or
+rewrite joins, `GROUP BY`, `HAVING`, or aliases.
 
 Custom `?` placeholders must appear after `{{scope}}`. Bound arguments are scope
-values first, then custom template values. Preflight rejects marker, placeholder,
-and arity errors before SQL. Invalid custom declarations never execute a
-statement. Without `ContinueOnError()`, preflight or execution failure returns
-`(Report{}, err)`. With it, the affected result records `Err` in its declaration
-slot and later expectations still run. Malformed count results (wrong row/column
-shape, non-integer, negative, or overflow) are scan-category errors.
+values first, then custom template values. Preflight rejects marker,
+placeholder, and arity errors before SQL. Invalid custom declarations never
+execute a statement. Without `ContinueOnError()`, preflight or execution failure
+returns `(Report{}, err)`. With it, the affected result records `Err` in its
+declaration slot and later expectations still run. Malformed count results
+(wrong row/column shape, non-integer, negative, or overflow) are scan-category
+errors.
 
-On success, results use `KindCustom`, blank `Column`, `RowDenominatorUnavailable`,
-and a complete `FailedCount`. `WithKey`, sample caps, and `SummaryOnly()` add no
-diagnostics. Default errors and display output omit template SQL and arguments;
-use `CaptureQueryDiagnostics()` only when opting into export diagnostics.
+On success, results use `KindCustom`, blank `Column`,
+`RowDenominatorUnavailable`, and a complete `FailedCount`. `WithKey`, sample
+caps, and `SummaryOnly()` add no diagnostics. Default errors and display output
+omit template SQL and arguments; use `CaptureQueryDiagnostics()` only when
+opting into export diagnostics.
 
 Join count example:
 
@@ -159,6 +161,41 @@ FROM (
 ) AS violating_groups`, int64(1))
 exp := gxsql.CustomCount("accounts with multiple order lines", query)
 ```
+
+## Bounded failure tolerance
+
+`WithMaxFailedCount(max int, exp Expectation) Expectation` wraps one expectation
+with an inclusive non-negative maximum failed-row count. Equality passes. There
+is no percentage, pass-rate, `Mostly`, rounding, or compound policy.
+
+| API                                                        | Description                                                                                                                                              |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WithMaxFailedCount(max int, exp Expectation) Expectation` | Decorates an eligible expectation with a maximum failed-row allowance. Immutable; works with `NewSuite` and with `WithID` inside or outside the wrapper. |
+
+Only per-row and uniqueness expectations qualify. Wrapping a table-level,
+aggregate, distinct-count, row-count, or custom-count declaration—or a negative
+bound, nil inner expectation, or a second nested tolerance—fails `ValidateTable`
+preflight before SQL. Without `ContinueOnError()`, invalid tolerance returns the
+zero report and `*PreflightErrors`. With it, the matching declaration-order slot
+records the configuration error and later expectations still run.
+
+Tolerance changes only the policy verdict after the inner expectation evaluates
+once. Raw `Total`, `FailedCount`, `FailedPercent`, samples, and failed keys
+remain under existing cap and key options. Empty evaluated populations pass and
+are not tolerated. Scope remains the evaluated population for all raw counts.
+Execution and configuration errors are never tolerated.
+
+```go
+suite := gxsql.NewSuite(
+    gxsql.WithMaxFailedCount(2, gxsql.String("email").NotEmpty()),
+    gxsql.WithID("users.email.unique",
+        gxsql.WithMaxFailedCount(1, gxsql.Column("email").Unique())),
+)
+```
+
+Gate with `report.OK()` or `report.Err()`. Tolerated results count as successful
+and are omitted from `report.Failures()`; inspect `Report.Results` and
+`Result.Tolerated` for remediation.
 
 ## Test helpers
 

@@ -32,21 +32,43 @@ func preflightExpectation(exp Expectation) error {
 }
 
 func expectationID(exp Expectation) string {
-	w, ok := exp.(*idExpectation)
-	if !ok {
-		return ""
+	for {
+		switch w := exp.(type) {
+		case *idExpectation:
+			if w == nil {
+				return ""
+			}
+			return w.id
+		case *maxFailedCountExpectation:
+			if w == nil {
+				return ""
+			}
+			exp = w.inner
+		default:
+			return ""
+		}
 	}
-	return w.id
 }
 
-// unwrapExpectation peels WithID wrappers to the underlying expectation.
+// unwrapExpectation peels WithID and tolerance wrappers to the underlying
+// expectation. Denominator detection still depends on the core declaration,
+// not merely on the presence of a wrapper.
 func unwrapExpectation(exp Expectation) Expectation {
 	for {
-		w, ok := exp.(*idExpectation)
-		if !ok || w == nil {
+		switch w := exp.(type) {
+		case *idExpectation:
+			if w == nil {
+				return exp
+			}
+			exp = w.inner
+		case *maxFailedCountExpectation:
+			if w == nil {
+				return exp
+			}
+			exp = w.inner
+		default:
 			return exp
 		}
-		exp = w.inner
 	}
 }
 

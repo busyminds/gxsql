@@ -22,13 +22,30 @@ an explicit zero. `counts.total` and `counts.failed_percent` are omitted because
 `RowDenominatorUnavailable`. Custom counts never export samples or failed keys.
 `WithKey`, sample caps, and `SummaryOnly()` do not change custom-count export.
 
+## Bounded failure tolerance
+
+`WithMaxFailedCount` results remain discoverable in JSON without changing
+`ExportSchemaVersion`. When `Result.Tolerated` is true, `ExportedResult` emits
+`tolerated: true`; the field is omitted otherwise. `ExportedFacts` includes
+`configured_max_failed_count` whenever that decorator was applied. Existing
+`counts.total`, `counts.failed`, and `counts.failed_percent` carry the raw
+observations. Exported `policy_verdict` stays `pass` and `execution_outcome`
+stays `ok` for a tolerated policy pass; the tolerance flag, configured bound,
+and raw counts distinguish it from a clean pass.
+
+Export remains privacy-safe by default. The tolerance flag, bound, and raw
+counts are exported; samples, failed keys, query diagnostics, and arguments keep
+their existing opt-in and redaction rules (`IncludeSamples`,
+`IncludeFailedKeys`, `IncludeCapturedDiagnostics`, `IncludeCapturedArguments`,
+and redactors).
+
 ## Scoped reports and privacy
 
 `TrustedScope(id, predicate, args...)` creates a scope for trusted Go-code
-predicate input. The predicate is not a SQL sandbox: never pass
-user-authored predicate text to it. Keep values separate from the predicate
-with `?` placeholders; tenant, batch, and half-open time-window values are
-bound as arguments:
+predicate input. The predicate is not a SQL sandbox: never pass user-authored
+predicate text to it. Keep values separate from the predicate with `?`
+placeholders; tenant, batch, and half-open time-window values are bound as
+arguments:
 
 ```go
 tenantID := "tenant-acme"
@@ -55,8 +72,8 @@ identity. They do not serialize the scope predicate text or bound arguments.
 Default `Report.Err()`, `Report.String()`, and `Result.String()` output omit
 those scope fields, as does default `ExportReport` output. Ordinary samples and
 failed keys remain subject to the usual report redaction guidance.
-`IncludeCapturedDiagnostics()` or `IncludeCapturedArguments()` deliberately
-opts into sensitive SQL diagnostics; use those options only with appropriate
+`IncludeCapturedDiagnostics()` or `IncludeCapturedArguments()` deliberately opts
+into sensitive SQL diagnostics; use those options only with appropriate
 redaction.
 
 Production callers should validate with a context deadline and a database role
@@ -101,17 +118,17 @@ A redactor error or panic fails export closed.
 
 ## Exported types
 
-| Type                  | JSON role                                                                              |
-| --------------------- | -------------------------------------------------------------------------------------- |
-| `ExportedReport`      | Schema version, optional target/scope, and declaration-ordered results.                |
-| `ExportedTarget`      | Optional schema and table name.                                                        |
-| `ExportedScope`       | Optional stable caller scope identity as `scope.id`; predicate and bound values are not included. |
-| `ExportedResult`      | Identity, verdicts, counts, facts, caps, opted-in diagnostics, and categorized errors. |
-| `ExportedCounts`      | Optional total, failed count, and failed percentage.                                   |
-| `ExportedFacts`       | Observations and configured thresholds.                                                |
-| `ExportedCaps`        | Returned and truncated flags for opted-in samples and keys.                            |
-| `ExportedDiagnostics` | Opted-in redacted SQL, optional arguments, and truncation flags.                       |
-| `ExportedError`       | Stable error category and export-safe message.                                         |
+| Type                  | JSON role                                                                                                    |
+| --------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `ExportedReport`      | Schema version, optional target/scope, and declaration-ordered results.                                      |
+| `ExportedTarget`      | Optional schema and table name.                                                                              |
+| `ExportedScope`       | Optional stable caller scope identity as `scope.id`; predicate and bound values are not included.            |
+| `ExportedResult`      | Identity, verdicts, optional `tolerated`, counts, facts, caps, opted-in diagnostics, and categorized errors. |
+| `ExportedCounts`      | Optional total, failed count, and failed percentage.                                                         |
+| `ExportedFacts`       | Observations and configured thresholds, including optional `configured_max_failed_count`.                    |
+| `ExportedCaps`        | Returned and truncated flags for opted-in samples and keys.                                                  |
+| `ExportedDiagnostics` | Opted-in redacted SQL, optional arguments, and truncation flags.                                             |
+| `ExportedError`       | Stable error category and export-safe message.                                                               |
 
 `PolicyVerdict` is `pass`, `fail`, or `unevaluated`. `unevaluated` is used when
 the source `Result` has `Err`. `ExecutionOutcome` distinguishes a successful

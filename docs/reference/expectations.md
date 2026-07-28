@@ -80,8 +80,8 @@ rune counting.
 
 `TrustedCountQuery(template string, args ...any) CountQuery` creates an
 immutable trusted SQL template. Use `CustomCount(name string, query CountQuery)`
-to add it to a suite. Template text is application-owned Go code, not a
-sandbox for user-authored SQL.
+to add it to a suite. Template text is application-owned Go code, not a sandbox
+for user-authored SQL.
 
 The template must contain exactly one `{{target}}` and one `{{scope}}` marker,
 both outside SQL strings and comments. `{{target}}` is replaced with the
@@ -96,8 +96,36 @@ Successful results use `KindCustom`, leave `Column` blank, set
 `RowDenominatorUnavailable`, and expose the complete `FailedCount` (including
 zero). `Total`, `FailedPercent`, `SampleValues`, and `FailedKeys` are
 unavailable. `WithKey`, sample caps, and `SummaryOnly()` do not add diagnostics
-to custom-count results. See [suite and SQL integration](suite.md) for join
-and aggregate examples.
+to custom-count results. See [suite and SQL integration](suite.md) for join and
+aggregate examples.
+
+## Bounded failure tolerance
+
+`WithMaxFailedCount(max int, exp Expectation) Expectation` wraps one eligible
+builder result with an inclusive non-negative maximum failed-row count. Equality
+passes. There is no percentage, pass-rate, `Mostly`, rounding, or compound
+policy.
+
+Eligible shapes are per-row and uniqueness expectations: `Column` null and
+membership checks, `Unique()`, numeric per-row comparisons (`Between`,
+`GreaterThan`, `GreaterOrEqual`, `LessThan`, `LessOrEqual`), and string checks
+(`NotEmpty`, `Empty`, `LenEqual`, `LenBetween`). Wrapping a table-level,
+aggregate, distinct-count, row-count, or custom-count declaration—or a negative
+bound, nil inner expectation, or a second nested tolerance—fails `ValidateTable`
+preflight before SQL.
+
+Tolerance changes only the policy verdict after the inner expectation evaluates
+once. Raw `Total`, `FailedCount`, `FailedPercent`, samples, and failed keys
+remain under existing cap and key options. Empty evaluated populations pass and
+are not tolerated. Scope remains the evaluated population for all raw counts.
+Execution and configuration errors are never tolerated.
+
+Gate with `report.OK()` or `report.Err()`. Tolerated results count as successful
+and are omitted from `report.Failures()`; inspect `Report.Results` and
+`Result.Tolerated` for remediation. The wrapper is immutable and may nest with
+`WithID` in either order. See [suite and SQL integration](suite.md) and
+[reports, errors, rendering, and limits](results.md) for display text, facts,
+and nesting details.
 
 ## Machine identity
 

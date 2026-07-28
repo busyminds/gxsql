@@ -23,6 +23,9 @@ func (r Result) String() string {
 	if r.FailedCount == 0 {
 		return fmt.Sprintf("✗ %s", r.Name)
 	}
+	if failed, ok := customCountDisplayFailed(r); ok {
+		return fmt.Sprintf("✗ %s  %d failed", r.Name, failed)
+	}
 	return fmt.Sprintf("✗ %s  %d/%d failed (%.1f%%)  e.g. %s @ %s",
 		r.Name,
 		r.FailedCount,

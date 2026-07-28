@@ -76,6 +76,29 @@ fails each string policy.
 Length uses the dialect's SQL length expression—`CHAR_LENGTH` or `LENGTH`—not Go
 rune counting.
 
+## Custom counts
+
+`TrustedCountQuery(template string, args ...any) CountQuery` creates an
+immutable trusted SQL template. Use `CustomCount(name string, query CountQuery)`
+to add it to a suite. Template text is application-owned Go code, not a
+sandbox for user-authored SQL.
+
+The template must contain exactly one `{{target}}` and one `{{scope}}` marker,
+both outside SQL strings and comments. `{{target}}` is replaced with the
+validated table reference; `{{scope}}` is replaced with `TRUE` when unscoped or
+the parenthesized `WithScope` predicate. Custom `?` placeholders must follow
+`{{scope}}`; scope arguments bind first, followed by custom arguments. Marker,
+placeholder, and arity errors are rejected during preflight.
+
+The query must return exactly one row and one column containing a non-negative
+signed integer representable as Go `int`; textual numerics are not coerced.
+Successful results use `KindCustom`, leave `Column` blank, set
+`RowDenominatorUnavailable`, and expose the complete `FailedCount` (including
+zero). `Total`, `FailedPercent`, `SampleValues`, and `FailedKeys` are
+unavailable. `WithKey`, sample caps, and `SummaryOnly()` do not add diagnostics
+to custom-count results. See [suite and SQL integration](suite.md) for join
+and aggregate examples.
+
 ## Machine identity
 
 Use `WithID(id, expectation)` to decorate any builder result with a stable

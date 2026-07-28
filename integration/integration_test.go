@@ -74,6 +74,77 @@ func TestPostgresConformance(t *testing.T) {
 		Transaction: transactionFactory(db),
 	})
 }
+
+func TestSQLiteCustomCountConformance(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:gxsql_custom_count?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+	setupSQLiteCustomCount(t, db)
+
+	conformance.RunCustomCount(t, conformance.CustomCountConfig{
+		DB:      db,
+		Dialect: gxsql.SQLite(),
+		Table:   gxsql.Table("order_lines"),
+	})
+}
+
+func TestDuckDBCustomCountConformance(t *testing.T) {
+	db, err := sql.Open("duckdb", "")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+	setupDuckDBCustomCount(t, db)
+
+	conformance.RunCustomCount(t, conformance.CustomCountConfig{
+		DB:      db,
+		Dialect: gxsql.DuckDB(),
+		Table:   gxsql.Table("order_lines"),
+	})
+}
+
+func TestPostgresCustomCountConformance(t *testing.T) {
+	dsn := os.Getenv("GXSQL_POSTGRES_DSN")
+	if dsn == "" {
+		t.Fatal("GXSQL_POSTGRES_DSN is not set")
+	}
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	setupPostgresCustomCount(t, db)
+
+	conformance.RunCustomCount(t, conformance.CustomCountConfig{
+		DB:      db,
+		Dialect: gxsql.Postgres(),
+		Table:   gxsql.SchemaTable("public", "order_lines"),
+	})
+}
+
+func TestMySQLCustomCountConformance(t *testing.T) {
+	dsn := os.Getenv("GXSQL_MYSQL_DSN")
+	if dsn == "" {
+		t.Fatal("GXSQL_MYSQL_DSN is not set")
+	}
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	setupMySQLCustomCount(t, db)
+
+	conformance.RunCustomCount(t, conformance.CustomCountConfig{
+		DB:      db,
+		Dialect: gxsql.MySQL(),
+		Table:   gxsql.SchemaTable("gxsql", "order_lines"),
+	})
+}
+
 func TestMySQLConformance(t *testing.T) {
 	dsn := os.Getenv("GXSQL_MYSQL_DSN")
 	if dsn == "" {
@@ -167,6 +238,7 @@ func setupPostgres(t *testing.T, db *sql.DB) {
 	insertFixtures(t, db, "$", "public.users")
 	t.Cleanup(func() { _, _ = db.Exec(`DROP TABLE IF EXISTS public.users, public.empty_users`) })
 }
+
 func setupMySQL(t *testing.T, db *sql.DB) {
 	t.Helper()
 	for _, query := range []string{
@@ -190,6 +262,128 @@ func setupMySQL(t *testing.T, db *sql.DB) {
 		_, _ = db.Exec(`DROP TABLE IF EXISTS empty_users`)
 		_, _ = db.Exec(`DROP TABLE IF EXISTS utf8_char_length`)
 	})
+}
+
+func setupSQLiteCustomCount(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, query := range []string{
+		`CREATE TABLE accounts (id INTEGER PRIMARY KEY, status TEXT NOT NULL)`,
+		`CREATE TABLE order_lines (id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL, batch_id INTEGER NOT NULL, tenant_id TEXT NOT NULL)`,
+	} {
+		if _, err := db.Exec(query); err != nil {
+			t.Fatalf("SQLite custom-count schema: %v", err)
+		}
+	}
+	insertCustomCountFixtures(t, db, "?", "accounts", "order_lines")
+}
+
+func setupDuckDBCustomCount(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, query := range []string{
+		`DROP TABLE IF EXISTS order_lines`,
+		`DROP TABLE IF EXISTS accounts`,
+		`CREATE TABLE accounts (id BIGINT PRIMARY KEY, status VARCHAR NOT NULL)`,
+		`CREATE TABLE order_lines (id BIGINT PRIMARY KEY, account_id BIGINT NOT NULL, batch_id BIGINT NOT NULL, tenant_id VARCHAR NOT NULL)`,
+	} {
+		if _, err := db.Exec(query); err != nil {
+			t.Fatalf("DuckDB custom-count schema: %v", err)
+		}
+	}
+	insertCustomCountFixtures(t, db, "$", "accounts", "order_lines")
+}
+
+func setupPostgresCustomCount(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if _, err := db.Exec(`DROP TABLE IF EXISTS public.order_lines, public.accounts`); err != nil {
+		t.Fatalf("PostgreSQL custom-count cleanup: %v", err)
+	}
+	for _, query := range []string{
+		`CREATE TABLE public.accounts (id BIGINT PRIMARY KEY, status TEXT NOT NULL)`,
+		`CREATE TABLE public.order_lines (id BIGINT PRIMARY KEY, account_id BIGINT NOT NULL, batch_id BIGINT NOT NULL, tenant_id TEXT NOT NULL)`,
+	} {
+		if _, err := db.Exec(query); err != nil {
+			t.Fatalf("PostgreSQL custom-count schema: %v", err)
+		}
+	}
+	insertCustomCountFixtures(t, db, "$", "public.accounts", "public.order_lines")
+	t.Cleanup(func() { _, _ = db.Exec(`DROP TABLE IF EXISTS public.order_lines, public.accounts`) })
+}
+
+func setupMySQLCustomCount(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, query := range []string{
+		`DROP TABLE IF EXISTS order_lines`,
+		`DROP TABLE IF EXISTS accounts`,
+		`CREATE TABLE accounts (id BIGINT PRIMARY KEY, status VARCHAR(32) NOT NULL) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
+		`CREATE TABLE order_lines (id BIGINT PRIMARY KEY, account_id BIGINT NOT NULL, batch_id BIGINT NOT NULL, tenant_id VARCHAR(255) NOT NULL) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
+	} {
+		if _, err := db.Exec(query); err != nil {
+			t.Fatalf("MySQL custom-count schema: %v", err)
+		}
+	}
+	insertCustomCountFixtures(t, db, "?", "accounts", "order_lines")
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DROP TABLE IF EXISTS order_lines`)
+		_, _ = db.Exec(`DROP TABLE IF EXISTS accounts`)
+	})
+}
+
+func insertCustomCountFixtures(t *testing.T, db *sql.DB, placeholder, accountsTable, orderLinesTable string) {
+	t.Helper()
+	placeholderAt := func(start, count int) []string {
+		out := make([]string, count)
+		for i := range out {
+			if placeholder == "?" {
+				out[i] = "?"
+				continue
+			}
+			out[i] = fmt.Sprintf("%s%d", placeholder, start+i)
+		}
+		return out
+	}
+
+	p1 := placeholderAt(1, 2)
+	p2 := placeholderAt(3, 2)
+	p3 := placeholderAt(5, 2)
+	accountQuery := fmt.Sprintf(
+		"INSERT INTO %s (id, status) VALUES (%s, %s), (%s, %s), (%s, %s)",
+		accountsTable,
+		p1[0], p1[1], p2[0], p2[1], p3[0], p3[1],
+	)
+	if _, err := db.Exec(accountQuery, int64(1), "active", int64(2), "inactive", int64(3), "active"); err != nil {
+		t.Fatalf("insert accounts: %v", err)
+	}
+
+	linePlaceholders := make([]string, 4)
+	for i := range linePlaceholders {
+		if placeholder == "?" {
+			linePlaceholders[i] = placeholder
+			continue
+		}
+		linePlaceholders[i] = fmt.Sprintf("%s%d", placeholder, i+1)
+	}
+	lineQuery := fmt.Sprintf(
+		"INSERT INTO %s (id, account_id, batch_id, tenant_id) VALUES (%s, %s, %s, %s)",
+		orderLinesTable,
+		linePlaceholders[0], linePlaceholders[1], linePlaceholders[2], linePlaceholders[3],
+	)
+	lines := []struct {
+		id        int64
+		accountID int64
+		batchID   int64
+		tenantID  string
+	}{
+		{1, 1, 1, "tenant-a"},
+		{2, 1, 1, "tenant-a"},
+		{3, 2, 2, "tenant-a"},
+		{4, 3, 2, "tenant-b"},
+		{5, 3, 1, "tenant-b"},
+	}
+	for _, line := range lines {
+		if _, err := db.Exec(lineQuery, line.id, line.accountID, line.batchID, line.tenantID); err != nil {
+			t.Fatalf("insert order line %d: %v", line.id, err)
+		}
+	}
 }
 
 func insertFixtures(t *testing.T, db *sql.DB, placeholder, table string) {

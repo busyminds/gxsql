@@ -64,13 +64,14 @@ dependencies.
 
 ## Example entry points
 
-The four most common entry points are below and are expanded in the rest of this
+The five most common entry points are below and are expanded in the rest of this
 README:
 
 1. `ValidateTable` quick start.
 2. Report gating with `report.Err()` / `report.Failures()`.
 3. `gxsqltest.Check` and `gxsqltest.Require` for `testing.T`.
 4. `ExportReport` for machine-readable JSON export.
+5. `TrustedCountQuery` / `CustomCount` for portable join and aggregate counts.
 
 ## Quick start
 
@@ -192,6 +193,41 @@ usual report redaction guidance. For production validation, use a read-only
 database role (ideally limited to validation views) and set a context deadline
 on every `ValidateTable` call.
 
+## Custom count checks
+
+Use `TrustedCountQuery` and `CustomCount` when a built-in expectation cannot
+express the rule but a trusted SQL count can. Template SQL is Go-code input that
+your team reviews; it is not a sandbox for untrusted SQL. Never insert
+user-authored SQL into templates or interpolate identifiers or values into
+template text.
+
+The library renders `{{target}}` from the validated `TableRef` and `{{scope}}`
+from `WithScope` (or `TRUE` when unscoped). A template must contain exactly one
+`{{target}}` and one `{{scope}}`, both outside SQL strings and comments. Place
+both markers in syntactically valid SQL and qualify scope column references when
+the query uses table aliases. Custom `?` placeholders must come after
+`{{scope}}`; bound argument order is scope arguments first, then custom
+arguments. Preflight rejects invalid markers, placeholder placement, and arity
+mismatches before any custom-count SQL runs.
+
+The query must return one row and one non-negative signed-integer count;
+textual numerics are not coerced. Results
+use `KindCustom` with a complete `FailedCount` and `RowDenominatorUnavailable`;
+samples and failed keys are unavailable.
+
+```go
+joinCount := gxsql.TrustedCountQuery(`SELECT COUNT(*)
+FROM {{target}} AS o
+JOIN accounts AS a ON a.id = o.account_id
+WHERE {{scope}} AND a.status = ?`, "inactive")
+
+suite := gxsql.NewSuite(gxsql.CustomCount("inactive account orders", joinCount))
+report, err := suite.ValidateTable(ctx, db, gxsql.Table("order_lines"),
+    gxsql.WithDialect(gxsql.Postgres()),
+    gxsql.WithScope(gxsql.TrustedScope("tenant-a", "o.tenant_id = ?", tenantID)),
+)
+```
+
 ## Why gxsql
 
 - **SQL-native validation** — expectations render to SQL and run in the database
@@ -285,7 +321,7 @@ go test -race -run '^TestDuckDBConformance$' ./...
 | Concept             | Description                                                                                                                                                                                                                                                            |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Suite**           | An ordered set of expectations from `gxsql.NewSuite(...)`. Results appear in the same declaration order.                                                                                                                                                               |
-| **Expectation**     | One data-quality assertion over a table, built with `RowCount`, `Column`, `Int`, `Float`, or `String`.                                                                                                                                                                 |
+| **Expectation**     | One data-quality assertion over a table, built with `RowCount`, `Column`, `Int`, `Float`, `String`, or `CustomCount`.                                                                                                                                                  |
 | **TableRef**        | Names the table under test: `gxsql.Table("users")` or `gxsql.SchemaTable("public", "users")`. Identifiers must match `^[A-Za-z_][A-Za-z0-9_]*$`.                                                                                                                       |
 | **Dialect**         | Renders identifiers, placeholders, and string-length expressions. Built-in: `gxsql.Postgres()`, `gxsql.SQLite()`, `gxsql.DuckDB()`, and `gxsql.MySQL()`. `ValidateTable` defaults to PostgreSQL when no dialect is supplied; pass `gxsql.WithDialect(...)` explicitly. |
 | **Report / Result** | A `Report` holds one `Result` per expectation. Use `report.OK()`, `report.Failures()`, `report.Err()`, and `report.String()` to gate and inspect outcomes.                                                                                                             |

@@ -13,8 +13,14 @@ result has `Err` and later expectations still run. IDs are never derived from
 
 `ExpectationKind` is the stable category of a built-in expectation. The `Kind*`
 constants cover row-count, per-row predicate, distinct-count, and aggregate
-builders; `KindCustom` means built-in metadata is unavailable. Use `Kind` and
-`ID` for machine joins, not display text.
+builders; `KindCustom` marks custom counts from `CustomCount`. Other
+expectations may still use `KindCustom` when built-in metadata is unavailable.
+Use `Kind` and `ID` for machine joins, not display text.
+
+Custom-count results export `counts.failed` when execution succeeds, including
+an explicit zero. `counts.total` and `counts.failed_percent` are omitted because
+`RowDenominatorUnavailable`. Custom counts never export samples or failed keys.
+`WithKey`, sample caps, and `SummaryOnly()` do not change custom-count export.
 
 ## Scoped reports and privacy
 
@@ -71,9 +77,14 @@ exported, err := gxsql.ExportReport(report,
 versioned, encoding-only JSON DTO. On error it returns no partial DTO.
 
 Defaults protect diagnostics: samples, failed keys, captured SQL, bound
-arguments, and scoped predicate details are omitted. Configured thresholds are
-exported in `facts.configured_*`, and default `display_name` redacts bound
-literals.
+arguments, scoped predicate details, and custom-count template SQL are omitted.
+Configured thresholds are exported in `facts.configured_*`, and default
+`display_name` redacts bound literals. Custom-count errors and default export
+omit template text and arguments, including driver-error text that might echo
+them. `CaptureQueryDiagnostics()` at validate time plus
+`IncludeCapturedDiagnostics()` or `IncludeCapturedArguments()` at export time
+are the only paths that may retain rendered custom-count SQL or arguments, and
+they remain subject to redactors.
 
 | `ExportOption`                 | Effect                                                                                                                      |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |

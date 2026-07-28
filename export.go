@@ -281,7 +281,15 @@ func exportResult(res Result, target *TableRef, cfg exportConfig) (ExportedResul
 		RowDenominator:   res.RowDenominator,
 	}
 
-	if res.RowDenominator == RowDenominatorAvailable {
+	if customCountResultProfile(res) {
+		if err := validateCustomCountResult(res); err != nil {
+			return ExportedResult{}, err
+		}
+		if res.Err == nil {
+			failed := res.FailedCount
+			out.Counts = &ExportedCounts{Failed: &failed}
+		}
+	} else if res.RowDenominator == RowDenominatorAvailable {
 		total := res.Total
 		failed := res.FailedCount
 		out.Counts = &ExportedCounts{

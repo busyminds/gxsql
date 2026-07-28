@@ -36,6 +36,11 @@ data, err := json.Marshal(exported)
 The schema version is `gxsql.report.v1`. Version 1 guarantees declaration-order
 results; stable `id`, `kind`, `display_name`, verdicts, counts, facts, and
 categorized errors. It does not promise a public decoder.
+Custom-count results export only `counts.failed` when evaluation succeeds;
+`counts.total` and `counts.failed_percent` are omitted because no row
+denominator exists. They never export samples or failed keys, and their
+template SQL and bound arguments remain omitted unless query diagnostics are
+captured and explicitly requested at export time.
 
 ## Understand verdicts
 

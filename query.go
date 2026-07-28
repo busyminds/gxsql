@@ -428,3 +428,119 @@ func queryAggregateFloatWithArgs(
 	}
 	return v.Float64, true, query, args, nil
 }
+
+// queryCustomCountScalar executes a rendered trusted-count query and requires
+// exactly one row with one signed integer column representable as a non-negative int.
+func queryCustomCountScalar(ctx context.Context, db DB, query string, args ...any) (int, error) {
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return 0, categorizeExecutionError(ctx, err)
+	}
+
+	cols, err := rows.Columns()
+	if err != nil {
+		_ = rows.Close()
+		return 0, customCountScanError(err)
+	}
+	if len(cols) != 1 {
+		_ = rows.Close()
+		return 0, customCountScanError(errCustomCountWrongColumnCount)
+	}
+
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return 0, customCountScanError(err)
+		}
+		if err := rows.Close(); err != nil {
+			return 0, customCountScanError(err)
+		}
+		return 0, customCountScanError(errCustomCountNoRows)
+	}
+
+	var raw any
+	if err := rows.Scan(&raw); err != nil {
+		_ = rows.Close()
+		return 0, customCountScanError(err)
+	}
+	if rows.Next() {
+		_ = rows.Close()
+		return 0, customCountScanError(errCustomCountMultipleRows)
+	}
+	if err := finishRowsRead(ctx, rows); err != nil {
+		return 0, customCountScanError(err)
+	}
+	count, err := customCountInt(raw)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func customCountInt(value any) (int, error) {
+	var n int64
+	switch v := value.(type) {
+	case int:
+		n = int64(v)
+	case int8:
+		n = int64(v)
+	case int16:
+		n = int64(v)
+	case int32:
+		n = int64(v)
+	case int64:
+		n = v
+	default:
+		if value == nil {
+			return 0, customCountScanError(errCustomCountNull)
+		}
+		return 0, customCountScanError(errCustomCountNonInteger)
+	}
+	if n < 0 {
+		return 0, customCountScanError(errCustomCountNegative)
+	}
+	count := int(n)
+	if int64(count) != n {
+		return 0, customCountScanError(errCustomCountOverflow)
+	}
+	return count, nil
+}
+
+func evalCustomCount(
+	ctx context.Context,
+	db DB,
+	table TableRef,
+	opts evalOptions,
+	displayName, template string,
+	customArgs []any,
+) (Result, error) {
+	query, args, err := renderTrustedCount(opts.dialect, table, opts.scope, template, customArgs)
+	if err != nil {
+		res := Result{
+			Kind:           KindCustom,
+			Name:           displayName,
+			RowDenominator: RowDenominatorUnavailable,
+			shape:          resultShapeCustomCount,
+		}
+		return res, err
+	}
+
+	count, err := queryCustomCountScalar(ctx, db, query, args...)
+	if err != nil {
+		res := Result{
+			Kind:           KindCustom,
+			Name:           displayName,
+			RowDenominator: RowDenominatorUnavailable,
+			shape:          resultShapeCustomCount,
+		}
+		captureDiagnostics(&res, opts, query, args)
+		return res, customCountPrivacyError(ctx, err)
+	}
+
+	res, err := customCountResult(displayName, count)
+	if err != nil {
+		return res, err
+	}
+	captureDiagnostics(&res, opts, query, args)
+	return res, nil
+}

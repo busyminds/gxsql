@@ -43,6 +43,8 @@ func (c exampleConn) QueryContext(_ context.Context, query string, args []driver
 		return c.passQuery(query, args)
 	case "keys":
 		return c.keysQuery(query, args)
+	case "customcount":
+		return c.customCountQuery(query, args)
 	case "error":
 		return nil, fmt.Errorf("example driver: query failed")
 	default:
@@ -61,6 +63,18 @@ func (exampleConn) passQuery(query string, args []driver.NamedValue) (driver.Row
 		return newExampleRows([]string{"count"}, []driver.Value{int64(0)}), nil
 	default:
 		return nil, fmt.Errorf("example driver: unexpected query %q", query)
+	}
+}
+
+func (exampleConn) customCountQuery(query string, args []driver.NamedValue) (driver.Rows, error) {
+	switch query {
+	case `SELECT COUNT(*) FROM "orders" WHERE TRUE AND status = ?`:
+		if err := expectArgs(args, "pending"); err != nil {
+			return nil, err
+		}
+		return newExampleRows([]string{"count"}, []driver.Value{int64(2)}), nil
+	default:
+		return nil, fmt.Errorf("example driver: unexpected custom count query")
 	}
 }
 
@@ -213,6 +227,48 @@ func ExampleSuite_continueOnError() {
 	// gxsql report: 0/2 expectations passed
 	//   ✗ age between [0,120]
 	//   ✗ email not empty
+}
+
+func ExampleTrustedCountQuery() {
+	query := gxsql.TrustedCountQuery(
+		"SELECT COUNT(*) FROM {{target}} WHERE {{scope}} AND status = ?",
+		"pending",
+	)
+	exp := gxsql.CustomCount("violating orders", query)
+	fmt.Println(exp.Name())
+
+	// Output:
+	// violating orders
+}
+
+func ExampleCustomCount() {
+	db, err := openExampleDB("customcount")
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+
+	query := gxsql.TrustedCountQuery(
+		"SELECT COUNT(*) FROM {{target}} WHERE {{scope}} AND status = ?",
+		"pending",
+	)
+	suite := gxsql.NewSuite(
+		gxsql.CustomCount("violating orders", query),
+	)
+	report, err := suite.ValidateTable(
+		context.Background(), db, gxsql.Table("orders"),
+		gxsql.WithDialect(gxsql.SQLite()),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(report.OK())
+	fmt.Println(report.Results[0].FailedCount)
+
+	// Output:
+	// false
+	// 2
 }
 
 func Example() {

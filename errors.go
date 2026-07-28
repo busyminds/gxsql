@@ -2,6 +2,7 @@ package gxsql
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -139,6 +140,9 @@ func categorizeExecutionError(ctx context.Context, err error) error {
 	if ctx.Err() != nil {
 		return &CategorizedError{Category: CategoryContext, Err: fmt.Errorf("%w: %v", ctx.Err(), err)}
 	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return &CategorizedError{Category: CategoryContext, Err: err}
+	}
 	return &CategorizedError{Category: CategoryDatabase, Err: err}
 }
 
@@ -171,10 +175,110 @@ var (
 	errScopeIdentityRequired       = errors.New("scope identity is required")
 	errScopePredicateRequired      = errors.New("scope predicate is required")
 	errScopeValuesWithoutPredicate = errors.New("scope values require a predicate")
+
+	errTrustedCountTargetMarkerRequired         = errors.New("trusted count template requires exactly one {{target}} marker")
+	errTrustedCountScopeMarkerRequired          = errors.New("trusted count template requires exactly one {{scope}} marker")
+	errTrustedCountDuplicateTargetMarker        = errors.New("trusted count template has duplicate {{target}} marker")
+	errTrustedCountDuplicateScopeMarker         = errors.New("trusted count template has duplicate {{scope}} marker")
+	errTrustedCountMalformedMarker              = errors.New("trusted count template has malformed marker")
+	errTrustedCountUnsupportedMarker            = errors.New("trusted count template has unsupported marker")
+	errTrustedCountCustomPlaceholderBeforeScope = errors.New("trusted count template has custom placeholder before {{scope}}")
+
+	errCustomCountQueryFailed      = errors.New("custom count query failed")
+	errCustomCountContextFailed    = errors.New("custom count context canceled")
+	errCustomCountNoRows           = errors.New("custom count query returned no rows")
+	errCustomCountMultipleRows     = errors.New("custom count query returned multiple rows")
+	errCustomCountWrongColumnCount = errors.New("custom count query must return exactly one column")
+	errCustomCountNull             = errors.New("custom count query returned NULL")
+	errCustomCountNonInteger       = errors.New("custom count query returned a non-integer value")
+	errCustomCountNegative         = errors.New("custom count query returned a negative value")
+	errCustomCountOverflow         = errors.New("custom count query returned a value that does not fit int")
+
+	errCustomCountResultKind           = errors.New("custom count result kind must be custom")
+	errCustomCountResultColumn         = errors.New("custom count result column must be blank")
+	errCustomCountResultDenominator    = errors.New("custom count result row denominator must be unavailable")
+	errCustomCountResultTotal          = errors.New("custom count result total must be zero")
+	errCustomCountResultFailedPercent  = errors.New("custom count result failed percent must be zero")
+	errCustomCountResultSamples        = errors.New("custom count result samples must be empty")
+	errCustomCountResultFailedKeys     = errors.New("custom count result failed keys must be empty")
+	errCustomCountResultFailedNegative = errors.New("custom count failed count must be non-negative")
 )
+
+func customCountResultContractError(err error) error {
+	return &CategorizedError{Category: CategoryInvalidConfig, Err: err}
+}
+
+func customCountScanError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var ce *CategorizedError
+	if errors.As(err, &ce) {
+		switch ce.Category {
+		case CategoryContext:
+			return &CategorizedError{Category: CategoryContext, Err: ce.Err}
+		case CategoryScan:
+			return &CategorizedError{Category: CategoryScan, Err: privacyScanSentinel(ce.Err)}
+		}
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return &CategorizedError{Category: CategoryContext, Err: err}
+	}
+	return &CategorizedError{Category: CategoryScan, Err: privacyScanSentinel(err)}
+}
+
+func privacyScanSentinel(err error) error {
+	switch {
+	case errors.Is(err, errCustomCountNoRows), errors.Is(err, sql.ErrNoRows):
+		return errCustomCountNoRows
+	case errors.Is(err, errCustomCountMultipleRows):
+		return errCustomCountMultipleRows
+	case errors.Is(err, errCustomCountWrongColumnCount):
+		return errCustomCountWrongColumnCount
+	case errors.Is(err, errCustomCountNull):
+		return errCustomCountNull
+	case errors.Is(err, errCustomCountNonInteger):
+		return errCustomCountNonInteger
+	case errors.Is(err, errCustomCountNegative):
+		return errCustomCountNegative
+	case errors.Is(err, errCustomCountOverflow):
+		return errCustomCountOverflow
+	default:
+		return errCustomCountNonInteger
+	}
+}
+
+func customCountPrivacyError(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return &CategorizedError{Category: CategoryContext, Err: errCustomCountContextFailed}
+	}
+	var ce *CategorizedError
+	if errors.As(err, &ce) {
+		switch ce.Category {
+		case CategoryContext:
+			return &CategorizedError{Category: CategoryContext, Err: errCustomCountContextFailed}
+		case CategoryDatabase:
+			return &CategorizedError{Category: CategoryDatabase, Err: errCustomCountQueryFailed}
+		case CategoryScan:
+			return customCountScanError(ce.Err)
+		case CategoryRendering, CategoryInvalidConfig:
+			return err
+		default:
+			return &CategorizedError{Category: ce.Category, Err: errCustomCountQueryFailed}
+		}
+	}
+	return &CategorizedError{Category: CategoryDatabase, Err: errCustomCountQueryFailed}
+}
 
 func scopeArityError(slots, values int) error {
 	return fmt.Errorf("scope predicate has %d placeholders but %d values", slots, values)
+}
+
+func trustedCountArityError(slots, values int) error {
+	return fmt.Errorf("trusted count template has %d placeholders but %d values", slots, values)
 }
 
 func unsupportedScopePredicateError(msg string) error {

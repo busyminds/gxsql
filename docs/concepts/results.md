@@ -36,10 +36,12 @@ Per-row checks set `RowDenominator` to `RowDenominatorAvailable` and populate:
 - `SampleValues`: capped examples of offending values.
 - `FailedKeys`: optional caller-selected row identities.
 
-Table-level checks—row count, distinct count, and numeric aggregates—use
-`RowDenominatorUnavailable`. Their `Total` remains zero because no per-row
-population is reported. Read the observed value and configured threshold from
-`Facts`; `Name` is only human-facing display text.
+Table-level checks—row count, distinct count, numeric aggregates, and custom
+counts—use `RowDenominatorUnavailable`. Their `Total` remains zero because no
+per-row population is reported. Custom counts instead expose their complete
+`FailedCount`, including zero, and do not retain `FailedPercent`, samples, or
+failed keys. Read the observed value and configured threshold from `Facts` for
+built-in table-level checks; `Name` is only human-facing display text.
 
 `ID` and `Kind` are stable machine-facing identity fields. Use `WithID` to
 supply an ID and `Result.Kind` to classify a built-in expectation. See

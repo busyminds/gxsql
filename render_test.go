@@ -52,3 +52,26 @@ func TestReportStringHeader(t *testing.T) {
 		t.Fatalf("report header = %q", got)
 	}
 }
+
+func TestGenericKindCustomStringUnchanged(t *testing.T) {
+	res := Result{
+		Kind:           KindCustom,
+		Name:           "value probe",
+		Success:        false,
+		RowDenominator: RowDenominatorAvailable,
+		Total:          10,
+		FailedCount:    3,
+		FailedPercent:  30,
+		SampleValues:   []any{"a"},
+		FailedKeys:     []RowKey{{int64(1)}},
+		// Uncomparable dynamic field must not affect generic KindCustom rendering.
+		Facts: ResultFacts{ConfiguredBound: []string{"probe"}},
+	}
+	got := res.String()
+	if strings.Contains(got, "3 failed") && !strings.Contains(got, "3/10 failed") {
+		t.Fatalf("generic KindCustom used compact custom-count render: %q", got)
+	}
+	if !strings.Contains(got, "3/10 failed (30.0%)") {
+		t.Fatalf("generic KindCustom missing row denominator render: %q", got)
+	}
+}

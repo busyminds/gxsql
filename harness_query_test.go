@@ -317,6 +317,9 @@ func bindQuestionMarks(atom string, args []any) (string, []any) {
 
 func evalWhereAtom(atom string, args []any, row map[string]any, tableRef string, allRows []map[string]any) bool {
 	atom = strings.TrimSpace(atom)
+	if strings.EqualFold(atom, "TRUE") {
+		return true
+	}
 	if inner, ok := stripOuterParens(atom); ok {
 		return rowMatchesWhere(inner, args, row, tableRef, allRows)
 	}

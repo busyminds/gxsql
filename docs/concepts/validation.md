@@ -28,6 +28,7 @@ Built-in builders create the expectations `gxsql` supports:
 | `Column(name)`              | `IsNull`, `NotNull`, `In`, `NotIn`, `Unique`, `DistinctCount` |
 | `Int(name)` / `Float(name)` | range and comparison checks, plus aggregate checks            |
 | `String(name)`              | `Empty`, `NotEmpty`, `LenEqual`, `LenBetween`                 |
+| `TrustedCountQuery` + `CustomCount` | Trusted SQL count returning one non-negative failure count |
 
 Do not implement `Expectation` outside `gxsql`. It is a sealed interface;
 construct expectations with these builders. The
@@ -147,6 +148,73 @@ In production, pass a context with a deadline to every `ValidateTable` call and
 use a read-only database role, preferably one restricted to the validation
 tables or views.
 
+## Custom count checks
+
+`TrustedCountQuery` and `CustomCount` add one constrained custom shape: a
+trusted SQL template that returns a single non-negative failure count. Template
+text is trusted Go-code input, not a sandbox for untrusted SQL. Callers must
+never pass user-authored SQL in templates or interpolate identifiers or values
+into template text. The library inserts `{{target}}` from the validated
+`TableRef` and `{{scope}}` from `WithScope` (or `TRUE` when unscoped). The
+template author places both markers in valid SQL and qualifies scope references
+when aliases require it; `gxsql` does not parse, relocate, or rewrite arbitrary
+SQL.
+
+A template must contain exactly one `{{target}}` and one `{{scope}}`, both
+outside SQL strings and comments. Custom `?` placeholders must come after
+`{{scope}}` so bound arguments stay in scope-first, custom-second order across
+dialects. Preflight rejects missing, duplicate, quoted, or commented markers,
+malformed placeholder text, custom-placeholder arity mismatch, blank display
+names, and invalid scope composition before any custom-count SQL runs.
+
+The query must return exactly one row and one column. Signed integer driver
+values (`int`, `int8`, `int16`, `int32`, or `int64`) are accepted; textual
+numerics are not coerced. The count must be non-negative and representable as
+Go `int`. On success the result uses
+`KindCustom`, blank `Column`, `RowDenominatorUnavailable`, and a complete
+`FailedCount` (including zero). `Total`, `FailedPercent`, `SampleValues`, and
+`FailedKeys` are unavailable. `WithKey`, sample caps, and `SummaryOnly()` add no
+diagnostics for custom counts—appropriate for gates, not row-level remediation.
+
+Portable join count (scoped; qualify `{{scope}}` for the table alias):
+
+```go
+joinCount := gxsql.TrustedCountQuery(`SELECT COUNT(*)
+FROM {{target}} AS o
+JOIN accounts AS a ON a.id = o.account_id
+WHERE {{scope}} AND a.status = ?`, "inactive")
+
+suite := gxsql.NewSuite(gxsql.CustomCount("inactive account orders", joinCount))
+report, err := suite.ValidateTable(ctx, db, gxsql.Table("order_lines"),
+    gxsql.WithDialect(gxsql.Postgres()),
+    gxsql.WithScope(gxsql.TrustedScope("tenant-a", "o.tenant_id = ?", tenantID)),
+)
+```
+
+Portable `GROUP BY` / `HAVING` count (unscoped; `{{scope}}` renders `TRUE`):
+
+```go
+groupCount := gxsql.TrustedCountQuery(`SELECT COUNT(*)
+FROM (
+  SELECT o.account_id
+  FROM {{target}} AS o
+  WHERE {{scope}}
+  GROUP BY o.account_id
+  HAVING COUNT(*) > ?
+) AS violating_groups`, int64(1))
+
+suite := gxsql.NewSuite(
+    gxsql.CustomCount("accounts with multiple order lines", groupCount),
+)
+report, err := suite.ValidateTable(ctx, db, gxsql.Table("order_lines"),
+    gxsql.WithDialect(gxsql.Postgres()),
+)
+```
+
+Default reports, errors, and `ExportReport` omit template SQL and bound
+arguments, including driver-error text. `CaptureQueryDiagnostics()` is an
+opt-in export-only path subject to existing redactors.
+
 ## Error handling
 
 | Situation                                | `ValidateTable`                              | Result data                                      |
@@ -158,7 +226,10 @@ tables or views.
 
 Run-level errors include a nil dialect, negative caps, and invalid `WithKey`
 columns. Preflight errors include invalid identifiers, empty or nil-valued
-`In`/`NotIn` lists, and duplicate or blank `WithID` values.
+`In`/`NotIn` lists, duplicate or blank `WithID` values, blank custom-count
+display names, invalid or duplicated `{{target}}`/`{{scope}}` markers, custom
+placeholders that appear before `{{scope}}`, and custom-placeholder arity
+mismatch. Invalid custom-count declarations never execute SQL.
 
 `ContinueOnError()` does not make a nil top-level error mean success. Inspect
 `report.OK()`, `report.Err()`, and each `Result.Err` when it is enabled.

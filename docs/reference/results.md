@@ -20,13 +20,18 @@ order and `Target *TableRef`, which `ValidateTable` sets.
 | `ID`, `Kind`                                              | Machine-facing identity.                                                    |
 | `Name`, `Column`                                          | Human-facing check description and affected column. Do not parse `Name`.    |
 | `Success`, `Err`                                          | Policy outcome and a per-expectation failure recorded by `ContinueOnError`. |
-| `RowDenominator`, `Total`, `FailedCount`, `FailedPercent` | Population metrics.                                                         |
+| `RowDenominator`, `Total`, `FailedCount`, `FailedPercent` | Population metrics; `FailedCount` uses the expectation-specific unit. |
 | `Facts`                                                   | Structured observed values and configured thresholds.                       |
 | `SampleValues`, `FailedKeys`                              | Capped diagnostic data.                                                     |
 
 `RowDenominatorAvailable` means `Total` and `FailedPercent` describe a per-row
 population. `RowDenominatorUnavailable` marks a table-level check; `Total == 0`
 does not mean the table was empty.
+Custom-count results are the exception to the usual denominator interpretation:
+they use `KindCustom` and `RowDenominatorUnavailable`, but `FailedCount` is a
+complete non-negative count even though `Total` and `FailedPercent` are
+unavailable. `Column` is blank and custom counts never retain samples or failed
+keys; `WithKey`, sample caps, and `SummaryOnly()` do not change this shape.
 
 `RowKey` is `[]any` containing caller-supplied `WithKey` values in the same
 column order.

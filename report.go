@@ -56,12 +56,21 @@ type resultDiagnostics struct {
 	args  []any
 }
 
+// resultShape discriminates published result profiles that share a Kind value.
+type resultShape uint8
+
+const (
+	resultShapeNone resultShape = iota
+	resultShapeCustomCount
+)
+
 // Result is the outcome of one expectation over a single ValidateTable run.
 //
 // Per-row SQL expectations set RowDenominatorAvailable, Total to the table row
 // count, and populate FailedCount, FailedPercent, SampleValues, and optionally
 // FailedKeys on failure. FailedKeys are capped unless WithFailedKeysCap(0)
 // selects unlimited retention. Table-level checks use RowDenominatorUnavailable;
+// custom counts still expose their expectation-specific FailedCount while
 // Success carries the verdict and Facts carry observed values while Name holds
 // human-oriented display text.
 type Result struct {
@@ -79,7 +88,9 @@ type Result struct {
 	RowDenominator RowDenominator
 	// Total is the evaluated row population when RowDenominator is available.
 	Total int
-	// FailedCount is the number of failing rows; complete even when keys are capped.
+	// FailedCount is the complete expectation-specific failure count; for per-row
+	// checks it counts failing rows, while CustomCount may count groups or other
+	// query-defined failures.
 	FailedCount int
 	// FailedPercent is the percentage of failing rows when the denominator is available.
 	FailedPercent float64
@@ -93,6 +104,7 @@ type Result struct {
 	// Err is a categorized configuration or execution failure when non-nil.
 	Err error
 
+	shape       resultShape
 	diagnostics *resultDiagnostics
 }
 

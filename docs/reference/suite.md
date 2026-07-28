@@ -106,6 +106,60 @@ report, err := suite.ValidateTable(ctx, readOnlyDB, gxsql.Table("events"),
 Check both `err` and `report.Err()` according to the run and policy failure
 rules described above.
 
+## Custom count checks
+
+| API | Description |
+| --- | --- |
+| `TrustedCountQuery(template string, args ...any) CountQuery` | Builds an immutable trusted SQL count template with bound custom arguments. |
+| `CustomCount(name string, query CountQuery) Expectation` | Executes the template and treats the scalar result as a failure count. `name` must be non-blank. |
+| `CountQuery` | Immutable carrier for template and arguments; construct only with `TrustedCountQuery`. |
+
+Template SQL is trusted Go-code input, not a sandbox for untrusted text.
+Callers must never insert user-authored SQL into templates. A template contains
+exactly one `{{target}}` and one `{{scope}}`, both outside SQL strings and
+comments. The library renders `{{target}}` only from the validated `TableRef`.
+`{{scope}}` renders `TRUE` for an unscoped run or the parenthesized scope
+predicate from `WithScope`. Place both markers in syntactically valid SQL and
+qualify scope column references when the query uses table aliases; `gxsql` does
+not parse or rewrite joins, `GROUP BY`, `HAVING`, or aliases.
+
+Custom `?` placeholders must appear after `{{scope}}`. Bound arguments are scope
+values first, then custom template values. Preflight rejects marker, placeholder,
+and arity errors before SQL. Invalid custom declarations never execute a
+statement. Without `ContinueOnError()`, preflight or execution failure returns
+`(Report{}, err)`. With it, the affected result records `Err` in its declaration
+slot and later expectations still run. Malformed count results (wrong row/column
+shape, non-integer, negative, or overflow) are scan-category errors.
+
+On success, results use `KindCustom`, blank `Column`, `RowDenominatorUnavailable`,
+and a complete `FailedCount`. `WithKey`, sample caps, and `SummaryOnly()` add no
+diagnostics. Default errors and display output omit template SQL and arguments;
+use `CaptureQueryDiagnostics()` only when opting into export diagnostics.
+
+Join count example:
+
+```go
+query := gxsql.TrustedCountQuery(`SELECT COUNT(*)
+FROM {{target}} AS o
+JOIN accounts AS a ON a.id = o.account_id
+WHERE {{scope}} AND a.status = ?`, "inactive")
+exp := gxsql.CustomCount("inactive account orders", query)
+```
+
+`GROUP BY` / `HAVING` example:
+
+```go
+query := gxsql.TrustedCountQuery(`SELECT COUNT(*)
+FROM (
+  SELECT o.account_id
+  FROM {{target}} AS o
+  WHERE {{scope}}
+  GROUP BY o.account_id
+  HAVING COUNT(*) > ?
+) AS violating_groups`, int64(1))
+exp := gxsql.CustomCount("accounts with multiple order lines", query)
+```
+
 ## Test helpers
 
 The `github.com/busyminds/gxsql/gxsqltest` package adapts validation to Go

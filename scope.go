@@ -136,159 +136,21 @@ func walkNeutralPredicate(fragment string, d Dialect) (string, int, error) {
 
 func walkNeutralPredicateAt(fragment string, d Dialect, offset int) (string, int, error) {
 	render := d != nil
-	var b strings.Builder
-	if render {
-		b.Grow(len(fragment) + 8)
-	}
-
-	flush := func(end int, start *int) {
-		if render && end > *start {
-			b.WriteString(fragment[*start:end])
-		}
-	}
-	start := 0
+	walker := newSQLTextWalker(fragment, render)
 	count := 0
-
-	var quote byte
-	for i := 0; i < len(fragment); i++ {
-		c := fragment[i]
-		if quote != 0 {
-			if c == '?' {
-				return "", 0, unsupportedScopePredicateError("literal ? in quoted text is unsupported")
+	err := walker.walk(sqlTextHandlers{
+		onQuestionMark: func(pos int) error {
+			walker.flush(pos)
+			count++
+			if render {
+				walker.writeString(d.Placeholder(offset + count))
 			}
-			if quote == '\'' && c == '\\' && i+1 < len(fragment) {
-				if fragment[i+1] == '?' {
-					return "", 0, unsupportedScopePredicateError("literal ? in quoted text is unsupported")
-				}
-				i++
-				continue
-			}
-			if c == quote {
-				if i+1 < len(fragment) && fragment[i+1] == quote {
-					i++
-					continue
-				}
-				quote = 0
-			}
-			continue
-		}
-		if c == '$' {
-			if end := dollarQuoteDelimiterEnd(fragment, i); end >= 0 {
-				delimiter := fragment[i : end+1]
-				closeAt := strings.Index(fragment[end+1:], delimiter)
-				if closeAt < 0 {
-					if strings.Contains(fragment[end+1:], "?") {
-						return "", 0, unsupportedScopePredicateError("literal ? in dollar-quoted text is unsupported")
-					}
-					// Scanner edge: an unterminated dollar quote stops further slot
-					// discovery; render mode still preserves the untouched tail.
-					break
-				}
-				bodyEnd := end + 1 + closeAt
-				if strings.Contains(fragment[end+1:bodyEnd], "?") {
-					return "", 0, unsupportedScopePredicateError("literal ? in dollar-quoted text is unsupported")
-				}
-				i = bodyEnd + len(delimiter) - 1
-				continue
-			}
-		}
-		switch c {
-		case '\'', '"', '`':
-			quote = c
-			continue
-		case '#':
-			for i += 1; i < len(fragment) && fragment[i] != '\n'; i++ {
-				if fragment[i] == '?' {
-					return "", 0, unsupportedScopePredicateError("literal ? in comment is unsupported")
-				}
-			}
-			continue
-		case '-':
-			if i+1 < len(fragment) && fragment[i+1] == '-' {
-				for i += 2; i < len(fragment) && fragment[i] != '\n'; i++ {
-					if fragment[i] == '?' {
-						return "", 0, unsupportedScopePredicateError("literal ? in comment is unsupported")
-					}
-				}
-				continue
-			}
-		case '/':
-			if i+1 < len(fragment) && fragment[i+1] == '*' {
-				for i += 2; i < len(fragment); i++ {
-					if fragment[i] == '?' {
-						return "", 0, unsupportedScopePredicateError("literal ? in comment is unsupported")
-					}
-					if fragment[i] == '*' && i+1 < len(fragment) && fragment[i+1] == '/' {
-						i++
-						break
-					}
-				}
-				continue
-			}
-		}
-		if c != '?' {
-			continue
-		}
-		if i > 0 && fragment[i-1] == '@' {
-			return "", 0, unsupportedScopePredicateError("? operator is unsupported")
-		}
-		if i+1 < len(fragment) {
-			switch fragment[i+1] {
-			case '?', '|', '&':
-				return "", 0, unsupportedScopePredicateError("? operator is unsupported")
-			}
-		}
-		if i > 0 && fragment[i-1] == '?' {
-			return "", 0, unsupportedScopePredicateError("? operator is unsupported")
-		}
-		next := i + 1
-		for next < len(fragment) && (fragment[next] == ' ' || fragment[next] == '\t' || fragment[next] == '\n' || fragment[next] == '\r') {
-			next++
-		}
-		if next < len(fragment) && (fragment[next] == '\'' || fragment[next] == '"') {
-			return "", 0, unsupportedScopePredicateError("? operator is unsupported")
-		}
-		flush(i, &start)
-		count++
-		if render {
-			b.WriteString(d.Placeholder(offset + count))
-		}
-		start = i + 1
+			walker.start = pos + 1
+			return nil
+		},
+	})
+	if err != nil {
+		return "", 0, err
 	}
-	flush(len(fragment), &start)
-	if render {
-		return b.String(), count, nil
-	}
-	return "", count, nil
-}
-
-func dollarQuoteDelimiterEnd(fragment string, start int) int {
-	if start >= len(fragment) || fragment[start] != '$' {
-		return -1
-	}
-	if start > 0 && (isDollarTagPart(fragment[start-1]) || fragment[start-1] == '$') {
-		return -1
-	}
-	i := start + 1
-	if i < len(fragment) && fragment[i] == '$' {
-		return i
-	}
-	if i >= len(fragment) || !isDollarTagStart(fragment[i]) {
-		return -1
-	}
-	for i < len(fragment) && isDollarTagPart(fragment[i]) {
-		i++
-	}
-	if i < len(fragment) && fragment[i] == '$' {
-		return i
-	}
-	return -1
-}
-
-func isDollarTagStart(c byte) bool {
-	return c == '_' || c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z'
-}
-
-func isDollarTagPart(c byte) bool {
-	return isDollarTagStart(c) || c >= '0' && c <= '9'
+	return walker.result(), count, nil
 }

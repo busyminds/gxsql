@@ -39,6 +39,21 @@
 // redaction requirements. In production, use a read-only database role and a
 // context deadline for each validation.
 //
+// Custom count checks use [TrustedCountQuery] and [CustomCount]. The SQL
+// template is trusted Go-code input reviewed by the application, not a
+// sandbox for untrusted text; callers must never insert user-authored SQL into
+// templates. A template contains exactly one {{target}} and one {{scope}},
+// both outside SQL strings and comments. The library renders {{target}} from
+// the validated [TableRef] and {{scope}} from [WithScope] (or TRUE when
+// unscoped). Custom ? placeholders must follow {{scope}}; bound arguments are
+// scope values first, then custom values. The query returns one row and one
+// column. Signed integer driver values (int through int64) are accepted;
+// textual numerics are not coerced. The count must be non-negative and uses
+// [RowDenominatorUnavailable]: no total, percentage, samples,
+// or failed keys. Default reports, errors, and [ExportReport] omit template SQL
+// and arguments, including driver-error text. [CaptureQueryDiagnostics] is an
+// opt-in export-only path subject to existing redactors.
+//
 // Failed policies are collected in declaration order. Use [WithKey] to retain
 // failed-row identities, [WithID] to give expectations stable machine identity,
 // and [ExportReport] for the versioned JSON DTO. For Go tests, use the

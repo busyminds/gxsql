@@ -143,6 +143,20 @@ type ExportedFacts struct {
 	// ConfiguredMaxFailedCount is the inclusive WithMaxFailedCount bound when
 	// that decorator was applied.
 	ConfiguredMaxFailedCount *int `json:"configured_max_failed_count,omitempty"`
+	// KeyColumns names local composite-key components in declaration order.
+	KeyColumns []string `json:"key_columns,omitempty"`
+	// Reference holds local-to-parent mapping facts for referential integrity.
+	Reference *ExportedReferenceFacts `json:"reference,omitempty"`
+}
+
+// ExportedReferenceFacts is the JSON form of ReferenceFacts.
+type ExportedReferenceFacts struct {
+	// LocalColumns are the local foreign-key components in declaration order.
+	LocalColumns []string `json:"local_columns,omitempty"`
+	// Parent is the unscoped parent target; schema is omitted when empty.
+	Parent ExportedTarget `json:"parent"`
+	// ParentColumns are the parent key components in declaration order.
+	ParentColumns []string `json:"parent_columns,omitempty"`
 }
 
 // ExportedCaps reports diagnostic truncation metadata.
@@ -476,6 +490,21 @@ func exportFacts(facts ResultFacts) (*ExportedFacts, error) {
 		out.ConfiguredMaxFailedCount = facts.ConfiguredMaxFailedCount
 		has = true
 	}
+	if len(facts.KeyColumns) > 0 {
+		out.KeyColumns = append([]string(nil), facts.KeyColumns...)
+		has = true
+	}
+	if facts.Reference != nil {
+		out.Reference = &ExportedReferenceFacts{
+			LocalColumns: append([]string(nil), facts.Reference.LocalColumns...),
+			Parent: ExportedTarget{
+				Schema: facts.Reference.Parent.Schema,
+				Table:  facts.Reference.Parent.Name,
+			},
+			ParentColumns: append([]string(nil), facts.Reference.ParentColumns...),
+		}
+		has = true
+	}
 	if !has {
 		return nil, nil
 	}
@@ -671,16 +700,24 @@ func redactQueryIdentity(query string, target *TableRef) string {
 	if target == nil || target.Name == "" {
 		return query
 	}
-	replacements := make([]string, 0, 4)
+
+	replacements := make([]string, 0, 8)
 	if target.Schema != "" {
+		for _, quote := range []string{`"`, "`"} {
+			replacements = append(replacements,
+				quote+target.Schema+quote+"."+quote+target.Name+quote,
+				quote+target.Schema+quote+"."+target.Name,
+				target.Schema+"."+quote+target.Name+quote,
+			)
+		}
+		replacements = append(replacements, target.Schema+"."+target.Name)
+	} else {
 		replacements = append(replacements,
-			`"`+target.Schema+`"."`+target.Name+`"`,
-			target.Schema+"."+target.Name,
-			`"`+target.Schema+`".`,
-			target.Schema+".",
+			`"`+target.Name+`"`,
+			"`"+target.Name+"`",
+			target.Name,
 		)
 	}
-	replacements = append(replacements, `"`+target.Name+`"`, target.Name)
 	for _, old := range replacements {
 		query = strings.ReplaceAll(query, old, "<table>")
 	}

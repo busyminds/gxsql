@@ -16,6 +16,13 @@ var (
 	subUniqueRe     = regexp.MustCompile(
 		`(?is)^(.+?)\s+IS\s+NOT\s+NULL\s+AND\s+(.+?)\s+IN\s+\(\s*SELECT\s+(.+?)\s+FROM\s+(.+?)(?:\s+WHERE\s+(.+?))?\s+GROUP\s+BY\s+(.+?)\s+HAVING\s+COUNT\(\*\)\s*>\s*1\s*\)$`,
 	)
+	subCompositeUniqueRe = regexp.MustCompile(
+		`(?is)^((?:.+?\s+IS\s+NOT\s+NULL\s+AND\s+)+)\((.+?)\)\s+IN\s+\(\s*SELECT\s+(.+?)\s+FROM\s+(.+?)(?:\s+WHERE\s+(.+?))?\s+GROUP\s+BY\s+(.+?)\s+HAVING\s+COUNT\(\*\)\s*>\s*1\s*\)$`,
+	)
+	notExistsRe = regexp.MustCompile(
+		`(?is)^NOT\s+EXISTS\s*\(\s*SELECT\s+1\s+FROM\s+(.+?)\s+WHERE\s+(.+)\)$`,
+	)
+	tableAliasRe = regexp.MustCompile(`(?is)^(.+?)\s+AS\s+(.+)$`)
 )
 
 func executeHarnessQuery(query string, args []any, tables map[string][]map[string]any) ([]string, [][]driver.Value, error) {
@@ -29,7 +36,7 @@ func executeHarnessQuery(query string, args []any, tables map[string][]map[strin
 		where := strings.TrimSpace(m[2])
 		n := 0
 		for _, row := range table {
-			if where == "" || rowMatchesWhere(where, args, row, m[1], table) {
+			if where == "" || rowMatchesWhere(where, args, row, m[1], table, tables) {
 				n++
 			}
 		}
@@ -37,7 +44,7 @@ func executeHarnessQuery(query string, args []any, tables map[string][]map[strin
 	}
 
 	if m := countDistinctRe.FindStringSubmatch(q); m != nil {
-		col := unquoteIdent(m[1])
+		col := unquoteIdent(stripQualification(m[1]))
 		table, err := resolveTable(m[2], tables)
 		if err != nil {
 			return nil, nil, err
@@ -46,7 +53,7 @@ func executeHarnessQuery(query string, args []any, tables map[string][]map[strin
 		if where != "" {
 			filtered := make([]map[string]any, 0, len(table))
 			for _, row := range table {
-				if rowMatchesWhere(where, args, row, m[2], table) {
+				if rowMatchesWhere(where, args, row, m[2], table, tables) {
 					filtered = append(filtered, row)
 				}
 			}
@@ -67,7 +74,7 @@ func executeHarnessQuery(query string, args []any, tables map[string][]map[strin
 		if where != "" {
 			filtered := make([]map[string]any, 0, len(table))
 			for _, row := range table {
-				if rowMatchesWhere(where, args, row, m[3], table) {
+				if rowMatchesWhere(where, args, row, m[3], table, tables) {
 					filtered = append(filtered, row)
 				}
 			}
@@ -104,7 +111,7 @@ func executeHarnessQuery(query string, args []any, tables map[string][]map[strin
 
 		var out [][]driver.Value
 		for _, row := range table {
-			if where != "" && !rowMatchesWhere(where, whereArgs, row, m[2], table) {
+			if where != "" && !rowMatchesWhere(where, whereArgs, row, m[2], table, tables) {
 				continue
 			}
 			vals := make([]driver.Value, len(cols))
@@ -133,7 +140,7 @@ func collapseSpaces(s string) string {
 func parseSelectList(list string) []string {
 	var cols []string
 	for _, part := range strings.Split(list, ",") {
-		cols = append(cols, unquoteIdent(strings.TrimSpace(part)))
+		cols = append(cols, unquoteIdent(stripQualification(strings.TrimSpace(part))))
 	}
 	return cols
 }
@@ -171,6 +178,9 @@ func toInt(v any) (int, bool) {
 
 func resolveTable(ref string, tables map[string][]map[string]any) ([]map[string]any, error) {
 	ref = strings.TrimSpace(ref)
+	if m := tableAliasRe.FindStringSubmatch(ref); m != nil {
+		ref = strings.TrimSpace(m[1])
+	}
 	if rows, ok := tables[ref]; ok {
 		return rows, nil
 	}
@@ -187,7 +197,7 @@ func resolveTable(ref string, tables map[string][]map[string]any) ([]map[string]
 	return nil, fmt.Errorf("gxsqltest: unknown table %s", ref)
 }
 
-func rowMatchesWhere(where string, args []any, row map[string]any, tableRef string, allRows []map[string]any) bool {
+func rowMatchesWhere(where string, args []any, row map[string]any, tableRef string, allRows []map[string]any, tables map[string][]map[string]any) bool {
 	where = collapseSpaces(where)
 	where, _ = bindQuestionMarks(where, args)
 	for {
@@ -198,15 +208,21 @@ func rowMatchesWhere(where string, args []any, row map[string]any, tableRef stri
 		where = inner
 	}
 
-	if m := subUniqueRe.FindStringSubmatch(where); m != nil {
-		col := unquoteIdent(m[1])
+	if m := subCompositeUniqueRe.FindStringSubmatch(where); m != nil {
+		cols := parseSelectList(m[2])
 		subWhere := strings.TrimSpace(m[5])
-		return isDuplicateColumnValueScoped(col, row[col], subWhere, args, allRows, tableRef)
+		return isDuplicateTupleScoped(cols, row, subWhere, args, allRows, tableRef, tables)
+	}
+
+	if m := subUniqueRe.FindStringSubmatch(where); m != nil {
+		col := unquoteIdent(stripQualification(m[1]))
+		subWhere := strings.TrimSpace(m[5])
+		return isDuplicateColumnValueScoped(col, row[col], subWhere, args, allRows, tableRef, tables)
 	}
 
 	if andParts := splitTopLevel(where, " AND "); len(andParts) > 1 {
 		for _, part := range andParts {
-			if !rowMatchesWhere(strings.TrimSpace(part), args, row, tableRef, allRows) {
+			if !rowMatchesWhere(strings.TrimSpace(part), args, row, tableRef, allRows, tables) {
 				return false
 			}
 		}
@@ -215,14 +231,14 @@ func rowMatchesWhere(where string, args []any, row map[string]any, tableRef stri
 
 	if orParts := splitTopLevel(where, " OR "); len(orParts) > 1 {
 		for _, part := range orParts {
-			if evalWhereAtom(strings.TrimSpace(part), args, row, tableRef, allRows) {
+			if evalWhereAtom(strings.TrimSpace(part), args, row, tableRef, allRows, tables) {
 				return true
 			}
 		}
 		return false
 	}
 
-	return evalWhereAtom(where, args, row, tableRef, allRows)
+	return evalWhereAtom(where, args, row, tableRef, allRows, tables)
 }
 
 func isDuplicateColumnValueScoped(
@@ -232,16 +248,50 @@ func isDuplicateColumnValueScoped(
 	args []any,
 	allRows []map[string]any,
 	tableRef string,
+	tables map[string][]map[string]any,
 ) bool {
 	if val == nil {
 		return false
 	}
 	n := 0
 	for _, other := range allRows {
-		if where != "" && !rowMatchesWhere(where, args, other, tableRef, allRows) {
+		if where != "" && !rowMatchesWhere(where, args, other, tableRef, allRows, tables) {
 			continue
 		}
 		if valuesEqual(other[col], val) {
+			n++
+		}
+	}
+	return n > 1
+}
+
+func isDuplicateTupleScoped(
+	cols []string,
+	row map[string]any,
+	where string,
+	args []any,
+	allRows []map[string]any,
+	tableRef string,
+	tables map[string][]map[string]any,
+) bool {
+	for _, col := range cols {
+		if row[col] == nil {
+			return false
+		}
+	}
+	n := 0
+	for _, other := range allRows {
+		if where != "" && !rowMatchesWhere(where, args, other, tableRef, allRows, tables) {
+			continue
+		}
+		match := true
+		for _, col := range cols {
+			if other[col] == nil || !valuesEqual(other[col], row[col]) {
+				match = false
+				break
+			}
+		}
+		if match {
 			n++
 		}
 	}
@@ -315,37 +365,41 @@ func bindQuestionMarks(atom string, args []any) (string, []any) {
 	return out.String(), args[qidx:]
 }
 
-func evalWhereAtom(atom string, args []any, row map[string]any, tableRef string, allRows []map[string]any) bool {
+func evalWhereAtom(atom string, args []any, row map[string]any, tableRef string, allRows []map[string]any, tables map[string][]map[string]any) bool {
 	atom = strings.TrimSpace(atom)
 	if strings.EqualFold(atom, "TRUE") {
 		return true
 	}
 	if inner, ok := stripOuterParens(atom); ok {
-		return rowMatchesWhere(inner, args, row, tableRef, allRows)
+		return rowMatchesWhere(inner, args, row, tableRef, allRows, tables)
+	}
+
+	if m := notExistsRe.FindStringSubmatch(atom); m != nil {
+		return evalNotExists(strings.TrimSpace(m[1]), strings.TrimSpace(m[2]), row, tables)
 	}
 
 	if before, ok := strings.CutSuffix(atom, " IS NULL"); ok {
-		col := unquoteIdent(before)
+		col := unquoteIdent(stripQualification(before))
 		return row[col] == nil
 	}
 	if before, ok := strings.CutSuffix(atom, " IS NOT NULL"); ok {
-		col := unquoteIdent(before)
+		col := unquoteIdent(stripQualification(before))
 		return row[col] != nil
 	}
 
 	if m := regexp.MustCompile(`^(.+?) = ''$`).FindStringSubmatch(atom); m != nil {
-		col := unquoteIdent(m[1])
+		col := unquoteIdent(stripQualification(m[1]))
 		v, _ := row[col].(string)
 		return v == ""
 	}
 	if m := regexp.MustCompile(`^(.+?) <> ''$`).FindStringSubmatch(atom); m != nil {
-		col := unquoteIdent(m[1])
+		col := unquoteIdent(stripQualification(m[1]))
 		v, _ := row[col].(string)
 		return v != ""
 	}
 
 	if m := regexp.MustCompile(`(?is)^(.+?)\s+(NOT IN|IN)\s*\((.+)\)$`).FindStringSubmatch(atom); m != nil {
-		col := unquoteIdent(m[1])
+		col := unquoteIdent(stripQualification(m[1]))
 		inSet := strings.EqualFold(m[2], "IN")
 		val := row[col]
 		if val == nil {
@@ -396,13 +450,13 @@ func evalWhereAtom(atom string, args []any, row map[string]any, tableRef string,
 	}
 
 	if m := regexp.MustCompile(`^(.+?)\s*=\s*(\$\d+|\?|'.+?'|-?\d+(?:\.\d+)?|\S+)$`).FindStringSubmatch(atom); m != nil {
-		col := unquoteIdent(m[1])
+		col := unquoteIdent(stripQualification(m[1]))
 		bound := resolveBound(m[2], args)
 		return valuesEqual(row[col], bound)
 	}
 
 	if m := regexp.MustCompile(`^(.+?)\s*(<=|>=|<>|<|>)\s*(\$\d+|\?|'.+?'|-?\d+(?:\.\d+)?)$`).FindStringSubmatch(atom); m != nil {
-		col := unquoteIdent(m[1])
+		col := unquoteIdent(stripQualification(m[1]))
 		if strings.HasPrefix(col, "CHAR_LENGTH") || strings.HasPrefix(col, "LENGTH") {
 			return false
 		}
@@ -568,5 +622,68 @@ func aggregateColumn(rows []map[string]any, col, agg string) (float64, bool) {
 		return m, true
 	default:
 		return 0, false
+	}
+}
+
+func stripQualification(ref string) string {
+	ref = strings.TrimSpace(ref)
+	if i := strings.LastIndex(ref, "."); i >= 0 {
+		return ref[i+1:]
+	}
+	return ref
+}
+
+func evalNotExists(from, where string, localRow map[string]any, tables map[string][]map[string]any) bool {
+	parentRows, err := resolveTable(from, tables)
+	if err != nil {
+		return false
+	}
+	for _, parentRow := range parentRows {
+		if correlatedRowMatch(where, parentRow, localRow) {
+			return false
+		}
+	}
+	return true
+}
+
+func correlatedRowMatch(where string, parentRow, localRow map[string]any) bool {
+	where = collapseSpaces(where)
+	for _, part := range splitTopLevel(where, " AND ") {
+		part = strings.TrimSpace(part)
+		m := regexp.MustCompile(`^(.+?)\s*=\s*(.+)$`).FindStringSubmatch(part)
+		if m == nil {
+			return false
+		}
+		left := strings.TrimSpace(m[1])
+		right := strings.TrimSpace(m[2])
+		lv := correlatedValue(left, parentRow, localRow)
+		rv := correlatedValue(right, parentRow, localRow)
+		if lv == nil || rv == nil || !valuesEqual(lv, rv) {
+			return false
+		}
+	}
+	return true
+}
+
+func correlatedValue(ref string, parentRow, localRow map[string]any) any {
+	ref = strings.TrimSpace(ref)
+	alias := ""
+	col := ref
+	if i := strings.LastIndex(ref, "."); i >= 0 {
+		alias = unquoteIdent(ref[:i])
+		col = unquoteIdent(ref[i+1:])
+	} else {
+		col = unquoteIdent(ref)
+	}
+	switch alias {
+	case referenceLocalAlias:
+		return localRow[col]
+	case referenceParentAlias:
+		return parentRow[col]
+	default:
+		if v, ok := parentRow[col]; ok {
+			return v
+		}
+		return localRow[col]
 	}
 }

@@ -181,10 +181,25 @@ func queryColumnSamples(
 	opts evalOptions,
 	limit int,
 ) ([]any, error) {
+	return queryColumnSamplesAs(ctx, db, table, "", column, pred, opts, limit)
+}
+
+// queryColumnSamplesAs loads capped sample values from failing rows. When
+// tableAlias is non-empty, SELECT and ORDER BY columns are qualified with that
+// alias so aliased FROM clauses remain unambiguous.
+func queryColumnSamplesAs(
+	ctx context.Context,
+	db DB,
+	table, tableAlias, column string,
+	pred rowPredicate,
+	opts evalOptions,
+	limit int,
+) ([]any, error) {
 	quotedColumn, err := quoteIdent(opts.dialect, column)
 	if err != nil {
 		return nil, categorizeRenderError(err)
 	}
+	quotedColumn = qualifySQLIdent(tableAlias, quotedColumn)
 
 	query := fmt.Sprintf("SELECT %s FROM %s", quotedColumn, table)
 	if pred.where != "" {
@@ -198,6 +213,9 @@ func queryColumnSamples(
 	quotedOrder, err := quoteColumns(opts.dialect, orderColumns)
 	if err != nil {
 		return nil, categorizeRenderError(err)
+	}
+	for i := range quotedOrder {
+		quotedOrder[i] = qualifySQLIdent(tableAlias, quotedOrder[i])
 	}
 	query += " ORDER BY " + joinQuoted(quotedOrder)
 	query += " LIMIT " + opts.dialect.Placeholder(len(pred.args)+1)
@@ -230,9 +248,24 @@ func queryFailedKeys(
 	opts evalOptions,
 	pred rowPredicate,
 ) ([]RowKey, error) {
+	return queryFailedKeysAs(ctx, db, table, "", opts, pred)
+}
+
+// queryFailedKeysAs loads capped failed keys from failing rows. When tableAlias
+// is non-empty, SELECT and ORDER BY key columns are qualified with that alias.
+func queryFailedKeysAs(
+	ctx context.Context,
+	db DB,
+	table, tableAlias string,
+	opts evalOptions,
+	pred rowPredicate,
+) ([]RowKey, error) {
 	quoted, err := quoteColumns(opts.dialect, opts.keyColumns)
 	if err != nil {
 		return nil, categorizeRenderError(err)
+	}
+	for i := range quoted {
+		quoted[i] = qualifySQLIdent(tableAlias, quoted[i])
 	}
 
 	query := fmt.Sprintf("SELECT %s FROM %s", joinQuoted(quoted), table)
@@ -269,6 +302,13 @@ func queryFailedKeys(
 		return nil, err
 	}
 	return keys, nil
+}
+
+func qualifySQLIdent(alias, quoted string) string {
+	if alias == "" {
+		return quoted
+	}
+	return alias + "." + quoted
 }
 
 func evalTableCount(

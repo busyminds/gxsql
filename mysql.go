@@ -21,3 +21,4 @@ func (mysqlDialect) Placeholder(_ int) string {
 func (mysqlDialect) StringLength(expr string) string {
 	return "CHAR_LENGTH(" + expr + ")"
 }
+func (mysqlDialect) supportsRelationalKeys() {}

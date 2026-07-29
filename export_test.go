@@ -688,6 +688,27 @@ func TestExportQueryRedactsTableIdentifier(t *testing.T) {
 		t.Fatalf("query = %q, want <table> placeholder", q)
 	}
 }
+func TestExportQueryRedactsOnlyTargetIdentifier(t *testing.T) {
+	rep := Report{
+		Target: &TableRef{Schema: "public", Name: "users"},
+		Results: []Result{{
+			diagnostics: &resultDiagnostics{
+				query: `SELECT COUNT(*) FROM "public"."users" AS local WHERE NOT EXISTS (SELECT 1 FROM "public"."customers" AS parent)`,
+			},
+		}},
+	}
+	dto, err := ExportReport(rep, IncludeCapturedDiagnostics())
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := dto.Results[0].Diagnostics.Query
+	if strings.Contains(q, `"public"."users"`) || strings.Contains(q, `"users"`) {
+		t.Fatalf("query leaked local table identity: %q", q)
+	}
+	if !strings.Contains(q, `"public"."customers"`) {
+		t.Fatalf("query lost parent table identity: %q", q)
+	}
+}
 
 func TestExportCapturedArgumentsRequireExplicitOptIn(t *testing.T) {
 	rep := Report{Results: []Result{{

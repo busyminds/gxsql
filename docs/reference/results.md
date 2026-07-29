@@ -18,7 +18,7 @@ order and `Target *TableRef`, which `ValidateTable` sets.
 | Field                                                     | Meaning                                                                     |
 | --------------------------------------------------------- | --------------------------------------------------------------------------- |
 | `ID`, `Kind`                                              | Machine-facing identity.                                                    |
-| `Name`, `Column`                                          | Human-facing check description and affected column. Do not parse `Name`.    |
+| `Name`, `Column`                                          | Human-facing check description and affected column. Do not parse `Name`. Blank `Column` for composite unique and reference results. |
 | `Success`, `Err`                                          | Policy outcome and a per-expectation failure recorded by `ContinueOnError`. |
 | `Tolerated`                                               | True when a nonzero raw failure count passed within `WithMaxFailedCount`.   |
 | `RowDenominator`, `Total`, `FailedCount`, `FailedPercent` | Population metrics; `FailedCount` uses the expectation-specific unit.       |
@@ -35,15 +35,23 @@ custom counts never retain samples or failed keys; `WithKey`, sample caps, and
 `SummaryOnly()` do not change this shape.
 
 `WithMaxFailedCount` applies only to per-row and uniqueness shapes
-(`RowDenominatorAvailable`). It changes `Success` only. Raw observations stay
-complete under existing caps. Empty evaluated populations pass without division
-by zero or `NaN` and are not tolerated. Scope remains the evaluated population
-for all raw counts. Table-level, aggregate, distinct-count, row-count, and
-custom-count wrappers fail preflight. Execution and configuration errors keep
-`Success: false` and `Tolerated: false`.
+(`RowDenominatorAvailable`), including composite uniqueness and referential
+integrity. It changes
+`Success` only. Raw observations stay complete under existing caps. Empty
+evaluated populations pass without division by zero or `NaN` and are not
+tolerated. Scope remains the evaluated population for all raw counts.
+Table-level, aggregate, distinct-count, row-count, and custom-count wrappers
+fail preflight. Execution and configuration errors keep `Success: false` and
+`Tolerated: false`.
 
 `RowKey` is `[]any` containing caller-supplied `WithKey` values in the same
 column order.
+
+Composite uniqueness and referential integrity both report complete local
+`FailedCount` values under `RowDenominatorAvailable`: duplicate participating
+rows for `KindCompositeUnique`, orphaned local rows for `KindReference`. Samples
+and failed keys remain local, capped, and subject to existing privacy controls.
+Parent values never appear in diagnostics.
 
 ## Structured facts
 
@@ -59,8 +67,15 @@ column order.
 - `ConfiguredMaxFailedCount` holds the inclusive `WithMaxFailedCount` bound when
   that decorator was applied, including raw-zero, above-bound, and
   `ContinueOnError` execution-error outcomes.
+- `KeyColumns` names local composite-unique components in declaration order when
+  set. Prefer this over parsing `Name`; `Result.Column` stays blank for those
+  results.
+- `Reference` holds local-to-parent mapping facts for referential checks:
+  `LocalColumns`, structured `Parent` (`TableRef`), and `ParentColumns`. Nil
+  when the result is not a reference check.
 
-Built-in expectations populate threshold fields at construction time.
+Built-in expectations populate threshold and mapping fields at construction
+time. Do not encode composite tuples as comma-separated `Column` text.
 
 ## Validation errors
 

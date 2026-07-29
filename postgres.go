@@ -23,3 +23,4 @@ func (postgresDialect) Placeholder(n int) string {
 func (postgresDialect) StringLength(expr string) string {
 	return "CHAR_LENGTH(" + expr + ")"
 }
+func (postgresDialect) supportsRelationalKeys() {}

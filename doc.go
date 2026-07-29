@@ -8,10 +8,16 @@
 //		gxsql.RowCount().GreaterOrEqual(1),
 //		gxsql.Int("age").Between(0, 120),
 //		gxsql.String("email").NotEmpty(),
+//		gxsql.Columns("tenant_id", "order_id").Unique(),
+//		gxsql.Columns("tenant_id", "customer_id").References(
+//			gxsql.SchemaTable("public", "customers"), "tenant_id", "id",
+//		),
 //	)
 //
-//	report, err := suite.ValidateTable(ctx, db, gxsql.Table("users"),
+//	report, err := suite.ValidateTable(ctx, db, gxsql.Table("orders"),
 //		gxsql.WithDialect(gxsql.Postgres()),
+//		gxsql.WithScope(gxsql.TrustedScope("tenant-acme", "tenant_id = ?", tenantID)),
+//		gxsql.WithKey("id"),
 //	)
 //	if err != nil {
 //		// Configuration or execution error; no complete report is available.
@@ -19,6 +25,13 @@
 //	if err := report.Err(); err != nil {
 //		// Validation completed, but one or more policies failed.
 //	}
+//
+// Composite uniqueness ([Columns].Unique) ignores tuples with any NULL
+// component and counts every duplicate participating row. Referential checks
+// ([Columns].References / [Column].References) pass any-NULL local tuples,
+// count orphaned complete local rows, apply [WithScope] only to the local
+// table, and leave parent lookup unscoped. Results leave [Result.Column]
+// blank and publish [ResultFacts.KeyColumns] or [ResultFacts.Reference].
 //
 // For scoped validation, use [TrustedScope] with [WithScope]. The scope
 // predicate limits every expectation to matching rows and uses dialect-neutral
@@ -55,14 +68,16 @@
 // opt-in export-only path subject to existing redactors.
 //
 // Bounded failure tolerance uses [WithMaxFailedCount] around an eligible
-// per-row or uniqueness expectation. max is an inclusive non-negative
-// failed-row bound; equality passes. Tolerance changes only the policy
-// verdict—raw Total, FailedCount, FailedPercent, samples, and failed keys
-// stay under existing caps. Gate with [Report.Err]; tolerated results count
-// as successful and are omitted from [Report.Failures], so inspect
-// [Report.Results] and [Result.Tolerated] for remediation. Table-level,
-// aggregate, distinct-count, row-count, and custom-count wrappers fail
-// preflight. Execution and configuration errors are never tolerated:
+// per-row or uniqueness expectation, including composite uniqueness and
+// referential integrity. max is
+// an inclusive non-negative failed-row bound; equality passes. Tolerance
+// changes only the policy verdict—raw Total, FailedCount, FailedPercent,
+// samples, and failed keys stay under existing caps. Gate with [Report.Err];
+// tolerated results count as successful and are omitted from
+// [Report.Failures], so inspect [Report.Results] and [Result.Tolerated] for
+// remediation. Table-level, aggregate, distinct-count, row-count, and
+// custom-count wrappers fail preflight. Execution and configuration errors
+// are never tolerated:
 //
 //	suite := gxsql.NewSuite(
 //		gxsql.WithMaxFailedCount(2, gxsql.String("email").NotEmpty()),

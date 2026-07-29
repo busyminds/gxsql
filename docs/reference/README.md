@@ -7,8 +7,8 @@ pkg.go.dev alongside these guides.
 | Page                                                 | Covers                                                                                                 |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | [Suites, options, and SQL integration](suite.md)     | `Suite`, `Option`, `ValidateTable`, `gxsqltest`, `DB`, `Dialect`, `TableRef`, and sealed `Expectation` |
-| [Expectation builders](expectations.md)              | row-count, generic-column, numeric, string, custom-count, and `WithMaxFailedCount`                     |
-| [Reports, errors, rendering, and limits](results.md) | `Report`, `Result`, custom-count semantics, facts, error taxonomy, display text, and caps              |
+| [Expectation builders](expectations.md)              | row-count, column, composite unique/reference, numeric, string, custom-count, and `WithMaxFailedCount` |
+| [Reports, errors, rendering, and limits](results.md) | `Report`, `Result`, key/reference facts, custom-count semantics, errors, display text, and caps        |
 | [Stable IDs and report export](export.md)            | `WithID`, `ExpectationKind`, `ExportReport`, export DTOs, verdicts, and normalized values              |
 
 ## Related guides

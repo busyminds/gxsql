@@ -21,3 +21,4 @@ func (sqliteDialect) Placeholder(_ int) string {
 func (sqliteDialect) StringLength(expr string) string {
 	return "LENGTH(" + expr + ")"
 }
+func (sqliteDialect) supportsRelationalKeys() {}

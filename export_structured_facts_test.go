@@ -310,3 +310,80 @@ func stringSlicesEqual(got, want []string) bool {
 	}
 	return true
 }
+
+func TestExportCrossColumnFactsAndPrivacy(t *testing.T) {
+	rep := Report{Results: []Result{
+		{
+			Kind:           KindGreaterOrEqualColumn,
+			Name:           "end_at >= start_at",
+			Column:         "end_at",
+			Success:        false,
+			RowDenominator: RowDenominatorAvailable,
+			Total:          2,
+			FailedCount:    1,
+			SampleValues:   []any{"secret-sample"},
+			FailedKeys:     []RowKey{{"secret-key"}},
+			diagnostics: &resultDiagnostics{
+				query: "SELECT secret_query",
+				args:  []any{"secret-arg"},
+			},
+			Facts: ResultFacts{
+				Comparison: &ComparisonFacts{
+					LeftColumn:   "end_at",
+					RightColumn:  "start_at",
+					Relationship: ">=",
+				},
+			},
+		},
+		{
+			Kind:           KindRatioEqual,
+			Name:           "actual_units == planned_units * 2",
+			Column:         "actual_units",
+			Success:        true,
+			RowDenominator: RowDenominatorAvailable,
+			Total:          1,
+			Facts: ResultFacts{
+				Ratio: &RatioFacts{
+					LeftColumn:  "actual_units",
+					RightColumn: "planned_units",
+					Bound:       2,
+				},
+			},
+		},
+	}}
+
+	dto, err := ExportReport(rep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := dto.Results[0].DisplayName; got != "end_at >= start_at" {
+		t.Fatalf("comparison display name = %q", got)
+	}
+	comparison := dto.Results[0].Facts.Comparison
+	if comparison == nil || comparison.LeftColumn != "end_at" || comparison.RightColumn != "start_at" || comparison.Relationship != ">=" {
+		t.Fatalf("comparison facts = %#v", comparison)
+	}
+	ratio := dto.Results[1].Facts.Ratio
+	if ratio == nil || ratio.Bound != 2 {
+		t.Fatalf("ratio facts = %#v", ratio)
+	}
+	if got := dto.Results[1].DisplayName; got != "actual_units ratio == (...)" {
+		t.Fatalf("ratio display name = %q", got)
+	}
+
+	data, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsonText := string(data)
+	for _, forbidden := range []string{"secret-sample", "secret-key", "secret-arg", "secret_query", `"samples"`, `"failed_keys"`, `"diagnostics"`} {
+		if strings.Contains(jsonText, forbidden) {
+			t.Fatalf("default export leaked %q in %s", forbidden, jsonText)
+		}
+	}
+	for _, wanted := range []string{`"comparison"`, `"left_column":"end_at"`, `"relationship":"\u003e="`, `"ratio"`, `"bound":2`} {
+		if !strings.Contains(jsonText, wanted) {
+			t.Fatalf("default export missing %q in %s", wanted, jsonText)
+		}
+	}
+}

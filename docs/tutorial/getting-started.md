@@ -69,6 +69,24 @@ every duplicate participating **row**. Referential checks pass rows with any
 parents without applying local `WithScope`. Samples and failed keys stay local
 under existing caps.
 
+For ordering and simple reconciliation, use the fixed same-row builders rather
+than raw operators or expressions:
+
+```go
+suite := gxsql.NewSuite(
+    gxsql.Column("end_date").GreaterOrEqualColumn("start_date"),
+    gxsql.Column("paid_cents").LessOrEqualColumn("invoice_cents"),
+    gxsql.Int("actual_units").RatioEqual("planned_units", 2),
+)
+```
+
+Comparisons require both operands to be non-`NULL`; an empty scoped population
+passes vacuously. Direct comparisons cover like-for-like integer/numeric or
+temporal columns without coercion. `RatioEqual` checks
+`actual_units == planned_units * 2` algebraically (not via SQL division), fails a
+zero denominator, and is integer-only. Decimal or floating ratios and arbitrary
+expressions are unsupported.
+
 Use the builders for the data type and assertion you need. The
 [expectations reference](../reference/expectations.md) lists every builder.
 

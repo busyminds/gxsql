@@ -12,6 +12,9 @@
 //		gxsql.Columns("tenant_id", "customer_id").References(
 //			gxsql.SchemaTable("public", "customers"), "tenant_id", "id",
 //		),
+//		gxsql.Column("end_date").GreaterOrEqualColumn("start_date"),
+//		gxsql.Column("paid_cents").LessOrEqualColumn("invoice_cents"),
+//		gxsql.Int("actual_units").RatioEqual("planned_units", 2),
 //	)
 //
 //	report, err := suite.ValidateTable(ctx, db, gxsql.Table("orders"),
@@ -32,6 +35,23 @@
 // count orphaned complete local rows, apply [WithScope] only to the local
 // table, and leave parent lookup unscoped. Results leave [Result.Column]
 // blank and publish [ResultFacts.KeyColumns] or [ResultFacts.Reference].
+// Same-row relationships use fixed [ColumnBuilder] methods
+// ([ColumnBuilder.EqualColumn], [ColumnBuilder.NotEqualColumn],
+// [ColumnBuilder.LessThanColumn], [ColumnBuilder.LessOrEqualColumn],
+// [ColumnBuilder.GreaterThanColumn], [ColumnBuilder.GreaterOrEqualColumn]) and
+// integer [NumberColumn.RatioEqual]. Direct comparisons require non-NULL
+// operands from the same validated target, fail either-NULL rows, pass empty
+// scoped populations vacuously, and are proven for like-for-like
+// integer/numeric and temporal fixture families without coercion or text casts.
+// Results publish [ResultFacts.Comparison] or [ResultFacts.Ratio] under distinct
+// kinds such as [KindEqualColumn] and [KindRatioEqual]. Ratio equality uses the
+// algebraic form left == right * bound (not SQL division), fails a zero
+// denominator, and is available only from [Int]; [Float] RatioEqual, decimal
+// ratios, floating ratios, raw operators, and general expressions are not
+// supported. Database-reported arithmetic overflow or unsupported numeric
+// storage is a [CategoryDatabase] execution error. These shapes reuse existing
+// caps, [WithScope], [WithMaxFailedCount], declaration order, and privacy-safe
+// [ExportReport] defaults.
 //
 // For scoped validation, use [TrustedScope] with [WithScope]. The scope
 // predicate limits every expectation to matching rows and uses dialect-neutral

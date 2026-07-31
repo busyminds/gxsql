@@ -142,9 +142,65 @@ ordered numeric checks. Per-row comparisons treat SQL `NULL` as failing.
 | `AverageBetween(lo, hi float64)`   | The column average is in the inclusive range. |
 | `MinGreaterOrEqual(bound float64)` | The column minimum is at least the bound.     |
 | `MaxLessOrEqual(bound float64)`    | The column maximum is at most the bound.      |
+| `RatioEqual(right string, bound int64)` | Integer-only algebraic `value == right * bound` (not SQL `/`). |
 
 The aggregate methods are table-level checks. They pass vacuously when the
 column has no non-null numeric value.
+
+`RatioEqual` is available only from `Int(...)`. `Float(...).RatioEqual` fails
+preflight. A row passes only when both operands are non-`NULL`, the right-hand
+column (denominator) is nonzero, and the algebraic equality holds. A `NULL`
+operand or a zero denominator fails the row. The bound is an `int64`
+placeholder; the implementation multiplies rather than dividing so fractional
+ratios are not truncated. Arithmetic overflow or an unsupported numeric storage
+form reported by the database is a `CategoryDatabase` execution error, never a
+silently rounded result. Decimal ratios, floating-point ratios, raw operator
+strings, and general SQL or arithmetic expressions are not supported—use
+`CustomCount` for those forms.
+
+Results use `KindRatioEqual` and populate `Result.Facts.Ratio` with
+`LeftColumn`, `RightColumn`, and `Bound`. Ratio equality is an ordinary per-row
+expectation: complete counts, sample and failed-key caps, `WithScope`,
+`WithMaxFailedCount`, declaration order, `ContinueOnError`, and default export
+privacy all retain their existing behavior.
+
+## Same-row column comparisons
+
+`Column(left)` compares two separately validated columns from the same target.
+Operators are selected by named methods; there is no public operator-string,
+expression, or raw-SQL form.
+
+| Method                               | Relationship |
+| ------------------------------------ | ------------ |
+| `EqualColumn(right string)`          | `=`          |
+| `NotEqualColumn(right string)`       | `<>`         |
+| `LessThanColumn(right string)`       | `<`          |
+| `LessOrEqualColumn(right string)`    | `<=`         |
+| `GreaterThanColumn(right string)`    | `>`          |
+| `GreaterOrEqualColumn(right string)` | `>=`         |
+
+```go
+gxsql.Column("end_date").GreaterOrEqualColumn("start_date")
+gxsql.Column("paid_cents").LessOrEqualColumn("invoice_cents")
+```
+
+A row fails when either operand is SQL `NULL` or when the named relationship is
+false. An empty table or empty scoped population passes vacuously. Preflight
+rejects invalid identifiers and identical left/right operands before SQL.
+
+The first portable fixture families are like-for-like integer/numeric columns and
+like-for-like temporal columns. Operands are compared natively: gxsql does not
+coerce types, cast to text, or substitute a different predicate. When the engine
+rejects an incompatible pair, the failure is a typed execution error
+(`CategoryDatabase`), not a rewritten comparison.
+
+Results use distinct kinds (`KindEqualColumn`, `KindNotEqualColumn`,
+`KindLessThanColumn`, `KindLessOrEqualColumn`, `KindGreaterThanColumn`,
+`KindGreaterOrEqualColumn`) and populate `Result.Facts.Comparison` with
+`LeftColumn`, `RightColumn`, and `Relationship` (the fixed operator token).
+These shapes reuse ordinary per-row reporting: complete failed counts, capped
+samples and failed keys, `WithScope`, `WithMaxFailedCount`, summary mode,
+declaration order, `ContinueOnError`, and privacy-safe default export.
 
 ## String columns
 
@@ -193,12 +249,14 @@ policy.
 
 Eligible shapes are per-row and uniqueness expectations: `Column` null and
 membership checks, single-column `Unique()`, composite `Columns(...).Unique()`,
-`Column`/`Columns` `References()`, numeric per-row comparisons (`Between`,
-`GreaterThan`, `GreaterOrEqual`, `LessThan`, `LessOrEqual`), and string checks
-(`NotEmpty`, `Empty`, `LenEqual`, `LenBetween`). Wrapping a table-level,
-aggregate, distinct-count, row-count, or custom-count declaration—or a negative
-bound, nil inner expectation, or a second nested tolerance—fails `ValidateTable`
-preflight before SQL.
+`Column`/`Columns` `References()`, same-row column comparisons (`EqualColumn`,
+`NotEqualColumn`, `LessThanColumn`, `LessOrEqualColumn`, `GreaterThanColumn`,
+`GreaterOrEqualColumn`), `Int(...).RatioEqual`, numeric per-row bound
+comparisons (`Between`, `GreaterThan`, `GreaterOrEqual`, `LessThan`,
+`LessOrEqual`), and string checks (`NotEmpty`, `Empty`, `LenEqual`,
+`LenBetween`). Wrapping a table-level, aggregate, distinct-count, row-count, or
+custom-count declaration—or a negative bound, nil inner expectation, or a second
+nested tolerance—fails `ValidateTable` preflight before SQL.
 
 Tolerance changes only the policy verdict after the inner expectation evaluates
 once. Raw `Total`, `FailedCount`, `FailedPercent`, samples, and failed keys

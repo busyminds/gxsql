@@ -344,3 +344,218 @@ func TestDefaultModeIsSummaryWithoutKeys(t *testing.T) {
 		t.Fatal("default mode should not populate FailedKeys")
 	}
 }
+func TestCrossColumnComparisonsCountNullsAndFacts(t *testing.T) {
+	setHarnessData(t, harnessUsers(
+		map[string]any{"id": int64(1), "age": int64(10), "batch_id": int64(10)},
+		map[string]any{"id": int64(2), "age": int64(20), "batch_id": int64(10)},
+		map[string]any{"id": int64(3), "age": nil, "batch_id": int64(10)},
+		map[string]any{"id": int64(4), "age": int64(10), "batch_id": nil},
+		map[string]any{"id": int64(5), "age": nil, "batch_id": nil},
+	))
+	db := openHarnessDB(t)
+
+	rep, err := NewSuite(
+		Column("age").EqualColumn("batch_id"),
+		Column("age").NotEqualColumn("batch_id"),
+		Column("age").LessThanColumn("batch_id"),
+		Column("age").LessOrEqualColumn("batch_id"),
+		Column("age").GreaterThanColumn("batch_id"),
+		Column("age").GreaterOrEqualColumn("batch_id"),
+	).ValidateTable(
+		context.Background(), db, Table("users"),
+		WithDialect(Postgres()), WithKey("id"),
+	)
+	if err != nil {
+		t.Fatalf("ValidateTable error: %v", err)
+	}
+	wantFailed := []int{4, 4, 5, 4, 4, 3}
+	wantEqualKeys := []RowKey{{int64(2)}, {int64(3)}, {int64(4)}, {int64(5)}}
+	wantNotEqualKeys := []RowKey{{int64(1)}, {int64(3)}, {int64(4)}, {int64(5)}}
+	for i, want := range wantFailed {
+		res := rep.Results[i]
+		if res.FailedCount != want {
+			t.Errorf("result %d FailedCount = %d, want %d", i, res.FailedCount, want)
+		}
+		if res.Facts.Comparison == nil {
+			t.Errorf("result %d missing comparison facts", i)
+		}
+	}
+	if !reflect.DeepEqual(rep.Results[0].FailedKeys, wantEqualKeys) {
+		t.Errorf("Equal FailedKeys = %#v, want %#v", rep.Results[0].FailedKeys, wantEqualKeys)
+	}
+	if !reflect.DeepEqual(rep.Results[1].FailedKeys, wantNotEqualKeys) {
+		t.Errorf("NotEqual FailedKeys = %#v, want %#v", rep.Results[1].FailedKeys, wantNotEqualKeys)
+	}
+}
+
+func TestCrossColumnEqualAndNotEqualDistinguishNullOperands(t *testing.T) {
+	setHarnessData(t, harnessUsers(
+		map[string]any{"id": int64(1), "age": int64(10), "batch_id": int64(10)},
+		map[string]any{"id": int64(2), "age": int64(20), "batch_id": int64(10)},
+		map[string]any{"id": int64(3), "age": nil, "batch_id": int64(10)},
+		map[string]any{"id": int64(4), "age": int64(10), "batch_id": nil},
+		map[string]any{"id": int64(5), "age": nil, "batch_id": nil},
+	))
+	db := openHarnessDB(t)
+
+	rep, err := NewSuite(
+		Column("age").EqualColumn("batch_id"),
+		Column("age").NotEqualColumn("batch_id"),
+	).ValidateTable(
+		context.Background(), db, Table("users"),
+		WithDialect(Postgres()), WithKey("id"),
+	)
+	if err != nil {
+		t.Fatalf("ValidateTable error: %v", err)
+	}
+
+	equalKeys := []RowKey{{int64(2)}, {int64(3)}, {int64(4)}, {int64(5)}}
+	notEqualKeys := []RowKey{{int64(1)}, {int64(3)}, {int64(4)}, {int64(5)}}
+	if !reflect.DeepEqual(rep.Results[0].FailedKeys, equalKeys) {
+		t.Fatalf("Equal FailedKeys = %#v, want %#v (left/right/both-NULL must fail)", rep.Results[0].FailedKeys, equalKeys)
+	}
+	if !reflect.DeepEqual(rep.Results[1].FailedKeys, notEqualKeys) {
+		t.Fatalf("NotEqual FailedKeys = %#v, want %#v (equal + left/right/both-NULL must fail)", rep.Results[1].FailedKeys, notEqualKeys)
+	}
+	if reflect.DeepEqual(rep.Results[0].FailedKeys, rep.Results[1].FailedKeys) {
+		t.Fatal("Equal and NotEqual FailedKeys must differ so swapped operators cannot pass")
+	}
+}
+
+func TestRatioEqualUsesAlgebraicEqualityAndFailsNullOrZeroDenominator(t *testing.T) {
+	setHarnessData(t, harnessUsers(
+		map[string]any{"id": int64(1), "age": int64(20), "batch_id": int64(10)},
+		map[string]any{"id": int64(2), "age": int64(21), "batch_id": int64(10)},
+		map[string]any{"id": int64(3), "age": int64(10), "batch_id": int64(0)},
+		map[string]any{"id": int64(4), "age": nil, "batch_id": int64(10)},
+		map[string]any{"id": int64(5), "age": int64(20), "batch_id": nil},
+	))
+	db := openHarnessDB(t)
+
+	rep, err := NewSuite(Int("age").RatioEqual("batch_id", 2)).ValidateTable(
+		context.Background(), db, Table("users"), WithDialect(Postgres()),
+	)
+	if err != nil {
+		t.Fatalf("ValidateTable error: %v", err)
+	}
+	res := rep.Results[0]
+	if res.Success || res.FailedCount != 4 {
+		t.Fatalf("ratio result = %#v, want four failing rows", res)
+	}
+	if res.Facts.Ratio == nil || res.Facts.Ratio.Bound != 2 {
+		t.Fatalf("ratio facts = %#v, want bound 2", res.Facts.Ratio)
+	}
+}
+
+func TestRatioEqualZeroBound(t *testing.T) {
+	setHarnessData(t, harnessUsers(
+		map[string]any{"id": int64(1), "age": int64(0), "batch_id": int64(5)},
+		map[string]any{"id": int64(2), "age": int64(10), "batch_id": int64(5)},
+		map[string]any{"id": int64(3), "age": int64(0), "batch_id": int64(0)},
+	))
+	db := openHarnessDB(t)
+
+	rep, err := NewSuite(Int("age").RatioEqual("batch_id", 0)).ValidateTable(
+		context.Background(), db, Table("users"),
+		WithDialect(Postgres()), WithKey("id"),
+	)
+	if err != nil {
+		t.Fatalf("ValidateTable error: %v", err)
+	}
+	// Bound 0: left == right*0 => left==0 when right!=0; right==0 still fails.
+	wantKeys := []RowKey{{int64(2)}, {int64(3)}}
+	if !reflect.DeepEqual(rep.Results[0].FailedKeys, wantKeys) {
+		t.Fatalf("FailedKeys = %#v, want %#v", rep.Results[0].FailedKeys, wantKeys)
+	}
+	if rep.Results[0].Facts.Ratio == nil || rep.Results[0].Facts.Ratio.Bound != 0 {
+		t.Fatalf("ratio facts = %#v, want bound 0", rep.Results[0].Facts.Ratio)
+	}
+}
+
+func TestRatioEqualNegativeBound(t *testing.T) {
+	setHarnessData(t, harnessUsers(
+		map[string]any{"id": int64(1), "age": int64(-20), "batch_id": int64(10)},
+		map[string]any{"id": int64(2), "age": int64(20), "batch_id": int64(10)},
+		map[string]any{"id": int64(3), "age": int64(20), "batch_id": int64(-10)},
+		map[string]any{"id": int64(4), "age": int64(-21), "batch_id": int64(10)},
+	))
+	db := openHarnessDB(t)
+
+	rep, err := NewSuite(Int("age").RatioEqual("batch_id", -2)).ValidateTable(
+		context.Background(), db, Table("users"),
+		WithDialect(Postgres()), WithKey("id"),
+	)
+	if err != nil {
+		t.Fatalf("ValidateTable error: %v", err)
+	}
+	wantKeys := []RowKey{{int64(2)}, {int64(4)}}
+	if !reflect.DeepEqual(rep.Results[0].FailedKeys, wantKeys) {
+		t.Fatalf("FailedKeys = %#v, want %#v", rep.Results[0].FailedKeys, wantKeys)
+	}
+	if rep.Results[0].Facts.Ratio == nil || rep.Results[0].Facts.Ratio.Bound != -2 {
+		t.Fatalf("ratio facts = %#v, want bound -2", rep.Results[0].Facts.Ratio)
+	}
+}
+
+func TestCrossColumnPreflightRejectsInvalidOrIdenticalOperands(t *testing.T) {
+	setHarnessData(t, harnessUsers())
+	db := openHarnessDB(t)
+
+	for _, exp := range []Expectation{
+		Column("age").EqualColumn("age"),
+		Column("age").EqualColumn(""),
+		Column("age").EqualColumn("bad-name"),
+	} {
+		_, err := NewSuite(exp).ValidateTable(
+			context.Background(), db, Table("users"), WithDialect(Postgres()),
+		)
+		if err == nil {
+			t.Fatalf("ValidateTable(%T) error = nil, want preflight failure", exp)
+		}
+	}
+}
+
+func TestCrossColumnPreservesScopeToleranceAndCaps(t *testing.T) {
+	setHarnessData(t, harnessUsers(
+		map[string]any{"id": int64(1), "age": int64(10), "batch_id": int64(20), "tenant_id": "tenant-a"},
+		map[string]any{"id": int64(5), "age": int64(100), "batch_id": int64(1), "tenant_id": "tenant-b"},
+		map[string]any{"id": int64(2), "age": int64(20), "batch_id": int64(10), "tenant_id": "tenant-a"},
+		map[string]any{"id": int64(3), "age": int64(30), "batch_id": int64(10), "tenant_id": "tenant-a"},
+		map[string]any{"id": int64(4), "age": int64(100), "batch_id": int64(1), "tenant_id": "tenant-b"},
+	))
+	db := openHarnessDB(t)
+
+	exp := WithMaxFailedCount(2, Column("age").LessThanColumn("batch_id"))
+	rep, err := NewSuite(exp).WithSampleCap(1).WithFailedKeysCap(1).ValidateTable(
+		context.Background(), db, Table("users"),
+		WithDialect(Postgres()),
+		WithScope(TrustedScope("tenant-a", "tenant_id = ?", "tenant-a")),
+		WithKey("id"),
+	)
+	if err != nil {
+		t.Fatalf("ValidateTable error: %v", err)
+	}
+
+	res := rep.Results[0]
+	if !res.Success || !res.Tolerated {
+		t.Fatalf("result = %#v, want tolerated success", res)
+	}
+	if res.Total != 3 || res.FailedCount != 2 {
+		t.Fatalf("counts = total %d failed %d, want 3 and 2", res.Total, res.FailedCount)
+	}
+	if len(res.SampleValues) != 1 || len(res.FailedKeys) != 1 {
+		t.Fatalf("caps = samples %#v keys %#v", res.SampleValues, res.FailedKeys)
+	}
+}
+
+func TestRatioEqualRequiresIntBuilder(t *testing.T) {
+	setHarnessData(t, harnessUsers())
+	db := openHarnessDB(t)
+
+	_, err := NewSuite(Float("age").RatioEqual("batch_id", 2)).ValidateTable(
+		context.Background(), db, Table("users"), WithDialect(Postgres()),
+	)
+	if err == nil {
+		t.Fatal("Float(...).RatioEqual should fail preflight")
+	}
+}

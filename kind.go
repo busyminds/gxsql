@@ -42,6 +42,20 @@ const (
 	KindGreaterOrEqual ExpectationKind = "greater_or_equal"
 	// KindLessOrEqual marks an expectation from NumberColumn.LessOrEqual.
 	KindLessOrEqual ExpectationKind = "less_or_equal"
+	// KindEqualColumn marks a same-row equality comparison.
+	KindEqualColumn ExpectationKind = "equal_column"
+	// KindNotEqualColumn marks a same-row inequality comparison.
+	KindNotEqualColumn ExpectationKind = "not_equal_column"
+	// KindLessThanColumn marks a same-row less-than comparison.
+	KindLessThanColumn ExpectationKind = "less_than_column"
+	// KindLessOrEqualColumn marks a same-row less-than-or-equal comparison.
+	KindLessOrEqualColumn ExpectationKind = "less_or_equal_column"
+	// KindGreaterThanColumn marks a same-row greater-than comparison.
+	KindGreaterThanColumn ExpectationKind = "greater_than_column"
+	// KindGreaterOrEqualColumn marks a same-row greater-than-or-equal comparison.
+	KindGreaterOrEqualColumn ExpectationKind = "greater_or_equal_column"
+	// KindRatioEqual marks an integer same-row ratio equality comparison.
+	KindRatioEqual ExpectationKind = "ratio_equal"
 	// KindNotEmpty marks an expectation from StringColumn.NotEmpty.
 	KindNotEmpty ExpectationKind = "not_empty"
 	// KindEmpty marks an expectation from StringColumn.Empty.

@@ -39,13 +39,14 @@ func Columns(names ...string) ColumnsBuilder {
 // NumberColumn is the entry point for ordered numeric comparisons and aggregates
 // on one column. Construct one with [Int] or [Float].
 type NumberColumn struct {
-	column string
+	column  string
+	integer bool
 }
 
 // Int returns a builder for integer or general numeric column checks and
 // table-level aggregates on name.
 func Int(name string) NumberColumn {
-	return NumberColumn{column: name}
+	return NumberColumn{column: name, integer: true}
 }
 
 // Float returns a builder for floating-point column checks and table-level
@@ -200,6 +201,49 @@ func (c NumberColumn) LessOrEqual(bound any) Expectation {
 	return numberComparison(c.column, "<=", bound)
 }
 
+// EqualColumn asserts that both columns are non-NULL and equal in each row.
+// An empty table passes vacuously. Results use [KindEqualColumn].
+func (c ColumnBuilder) EqualColumn(right string) Expectation {
+	return crossColumnComparison(c.column, right, "=", KindEqualColumn)
+}
+
+// NotEqualColumn asserts that both columns are non-NULL and different in each
+// row. An empty table passes vacuously. Results use [KindNotEqualColumn].
+func (c ColumnBuilder) NotEqualColumn(right string) Expectation {
+	return crossColumnComparison(c.column, right, "<>", KindNotEqualColumn)
+}
+
+// LessThanColumn asserts that both columns are non-NULL and left is less than
+// right in each row. Results use [KindLessThanColumn].
+func (c ColumnBuilder) LessThanColumn(right string) Expectation {
+	return crossColumnComparison(c.column, right, "<", KindLessThanColumn)
+}
+
+// LessOrEqualColumn asserts that both columns are non-NULL and left is less
+// than or equal to right in each row. Results use [KindLessOrEqualColumn].
+func (c ColumnBuilder) LessOrEqualColumn(right string) Expectation {
+	return crossColumnComparison(c.column, right, "<=", KindLessOrEqualColumn)
+}
+
+// GreaterThanColumn asserts that both columns are non-NULL and left is greater
+// than right in each row. Results use [KindGreaterThanColumn].
+func (c ColumnBuilder) GreaterThanColumn(right string) Expectation {
+	return crossColumnComparison(c.column, right, ">", KindGreaterThanColumn)
+}
+
+// GreaterOrEqualColumn asserts that both columns are non-NULL and left is
+// greater than or equal to right in each row. Results use [KindGreaterOrEqualColumn].
+func (c ColumnBuilder) GreaterOrEqualColumn(right string) Expectation {
+	return crossColumnComparison(c.column, right, ">=", KindGreaterOrEqualColumn)
+}
+
+// RatioEqual asserts actual == planned * bound for non-NULL integer columns.
+// A zero denominator fails the row, and the algebraic form avoids integer
+// division truncation. Results use [KindRatioEqual].
+func (c NumberColumn) RatioEqual(right string, bound int64) Expectation {
+	return ratioEqualExpectation(c.column, right, bound, c.integer)
+}
+
 // NotEmpty returns a per-row expectation that the string is non-empty after
 // trimming is not applied—only SQL NULL and the empty string fail. An empty
 // table passes vacuously. Results use [KindNotEmpty].
@@ -245,12 +289,18 @@ func (c StringColumn) LenBetween(lo, hi int) Expectation {
 
 type predicateBuilder func(d Dialect, column string, scope *trustedScope) (rowPredicate, error)
 
+type crossColumnPredicateBuilder func(
+	d Dialect, left, right string, scope *trustedScope,
+) (rowPredicate, error)
+
 type perRowExpectation struct {
 	column         string
+	rightColumn    string
 	name           string
 	kind           ExpectationKind
 	facts          ResultFacts
 	build          predicateBuilder
+	buildColumns   crossColumnPredicateBuilder
 	preflightCheck func() error
 }
 
@@ -262,6 +312,14 @@ func (e perRowExpectation) preflight() error {
 	if err := validateIdent(e.column); err != nil {
 		return newConfigError(err)
 	}
+	if e.buildColumns != nil || e.rightColumn != "" {
+		if err := validateIdent(e.rightColumn); err != nil {
+			return newConfigError(err)
+		}
+		if e.column == e.rightColumn {
+			return newConfigError(fmt.Errorf("gxsql: cross-column expectation cannot compare %q with itself", e.column))
+		}
+	}
 	if e.preflightCheck != nil {
 		return e.preflightCheck()
 	}
@@ -271,7 +329,15 @@ func (e perRowExpectation) preflight() error {
 func (e perRowExpectation) evaluateSQL(
 	ctx context.Context, db DB, table TableRef, opts evalOptions,
 ) (Result, error) {
-	pred, err := e.build(opts.dialect, e.column, opts.scope)
+	var (
+		pred rowPredicate
+		err  error
+	)
+	if e.buildColumns != nil {
+		pred, err = e.buildColumns(opts.dialect, e.column, e.rightColumn, opts.scope)
+	} else {
+		pred, err = e.build(opts.dialect, e.column, opts.scope)
+	}
 	if err != nil {
 		return Result{Kind: e.kind, Name: e.name, Column: e.column, RowDenominator: RowDenominatorUnavailable}, categorizeRenderError(err)
 	}
@@ -286,6 +352,50 @@ func numberComparison(column, op string, bound any) Expectation {
 		facts:  ResultFacts{ConfiguredBound: bound},
 		build: func(d Dialect, col string, scope *trustedScope) (rowPredicate, error) {
 			return orderedComparePredicate(d, col, op, bound, scope)
+		},
+	}
+}
+
+func crossColumnComparison(left, right, op string, kind ExpectationKind) Expectation {
+	return perRowExpectation{
+		column:      left,
+		rightColumn: right,
+		name:        fmt.Sprintf("%s %s %s", left, op, right),
+		kind:        kind,
+		facts: ResultFacts{
+			Comparison: &ComparisonFacts{
+				LeftColumn:   left,
+				RightColumn:  right,
+				Relationship: op,
+			},
+		},
+		buildColumns: func(d Dialect, left, right string, scope *trustedScope) (rowPredicate, error) {
+			return crossColumnComparisonPredicate(d, left, right, op, scope)
+		},
+	}
+}
+
+func ratioEqualExpectation(left, right string, bound int64, integer bool) Expectation {
+	return perRowExpectation{
+		column:      left,
+		rightColumn: right,
+		name:        fmt.Sprintf("%s == %s * %d", left, right, bound),
+		kind:        KindRatioEqual,
+		facts: ResultFacts{
+			Ratio: &RatioFacts{
+				LeftColumn:  left,
+				RightColumn: right,
+				Bound:       bound,
+			},
+		},
+		buildColumns: func(d Dialect, left, right string, scope *trustedScope) (rowPredicate, error) {
+			return ratioEqualPredicate(d, left, right, bound, scope)
+		},
+		preflightCheck: func() error {
+			if !integer {
+				return newConfigError(fmt.Errorf("gxsql: RatioEqual requires an Int builder"))
+			}
+			return nil
 		},
 	}
 }
@@ -394,10 +504,54 @@ func orderedComparePredicate(d Dialect, column, op string, bound any, scope *tru
 	return withWhere(where, b.args), nil
 }
 
+func crossColumnComparisonPredicate(
+	d Dialect, left, right, op string, scope *trustedScope,
+) (rowPredicate, error) {
+	leftQuoted, err := quoteIdent(d, left)
+	if err != nil {
+		return rowPredicate{}, err
+	}
+	rightQuoted, err := quoteIdent(d, right)
+	if err != nil {
+		return rowPredicate{}, err
+	}
+	failOp, ok := failComparisonOp(op)
+	if !ok {
+		return rowPredicate{}, fmt.Errorf("gxsql: unsupported cross-column comparison %q", op)
+	}
+	where := fmt.Sprintf(
+		"%s IS NULL OR %s IS NULL OR %s %s %s",
+		leftQuoted, rightQuoted, leftQuoted, failOp, rightQuoted,
+	)
+	return withWhere(where, nil), nil
+}
+
+func ratioEqualPredicate(
+	d Dialect, left, right string, bound int64, scope *trustedScope,
+) (rowPredicate, error) {
+	leftQuoted, err := quoteIdent(d, left)
+	if err != nil {
+		return rowPredicate{}, err
+	}
+	rightQuoted, err := quoteIdent(d, right)
+	if err != nil {
+		return rowPredicate{}, err
+	}
+	b := newScopedArgBinder(d, scope)
+	boundPlaceholder := b.bind(bound)
+	where := fmt.Sprintf(
+		"%s IS NULL OR %s IS NULL OR %s = 0 OR %s <> %s * %s",
+		leftQuoted, rightQuoted, rightQuoted, leftQuoted, rightQuoted, boundPlaceholder,
+	)
+	return withWhere(where, b.args), nil
+}
+
 func failComparisonOp(op string) (string, bool) {
 	switch op {
 	case "=":
 		return "<>", true
+	case "<>":
+		return "=", true
 	case ">":
 		return "<=", true
 	case ">=":

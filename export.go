@@ -147,6 +147,30 @@ type ExportedFacts struct {
 	KeyColumns []string `json:"key_columns,omitempty"`
 	// Reference holds local-to-parent mapping facts for referential integrity.
 	Reference *ExportedReferenceFacts `json:"reference,omitempty"`
+	// Comparison holds same-row operand and relationship facts.
+	Comparison *ExportedComparisonFacts `json:"comparison,omitempty"`
+	// Ratio holds same-row integer ratio facts.
+	Ratio *ExportedRatioFacts `json:"ratio,omitempty"`
+}
+
+// ExportedComparisonFacts is the JSON form of ComparisonFacts.
+type ExportedComparisonFacts struct {
+	// LeftColumn is the left operand identifier.
+	LeftColumn string `json:"left_column"`
+	// RightColumn is the right operand identifier.
+	RightColumn string `json:"right_column"`
+	// Relationship is the fixed relationship name.
+	Relationship string `json:"relationship"`
+}
+
+// ExportedRatioFacts is the JSON form of RatioFacts.
+type ExportedRatioFacts struct {
+	// LeftColumn is the actual-value operand identifier.
+	LeftColumn string `json:"left_column"`
+	// RightColumn is the denominator operand identifier.
+	RightColumn string `json:"right_column"`
+	// Bound is the integral ratio bound.
+	Bound int64 `json:"bound"`
 }
 
 // ExportedReferenceFacts is the JSON form of ReferenceFacts.
@@ -505,6 +529,22 @@ func exportFacts(facts ResultFacts) (*ExportedFacts, error) {
 		}
 		has = true
 	}
+	if facts.Comparison != nil {
+		out.Comparison = &ExportedComparisonFacts{
+			LeftColumn:   facts.Comparison.LeftColumn,
+			RightColumn:  facts.Comparison.RightColumn,
+			Relationship: facts.Comparison.Relationship,
+		}
+		has = true
+	}
+	if facts.Ratio != nil {
+		out.Ratio = &ExportedRatioFacts{
+			LeftColumn:  facts.Ratio.LeftColumn,
+			RightColumn: facts.Ratio.RightColumn,
+			Bound:       facts.Ratio.Bound,
+		}
+		has = true
+	}
 	if !has {
 		return nil, nil
 	}
@@ -552,6 +592,23 @@ func exportDisplayBase(res Result) string {
 		return col + " >= (...)"
 	case KindLessOrEqual:
 		return col + " <= (...)"
+	case KindEqualColumn:
+		return exportComparisonDisplay(res, "=")
+	case KindNotEqualColumn:
+		return exportComparisonDisplay(res, "<>")
+	case KindLessThanColumn:
+		return exportComparisonDisplay(res, "<")
+	case KindLessOrEqualColumn:
+		return exportComparisonDisplay(res, "<=")
+	case KindGreaterThanColumn:
+		return exportComparisonDisplay(res, ">")
+	case KindGreaterOrEqualColumn:
+		return exportComparisonDisplay(res, ">=")
+	case KindRatioEqual:
+		if res.Facts.Ratio != nil {
+			return res.Facts.Ratio.LeftColumn + " ratio == (...)"
+		}
+		return exportDisplayNameFallback(res.Name)
 	case KindLenEqual:
 		return col + " length"
 	case KindLenBetween:
@@ -593,6 +650,14 @@ func exportDisplayBase(res Result) string {
 		}
 		return name
 	}
+}
+
+func exportComparisonDisplay(res Result, relationship string) string {
+	if res.Facts.Comparison != nil {
+		facts := res.Facts.Comparison
+		return facts.LeftColumn + " " + relationship + " " + facts.RightColumn
+	}
+	return exportDisplayNameFallback(res.Name)
 }
 
 func exportSamples(res Result, cfg exportConfig) ([]NormalizedValue, *ExportedCaps, error) {

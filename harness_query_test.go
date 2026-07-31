@@ -22,7 +22,9 @@ var (
 	notExistsRe = regexp.MustCompile(
 		`(?is)^NOT\s+EXISTS\s*\(\s*SELECT\s+1\s+FROM\s+(.+?)\s+WHERE\s+(.+)\)$`,
 	)
-	tableAliasRe = regexp.MustCompile(`(?is)^(.+?)\s+AS\s+(.+)$`)
+	tableAliasRe  = regexp.MustCompile(`(?is)^(.+?)\s+AS\s+(.+)$`)
+	crossColumnRe = regexp.MustCompile(`(?is)^(.+?)\s*(<=|>=|<>|=|<|>)\s*(.+)$`)
+	ratioEqualRe  = regexp.MustCompile(`(?is)^(.+?)\s*<>\s*(.+?)\s*\*\s*(\$\d+|\?)$`)
 )
 
 func executeHarnessQuery(query string, args []any, tables map[string][]map[string]any) ([]string, [][]driver.Value, error) {
@@ -449,6 +451,27 @@ func evalWhereAtom(atom string, args []any, row map[string]any, tableRef string,
 		return len(s) > hi
 	}
 
+	if m := ratioEqualRe.FindStringSubmatch(atom); m != nil {
+		left := unquoteIdent(stripQualification(m[1]))
+		right := unquoteIdent(stripQualification(m[2]))
+		bound, ok := toFloat64(resolveBound(m[3], args))
+		value, valueOK := toFloat64(row[right])
+		if !ok || !valueOK {
+			return false
+		}
+		return !valuesEqual(row[left], value*bound)
+	}
+
+	if m := crossColumnRe.FindStringSubmatch(atom); m != nil {
+		left := unquoteIdent(stripQualification(m[1]))
+		right := unquoteIdent(stripQualification(m[3]))
+		_, leftExists := row[left]
+		_, rightExists := row[right]
+		if leftExists && rightExists && validateIdent(left) == nil && validateIdent(right) == nil {
+			return compareValues(row[left], m[2], row[right])
+		}
+
+	}
 	if m := regexp.MustCompile(`^(.+?)\s*=\s*(\$\d+|\?|'.+?'|-?\d+(?:\.\d+)?|\S+)$`).FindStringSubmatch(atom); m != nil {
 		col := unquoteIdent(stripQualification(m[1]))
 		bound := resolveBound(m[2], args)
@@ -515,7 +538,9 @@ func compareString(left, op, right string) bool {
 		return left > right
 	case ">=":
 		return left >= right
-	case "<>", "=":
+	case "=":
+		return left == right
+	case "<>":
 		return left != right
 	default:
 		return false
@@ -536,7 +561,9 @@ func compareFloat(left float64, op string, right float64) bool {
 		return left > right
 	case ">=":
 		return left >= right
-	case "<>", "=":
+	case "=":
+		return left == right
+	case "<>":
 		return left != right
 	default:
 		return false

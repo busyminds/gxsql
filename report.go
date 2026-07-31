@@ -59,6 +59,25 @@ type ResultFacts struct {
 	// Reference holds local-to-parent mapping facts for referential integrity
 	// expectations. Nil when this result is not a reference check.
 	Reference *ReferenceFacts
+	// Comparison holds same-row operand and relationship facts.
+	Comparison *ComparisonFacts
+	// Ratio holds same-row integer ratio facts.
+	Ratio *RatioFacts
+}
+
+// ComparisonFacts identifies the operands and fixed relationship of a direct
+// same-row comparison.
+type ComparisonFacts struct {
+	LeftColumn   string
+	RightColumn  string
+	Relationship string
+}
+
+// RatioFacts identifies the operands and integral bound of a ratio equality.
+type RatioFacts struct {
+	LeftColumn  string
+	RightColumn string
+	Bound       int64
 }
 
 // ReferenceFacts describes a local-to-parent column mapping for a referential

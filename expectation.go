@@ -142,14 +142,17 @@ func applyMaxFailedCount(res Result, max int) Result {
 }
 
 // toleranceEligible is the private capability marking declarations that may
-// carry a maximum-failed-count wrapper. Only existing per-row and uniqueness
-// expectations implement it; eligibility is never inferred from a result.
+// carry a maximum-failed-count wrapper. Per-row, uniqueness, composite-key,
+// and reference expectations implement it; eligibility is never inferred from
+// a result.
 type toleranceEligible interface {
 	toleranceEligible()
 }
 
-func (perRowExpectation) toleranceEligible() {}
-func (uniqueExpectation) toleranceEligible() {}
+func (perRowExpectation) toleranceEligible()          {}
+func (uniqueExpectation) toleranceEligible()          {}
+func (compositeUniqueExpectation) toleranceEligible() {}
+func (referenceExpectation) toleranceEligible()       {}
 
 // maxFailedCountExpectation is the immutable internal tolerance declaration
 // constructed by WithMaxFailedCount.
@@ -159,11 +162,12 @@ type maxFailedCountExpectation struct {
 }
 
 // WithMaxFailedCount wraps an eligible expectation with an inclusive maximum
-// failed-row allowance. Only per-row and uniqueness expectations qualify;
-// table-level, aggregate, distinct-count, row-count, and custom-count
-// declarations are rejected at ValidateTable preflight. Negative max values
-// are also rejected at preflight. The wrapper is immutable and may nest with
-// WithID in either order.
+// failed-row allowance. Only per-row and uniqueness expectations qualify,
+// including composite uniqueness and referential integrity; table-level,
+// aggregate, distinct-count, row-count, and custom-count declarations are
+// rejected at ValidateTable preflight. Negative max values are also rejected
+// at preflight. The wrapper is immutable and may nest with WithID in either
+// order.
 //
 // Tolerance changes only the policy verdict. Raw Total, FailedCount,
 // FailedPercent, SampleValues, and FailedKeys are preserved under their

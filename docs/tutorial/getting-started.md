@@ -56,8 +56,18 @@ suite := gxsql.NewSuite(
     gxsql.Int("age").Between(0, 120),
     gxsql.String("email").NotEmpty(),
     gxsql.Column("email").Unique(),
+    gxsql.Columns("tenant_id", "order_id").Unique(),
+    gxsql.Columns("tenant_id", "customer_id").References(
+        gxsql.SchemaTable("public", "customers"), "tenant_id", "id",
+    ),
 )
 ```
+
+Composite uniqueness ignores tuples with any SQL `NULL` component and counts
+every duplicate participating **row**. Referential checks pass rows with any
+`NULL` local key component, count orphaned complete local tuples, and look up
+parents without applying local `WithScope`. Samples and failed keys stay local
+under existing caps.
 
 Use the builders for the data type and assertion you need. The
 [expectations reference](../reference/expectations.md) lists every builder.

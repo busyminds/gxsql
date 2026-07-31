@@ -178,6 +178,18 @@ func (s *Suite) ValidateTable(
 	for i, exp := range s.expectations {
 		pf.check(i, exp)
 	}
+	if !dialectSupportsRelationalKeys(cfg.dialect) {
+		for i, exp := range s.expectations {
+			if !requiresRelationalDialect(exp) || pf.hasIssueAt(i) {
+				continue
+			}
+			pf.issues = append(pf.issues, PreflightIssue{
+				Index: i,
+				ID:    expectationID(exp),
+				Err:   unsupportedRelationalDialectError(),
+			})
+		}
+	}
 	if len(pf.issues) > 0 && !cfg.continueOnError {
 		return Report{}, &PreflightErrors{Issues: pf.issues}
 	}

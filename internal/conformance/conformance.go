@@ -79,12 +79,14 @@ func assertScopedQueries(t *testing.T, db *recordingDB, scopeColumn string, time
 
 // Config supplies an engine fixture to Run. Table and EmptyTable must expose
 // the same columns: id, name, age, score, nullable, payload, tenant_id,
-// batch_id, and event_at.
+// batch_id, event_at, order_id, and customer_id. ParentTable is the
+// schema-qualified customers parent used by relational key integrity checks.
 type Config struct {
 	DB          gxsql.DB
 	Dialect     gxsql.Dialect
 	Table       gxsql.TableRef
 	EmptyTable  gxsql.TableRef
+	ParentTable gxsql.TableRef
 	Transaction func(context.Context) (gxsql.DB, func() error, error)
 }
 
@@ -695,6 +697,7 @@ func Run(t *testing.T, cfg Config) {
 		t.Log("narrow DB handles including transactions: transaction callback not supplied")
 	}
 
+	runRelationalKeyIntegrity(t, cfg)
 }
 
 func assertToleranceRawPreservation(t *testing.T, bare, tol gxsql.Result) {

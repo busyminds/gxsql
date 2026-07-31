@@ -42,6 +42,91 @@ are configuration errors. Each value becomes a bound placeholder; see
 corresponding integer comparison to the number of distinct non-null values. Like
 row count, this is a table-level result.
 
+Single-column `Unique()` ignores SQL `NULL` values: they do not participate in
+duplicate detection. `FailedCount` counts every row in each duplicate group, not
+the number of groups. Empty tables and empty scoped populations pass vacuously.
+Results use `KindUnique` and set `Result.Column` to the checked column.
+
+## Composite columns
+
+`Columns(names ...string) ColumnsBuilder` starts multi-column checks. Supply two
+or more separately validated identifiers. Empty names, invalid identifiers,
+duplicates within one tuple, and fewer than two columns for composite uniqueness
+fail `ValidateTable` preflight before SQL.
+
+| Method                                                 | Policy                                                                                                       |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `Unique()`                                             | Each complete non-`NULL` tuple appears at most once in the scoped local population; every duplicate row fails. |
+| `References(parent TableRef, parentColumns ...string)` | Every complete non-`NULL` local tuple resolves to at least one unscoped parent row; orphans fail locally.      |
+
+`Column(name).References(parent, parentColumn)` covers the single-column form
+with the same semantics and `KindReference`.
+
+### Composite uniqueness
+
+`Columns("tenant_id", "order_id").Unique()` extends the single-column NULL
+policy to tuples: a row participates only when **every** component is non-`NULL`.
+A tuple with any `NULL` component is ignored. `FailedCount` is duplicate
+**rows**, never duplicate groups. Suite `WithScope` limits the evaluated
+population before duplicate detection. Empty scoped populations pass vacuously.
+
+Results use `KindCompositeUnique`, leave `Result.Column` blank, and populate
+`Result.Facts.KeyColumns` in declaration order. Samples (capped) and failed keys
+(`WithKey`) come only from failing local rows. Composite uniqueness is eligible
+for `WithMaxFailedCount`.
+
+```go
+suite := gxsql.NewSuite(
+    gxsql.Columns("tenant_id", "order_id").Unique(),
+)
+report, err := suite.ValidateTable(ctx, db, gxsql.Table("orders"),
+    gxsql.WithDialect(gxsql.Postgres()),
+    gxsql.WithScope(gxsql.TrustedScope("tenant-acme", "tenant_id = ?", tenantID)),
+    gxsql.WithKey("tenant_id", "order_id"),
+)
+```
+
+### Referential integrity
+
+`Columns("tenant_id", "customer_id").References(gxsql.SchemaTable("public", "customers"), "tenant_id", "id")`
+maps local columns to equal-arity parent columns. Parent targets use existing
+`Table` / `SchemaTable` construction so schema-qualified parents stay structured
+and are rendered through the active dialect.
+
+A local row is evaluated only when every local key component is non-`NULL`. A
+row with any `NULL` local component passes (nullable foreign-key policy). A
+complete local tuple fails when no parent row matches every mapped component.
+Multiple matching parent rows still pass; the check proves existence, not parent
+uniqueness. Orphans count as failing **local** rows. Empty local scopes pass.
+
+Partial mappings against a composite parent key are allowed by the API, but
+are only correct when the mapped parent columns are unique at that arity;
+otherwise unrelated parent rows can match.
+
+`WithScope` applies only to the local validated table. Parent lookup is
+intentionally unscoped: local scope is never reused on the parent side. There is
+no parent-scope API in this release.
+
+Results use `KindReference`, leave `Result.Column` blank, and populate
+`Result.Facts.Reference` with `LocalColumns`, structured `Parent` (`TableRef`),
+and `ParentColumns`. Samples and failed keys are local-only under existing caps;
+parent values and parent keys are never emitted. Preflight rejects empty
+mappings, unequal arity, invalid or duplicate identifiers, and unsupported
+dialect capability before SQL.
+
+```go
+suite := gxsql.NewSuite(
+    gxsql.Columns("tenant_id", "customer_id").References(
+        gxsql.SchemaTable("public", "customers"), "tenant_id", "id",
+    ),
+)
+report, err := suite.ValidateTable(ctx, db, gxsql.Table("orders"),
+    gxsql.WithDialect(gxsql.Postgres()),
+    gxsql.WithScope(gxsql.TrustedScope("tenant-acme", "tenant_id = ?", tenantID)),
+    gxsql.WithKey("id"),
+)
+```
+
 ## Numeric columns
 
 `Int(name string)` and `Float(name string)` both return `NumberColumn` for
@@ -107,7 +192,8 @@ passes. There is no percentage, pass-rate, `Mostly`, rounding, or compound
 policy.
 
 Eligible shapes are per-row and uniqueness expectations: `Column` null and
-membership checks, `Unique()`, numeric per-row comparisons (`Between`,
+membership checks, single-column `Unique()`, composite `Columns(...).Unique()`,
+`Column`/`Columns` `References()`, numeric per-row comparisons (`Between`,
 `GreaterThan`, `GreaterOrEqual`, `LessThan`, `LessOrEqual`), and string checks
 (`NotEmpty`, `Empty`, `LenEqual`, `LenBetween`). Wrapping a table-level,
 aggregate, distinct-count, row-count, or custom-count declaration—or a negative

@@ -51,6 +51,27 @@ type ResultFacts struct {
 	// WithMaxFailedCount policy decorated this result. Nil means no tolerance
 	// was applied.
 	ConfiguredMaxFailedCount *int
+
+	// KeyColumns names local composite-key components in declaration order.
+	// Used by multi-column uniqueness (and similar) so tuples are not encoded
+	// as comma-separated Result.Column text. Empty when unset.
+	KeyColumns []string
+	// Reference holds local-to-parent mapping facts for referential integrity
+	// expectations. Nil when this result is not a reference check.
+	Reference *ReferenceFacts
+}
+
+// ReferenceFacts describes a local-to-parent column mapping for a referential
+// integrity expectation. Column slices preserve declaration order. Parent is a
+// structured TableRef so schema-qualified targets stay structured rather than
+// rendered into Column text.
+type ReferenceFacts struct {
+	// LocalColumns are the local foreign-key components in declaration order.
+	LocalColumns []string
+	// Parent is the unscoped parent target identified by Schema and Name.
+	Parent TableRef
+	// ParentColumns are the parent key components mapped 1:1 to LocalColumns.
+	ParentColumns []string
 }
 
 // resultDiagnostics holds captured SQL text and bound arguments for export.

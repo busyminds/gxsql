@@ -23,3 +23,4 @@ func (duckdbDialect) Placeholder(n int) string {
 func (duckdbDialect) StringLength(expr string) string {
 	return "LENGTH(" + expr + ")"
 }
+func (duckdbDialect) supportsRelationalKeys() {}

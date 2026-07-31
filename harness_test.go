@@ -239,30 +239,30 @@ func TestHarnessWhereTopLevelAND(t *testing.T) {
 	args := []any{"t1", int64(120)}
 
 	pass := map[string]any{"tenant_id": "t1", "age": int64(200)}
-	if !rowMatchesWhere(where, args, pass, "users", nil) {
+	if !rowMatchesWhere(where, args, pass, "users", nil, nil) {
 		t.Fatal("expected in-scope failing row to match scoped failure predicate")
 	}
 
 	inScopePass := map[string]any{"tenant_id": "t1", "age": int64(25)}
-	if rowMatchesWhere(where, args, inScopePass, "users", nil) {
+	if rowMatchesWhere(where, args, inScopePass, "users", nil, nil) {
 		t.Fatal("expected in-scope passing row to miss scoped failure predicate")
 	}
 
 	outOfScope := map[string]any{"tenant_id": "t2", "age": int64(200)}
-	if rowMatchesWhere(where, args, outOfScope, "users", nil) {
+	if rowMatchesWhere(where, args, outOfScope, "users", nil, nil) {
 		t.Fatal("expected out-of-scope row to miss scoped failure predicate")
 	}
 }
 
 func TestHarnessWhereEqualityBinding(t *testing.T) {
 	row := map[string]any{"tenant_id": "t1", "status": "active"}
-	if !rowMatchesWhere(`tenant_id = $1`, []any{"t1"}, row, "users", nil) {
+	if !rowMatchesWhere(`tenant_id = $1`, []any{"t1"}, row, "users", nil, nil) {
 		t.Fatal("expected $n equality match")
 	}
-	if rowMatchesWhere(`tenant_id = $1`, []any{"t2"}, row, "users", nil) {
+	if rowMatchesWhere(`tenant_id = $1`, []any{"t2"}, row, "users", nil, nil) {
 		t.Fatal("expected $n equality mismatch")
 	}
-	if !rowMatchesWhere(`status = ?`, []any{"active"}, row, "users", nil) {
+	if !rowMatchesWhere(`status = ?`, []any{"active"}, row, "users", nil, nil) {
 		t.Fatal("expected ? equality match after bindQuestionMarks")
 	}
 }

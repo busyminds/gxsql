@@ -172,10 +172,11 @@ is no percentage, pass-rate, `Mostly`, rounding, or compound policy.
 | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `WithMaxFailedCount(max int, exp Expectation) Expectation` | Decorates an eligible expectation with a maximum failed-row allowance. Immutable; works with `NewSuite` and with `WithID` inside or outside the wrapper. |
 
-Only per-row and uniqueness expectations qualify. Wrapping a table-level,
-aggregate, distinct-count, row-count, or custom-count declaration—or a negative
-bound, nil inner expectation, or a second nested tolerance—fails `ValidateTable`
-preflight before SQL. Without `ContinueOnError()`, invalid tolerance returns the
+Only per-row and uniqueness expectations qualify, including composite
+`Columns(...).Unique()` and `References()`. Wrapping a table-level, aggregate, distinct-count,
+row-count, or custom-count declaration—or a negative bound, nil inner
+expectation, or a second nested tolerance—fails `ValidateTable` preflight before
+SQL. Without `ContinueOnError()`, invalid tolerance returns the
 zero report and `*PreflightErrors`. With it, the matching declaration-order slot
 records the configuration error and later expectations still run.
 

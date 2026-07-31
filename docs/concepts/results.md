@@ -47,9 +47,15 @@ Tolerated results count as successful for `report.OK()` and `report.Err()`;
 inspect `Result.Tolerated`—do not rely on `Failures()` alone. Read the
 configured bound from `Result.Facts.ConfiguredMaxFailedCount`.
 
-Only per-row and uniqueness expectations qualify. Wrapping a table-level,
-aggregate, distinct-count, row-count, or custom-count declaration fails
-preflight. Execution and configuration errors are never tolerated.
+Only per-row and uniqueness expectations qualify, including composite
+`Columns(...).Unique()` and `References()`. Wrapping a table-level, aggregate, distinct-count,
+row-count, or custom-count declaration fails preflight. Execution and
+configuration errors are never tolerated.
+
+For composite uniqueness and referential integrity, remediate from local
+`FailedCount`, capped `SampleValues`, and opted-in `FailedKeys`. Read component
+names from `Facts.KeyColumns` or the parent mapping from `Facts.Reference`; do
+not parse `Name` or expect parent values in diagnostics.
 
 ```go
 if err := report.Err(); err != nil {

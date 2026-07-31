@@ -20,6 +20,22 @@ func Column(name string) ColumnBuilder {
 	return ColumnBuilder{column: name}
 }
 
+// ColumnsBuilder is the entry point for multi-column checks such as composite
+// uniqueness and referential integrity. Construct one with [Columns].
+// Identifiers are validated at suite preflight before SQL runs.
+type ColumnsBuilder struct {
+	columns []string
+}
+
+// Columns returns a builder for composite uniqueness and referential checks on
+// separately supplied identifiers. Each name must satisfy [Dialect] identifier
+// rules. [ColumnsBuilder.Unique] requires at least two columns;
+// [ColumnsBuilder.References] accepts one or more. Duplicate or empty names are
+// rejected at suite preflight.
+func Columns(names ...string) ColumnsBuilder {
+	return ColumnsBuilder{columns: append([]string(nil), names...)}
+}
+
 // NumberColumn is the entry point for ordered numeric comparisons and aggregates
 // on one column. Construct one with [Int] or [Float].
 type NumberColumn struct {
@@ -106,6 +122,44 @@ func (c ColumnBuilder) NotIn(vals ...any) Expectation {
 // [KindUnique].
 func (c ColumnBuilder) Unique() Expectation {
 	return uniqueExpectation(c)
+}
+
+// Unique returns a per-row expectation that each complete non-NULL tuple of the
+// builder columns appears at most once within the scoped local population.
+// Tuples with any NULL component are ignored. Every row in a duplicate
+// participating tuple fails. An empty scoped population passes vacuously.
+// Results use [KindCompositeUnique], leave [Result.Column] empty, and populate
+// [ResultFacts.KeyColumns] in declaration order.
+func (c ColumnsBuilder) Unique() Expectation {
+	return compositeUniqueExpectation{columns: append([]string(nil), c.columns...)}
+}
+
+// References returns a per-row expectation that every complete non-NULL local
+// foreign-key tuple resolves to at least one row in parent. A local row with
+// any NULL component passes (nullable foreign-key policy). Parent lookup is
+// intentionally unscoped; [WithScope] applies only to the local target.
+// Results use [KindReference], leave [Result.Column] empty, and populate
+// [ResultFacts.Reference]. Samples and failed keys remain local-only.
+func (c ColumnBuilder) References(parent TableRef, parentColumns ...string) Expectation {
+	return referenceExpectation{
+		localColumns:  []string{c.column},
+		parent:        parent,
+		parentColumns: append([]string(nil), parentColumns...),
+	}
+}
+
+// References returns a per-row expectation that every complete non-NULL local
+// foreign-key tuple resolves to at least one row in parent. Local and parent
+// column lists must have equal arity. A local row with any NULL component
+// passes. Parent lookup is intentionally unscoped; [WithScope] applies only to
+// the local target. Results use [KindReference], leave [Result.Column] empty,
+// and populate [ResultFacts.Reference]. Samples and failed keys remain local-only.
+func (c ColumnsBuilder) References(parent TableRef, parentColumns ...string) Expectation {
+	return referenceExpectation{
+		localColumns:  append([]string(nil), c.columns...),
+		parent:        parent,
+		parentColumns: append([]string(nil), parentColumns...),
+	}
 }
 
 // Between returns a per-row expectation that lo <= value <= hi (inclusive).

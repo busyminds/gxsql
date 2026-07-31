@@ -28,6 +28,10 @@ const (
 	KindNotIn ExpectationKind = "not_in"
 	// KindUnique marks an expectation from Column().Unique.
 	KindUnique ExpectationKind = "unique"
+	// KindCompositeUnique marks an expectation from Columns().Unique.
+	KindCompositeUnique ExpectationKind = "composite_unique"
+	// KindReference marks an expectation from Columns().References / Column().References.
+	KindReference ExpectationKind = "reference"
 	// KindBetween marks an expectation from NumberColumn.Between.
 	KindBetween ExpectationKind = "between"
 	// KindGreaterThan marks an expectation from NumberColumn.GreaterThan.

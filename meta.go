@@ -75,7 +75,7 @@ func unwrapExpectation(exp Expectation) Expectation {
 // usesRowDenominator reports whether exp needs a row-population total COUNT(*).
 func usesRowDenominator(exp Expectation) bool {
 	switch unwrapExpectation(exp).(type) {
-	case perRowExpectation, uniqueExpectation:
+	case perRowExpectation, uniqueExpectation, compositeUniqueExpectation, referenceExpectation:
 		return true
 	default:
 		return false

@@ -22,6 +22,7 @@ import (
     "context"
     "database/sql"
     "log"
+    "time"
 
     _ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -87,6 +88,24 @@ temporal columns without coercion. `RatioEqual` checks
 `actual_units == planned_units * 2` algebraically, not through SQL division. It
 fails a zero denominator and supports integers only. Decimal ratios, floating
 ratios, and arbitrary expressions are unsupported.
+
+
+Timestamp window and freshness checks take caller-supplied `time.Time` values.
+The window is half-open (`start <= value < end`); NULL fails and an empty scope
+passes vacuously. Freshness requires `MAX(column) >= cutoff`; empty and
+all-NULL scopes fail, while a future-valued maximum still passes against that
+explicit cutoff:
+
+```go
+windowStart := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+windowEnd := windowStart.Add(24 * time.Hour)
+cutoff := windowEnd.Add(-30 * time.Minute)
+
+suite := gxsql.NewSuite(
+    gxsql.Timestamp("event_time").InWindow(windowStart, windowEnd),
+    gxsql.Timestamp("ingested_at").FreshSince(cutoff),
+)
+```
 
 Use the builders for the data type and assertion you need. The
 [expectations reference](../reference/expectations.md) lists every builder.

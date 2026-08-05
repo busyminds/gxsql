@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestExportStructuredKeyAndReferenceFactsJSON(t *testing.T) {
@@ -384,6 +385,149 @@ func TestExportCrossColumnFactsAndPrivacy(t *testing.T) {
 	for _, wanted := range []string{`"comparison"`, `"left_column":"end_at"`, `"relationship":"\u003e="`, `"ratio"`, `"bound":2`} {
 		if !strings.Contains(jsonText, wanted) {
 			t.Fatalf("default export missing %q in %s", wanted, jsonText)
+		}
+	}
+}
+
+func TestExportTemporalFactsSerializeStructurally(t *testing.T) {
+	start := time.Date(2026, 7, 1, 0, 0, 0, 123456789, time.FixedZone("UTC-7", -7*3600))
+	end := start.Add(24 * time.Hour)
+	cutoff := end.Add(-30 * time.Minute)
+	observed := time.Date(2026, 7, 1, 23, 45, 0, 987654321, time.UTC)
+	present := true
+	absent := false
+	rep := Report{
+		Target: &TableRef{Name: "events"},
+		Results: []Result{
+			{
+				Kind:           KindTimestampInWindow,
+				Name:           "event_time in [2026-07-01 00:00:00 -0700 PDT, 2026-07-02 00:00:00 -0700 PDT)",
+				Column:         "event_time",
+				Success:        true,
+				RowDenominator: RowDenominatorAvailable,
+				Total:          1,
+				SampleValues:   []any{"secret-sample"},
+				diagnostics: &resultDiagnostics{
+					query: "SELECT secret_query",
+					args:  []any{"secret-arg"},
+				},
+				Facts: ResultFacts{
+					ConfiguredTimeStart: &start,
+					ConfiguredTimeEnd:   &end,
+				},
+			},
+			{
+				Kind:           KindTimestampFreshSince,
+				Name:           "ingested_at fresh since 2026-07-01T23:30:00-07:00",
+				Column:         "ingested_at",
+				Success:        true,
+				RowDenominator: RowDenominatorUnavailable,
+				Facts: ResultFacts{
+					ConfiguredTimeCutoff: &cutoff,
+					ObservedTime:         &observed,
+					ObservedTimePresent:  &present,
+				},
+			},
+			{
+				Kind:           KindTimestampFreshSince,
+				Name:           "ingested_at fresh since 2026-07-01T23:30:00-07:00",
+				Column:         "ingested_at",
+				Success:        false,
+				RowDenominator: RowDenominatorUnavailable,
+				Facts: ResultFacts{
+					ConfiguredTimeCutoff: &cutoff,
+					ObservedTimePresent:  &absent,
+				},
+			},
+		},
+	}
+
+	dto, err := ExportReport(rep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dto.SchemaVersion != ExportSchemaVersion || ExportSchemaVersion != "gxsql.report.v1" {
+		t.Fatalf("schema_version = %q", dto.SchemaVersion)
+	}
+	if got := dto.Results[0].DisplayName; got != "event_time in window" {
+		t.Fatalf("window display_name = %q", got)
+	}
+	if got := dto.Results[1].DisplayName; got != "ingested_at fresh since" {
+		t.Fatalf("fresh display_name = %q", got)
+	}
+
+	window := dto.Results[0].Facts
+	if window == nil || window.ConfiguredTimeStart == nil || window.ConfiguredTimeEnd == nil {
+		t.Fatalf("window facts = %#v", window)
+	}
+	if window.ConfiguredTimeCutoff != nil || window.ObservedTime != nil || window.ObservedTimePresent != nil {
+		t.Fatalf("window exported unrelated freshness fields: %#v", window)
+	}
+	if window.ConfiguredTimeStart.Kind != "time_rfc3339" || window.ConfiguredTimeStart.Value != start.UTC().Format(time.RFC3339Nano) {
+		t.Fatalf("configured_time_start = %#v", window.ConfiguredTimeStart)
+	}
+	if window.ConfiguredTimeEnd.Kind != "time_rfc3339" || window.ConfiguredTimeEnd.Value != end.UTC().Format(time.RFC3339Nano) {
+		t.Fatalf("configured_time_end = %#v", window.ConfiguredTimeEnd)
+	}
+
+	fresh := dto.Results[1].Facts
+	if fresh == nil || fresh.ConfiguredTimeCutoff == nil || fresh.ObservedTime == nil || fresh.ObservedTimePresent == nil || !*fresh.ObservedTimePresent {
+		t.Fatalf("fresh facts = %#v", fresh)
+	}
+	if fresh.ConfiguredTimeStart != nil || fresh.ConfiguredTimeEnd != nil {
+		t.Fatalf("fresh exported window fields: %#v", fresh)
+	}
+	if fresh.ConfiguredTimeCutoff.Value != cutoff.UTC().Format(time.RFC3339Nano) {
+		t.Fatalf("configured_time_cutoff = %#v", fresh.ConfiguredTimeCutoff)
+	}
+	if fresh.ObservedTime.Kind != "time_rfc3339" || fresh.ObservedTime.Value != observed.UTC().Format(time.RFC3339Nano) {
+		t.Fatalf("observed_time = %#v", fresh.ObservedTime)
+	}
+
+	absentFacts := dto.Results[2].Facts
+	if absentFacts == nil || absentFacts.ConfiguredTimeCutoff == nil || absentFacts.ObservedTimePresent == nil || *absentFacts.ObservedTimePresent {
+		t.Fatalf("absent facts = %#v", absentFacts)
+	}
+	if absentFacts.ObservedTime != nil {
+		t.Fatalf("absent observed_time = %#v, want omitted", absentFacts.ObservedTime)
+	}
+
+	data, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsonText := string(data)
+	for _, want := range []string{
+		`"kind":"timestamp_in_window"`,
+		`"kind":"timestamp_fresh_since"`,
+		`"display_name":"event_time in window"`,
+		`"display_name":"ingested_at fresh since"`,
+		`"configured_time_start":{"kind":"time_rfc3339","value":"` + start.UTC().Format(time.RFC3339Nano) + `","exact":true}`,
+		`"configured_time_end":{"kind":"time_rfc3339","value":"` + end.UTC().Format(time.RFC3339Nano) + `","exact":true}`,
+		`"configured_time_cutoff":{"kind":"time_rfc3339","value":"` + cutoff.UTC().Format(time.RFC3339Nano) + `","exact":true}`,
+		`"observed_time":{"kind":"time_rfc3339","value":"` + observed.UTC().Format(time.RFC3339Nano) + `","exact":true}`,
+		`"observed_time_present":true`,
+		`"observed_time_present":false`,
+	} {
+		if !strings.Contains(jsonText, want) {
+			t.Fatalf("export JSON missing %s in %s", want, jsonText)
+		}
+	}
+	for _, forbidden := range []string{
+		"secret-sample",
+		"secret-arg",
+		"secret_query",
+		`"samples"`,
+		`"failed_keys"`,
+		`"diagnostics"`,
+		`"configured_bound":`,
+		`"configured_bound_lower":`,
+		`"configured_bound_upper":`,
+		`"display_name":"event_time in [`,
+		`"display_name":"ingested_at fresh since 2026`,
+	} {
+		if strings.Contains(jsonText, forbidden) {
+			t.Fatalf("default export unexpectedly contained %q in %s", forbidden, jsonText)
 		}
 	}
 }

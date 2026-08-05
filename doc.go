@@ -15,6 +15,8 @@
 //		gxsql.Column("end_date").GreaterOrEqualColumn("start_date"),
 //		gxsql.Column("paid_cents").LessOrEqualColumn("invoice_cents"),
 //		gxsql.Int("actual_units").RatioEqual("planned_units", 2),
+//		gxsql.Timestamp("event_time").InWindow(windowStart, windowEnd),
+//		gxsql.Timestamp("ingested_at").FreshSince(cutoff),
 //	)
 //
 //	report, err := suite.ValidateTable(ctx, db, gxsql.Table("orders"),
@@ -52,6 +54,28 @@
 // storage is a [CategoryDatabase] execution error. These shapes reuse existing
 // caps, [WithScope], [WithMaxFailedCount], declaration order, and privacy-safe
 // [ExportReport] defaults.
+//
+// Temporal checks use caller-supplied [time.Time] values only. Construct them
+// with [Timestamp]. [TimestampColumn.InWindow] is a half-open per-row window
+// (start <= value < end): SQL NULL fails, an empty scoped population passes
+// vacuously, and zero or inverted bounds fail preflight. [TimestampColumn.FreshSince]
+// is a table-level freshness check on MAX(column): empty and all-NULL scopes
+// fail with explicit observation absence, a maximum at or after the cutoff
+// passes (including future-valued maxima), and the library never embeds
+// NOW()/CURRENT_TIMESTAMP. Window results publish [ResultFacts.ConfiguredTimeStart]
+// and [ResultFacts.ConfiguredTimeEnd] under [KindTimestampInWindow]. Freshness
+// results publish [ResultFacts.ConfiguredTimeCutoff], [ResultFacts.ObservedTime],
+// and [ResultFacts.ObservedTimePresent] under [KindTimestampFreshSince]. Exported JSON
+// normalizes those times as time_rfc3339 UTC RFC3339Nano values
+// (configured_time_start/end/cutoff, observed_time, observed_time_present).
+//
+//	windowStart := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+//	windowEnd := windowStart.Add(24 * time.Hour)
+//	cutoff := windowEnd.Add(-30 * time.Minute)
+//	suite := gxsql.NewSuite(
+//		gxsql.Timestamp("event_time").InWindow(windowStart, windowEnd),
+//		gxsql.Timestamp("ingested_at").FreshSince(cutoff),
+//	)
 //
 // For scoped validation, use [TrustedScope] with [WithScope]. The scope
 // predicate limits every expectation to matching rows and uses dialect-neutral

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 )
 
 // DefaultSampleCap is the default maximum offending sample values retained per
@@ -105,6 +106,10 @@ func perRowResult(kind ExpectationKind, column, displayName string, total, faile
 func intFact(n int) *int { return &n }
 
 func floatFact(n float64) *float64 { return &n }
+
+func timeFact(t time.Time) *time.Time { return &t }
+
+func boolFact(b bool) *bool { return &b }
 
 func tableLevelResult(kind ExpectationKind, column, displayName string, success bool, facts ResultFacts) Result {
 	return Result{

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var (
@@ -81,6 +82,9 @@ func executeHarnessQuery(query string, args []any, tables map[string][]map[strin
 				}
 			}
 			table = filtered
+		}
+		if timeVal, ok := aggregateTimeColumn(table, col, agg); ok {
+			return []string{strings.ToLower(agg)}, [][]driver.Value{{timeVal}}, nil
 		}
 		val, ok := aggregateColumn(table, col, agg)
 		if !ok {
@@ -472,12 +476,6 @@ func evalWhereAtom(atom string, args []any, row map[string]any, tableRef string,
 		}
 
 	}
-	if m := regexp.MustCompile(`^(.+?)\s*=\s*(\$\d+|\?|'.+?'|-?\d+(?:\.\d+)?|\S+)$`).FindStringSubmatch(atom); m != nil {
-		col := unquoteIdent(stripQualification(m[1]))
-		bound := resolveBound(m[2], args)
-		return valuesEqual(row[col], bound)
-	}
-
 	if m := regexp.MustCompile(`^(.+?)\s*(<=|>=|<>|<|>)\s*(\$\d+|\?|'.+?'|-?\d+(?:\.\d+)?)$`).FindStringSubmatch(atom); m != nil {
 		col := unquoteIdent(stripQualification(m[1]))
 		if strings.HasPrefix(col, "CHAR_LENGTH") || strings.HasPrefix(col, "LENGTH") {
@@ -486,6 +484,12 @@ func evalWhereAtom(atom string, args []any, row map[string]any, tableRef string,
 		op := m[2]
 		bound := resolveBound(m[3], args)
 		return compareValues(row[col], op, bound)
+	}
+
+	if m := regexp.MustCompile(`^(.+?)\s*=\s*(\$\d+|\?|'.+?'|-?\d+(?:\.\d+)?|\S+)$`).FindStringSubmatch(atom); m != nil {
+		col := unquoteIdent(stripQualification(m[1]))
+		bound := resolveBound(m[2], args)
+		return valuesEqual(row[col], bound)
 	}
 
 	return false
@@ -515,6 +519,11 @@ func resolveBound(token string, args []any) any {
 }
 
 func compareValues(left any, op string, right any) bool {
+	lt, lok := toTime(left)
+	rt, rok := toTime(right)
+	if lok && rok {
+		return compareTime(lt, op, rt)
+	}
 	li, lok := toFloat64(left)
 	ri, rok := toFloat64(right)
 	if lok && rok {
@@ -526,6 +535,39 @@ func compareValues(left any, op string, right any) bool {
 		return compareString(ls, op, rs)
 	}
 	return compareString(fmt.Sprint(left), op, fmt.Sprint(right))
+}
+
+func toTime(v any) (time.Time, bool) {
+	switch t := v.(type) {
+	case time.Time:
+		return t, true
+	case *time.Time:
+		if t == nil {
+			return time.Time{}, false
+		}
+		return *t, true
+	default:
+		return time.Time{}, false
+	}
+}
+
+func compareTime(left time.Time, op string, right time.Time) bool {
+	switch op {
+	case "<":
+		return left.Before(right)
+	case "<=":
+		return !left.After(right)
+	case ">":
+		return left.After(right)
+	case ">=":
+		return !left.Before(right)
+	case "=":
+		return left.Equal(right)
+	case "<>":
+		return !left.Equal(right)
+	default:
+		return false
+	}
 }
 
 func compareString(left, op, right string) bool {
@@ -594,6 +636,11 @@ func valuesEqual(a, b any) bool {
 	if a == nil || b == nil {
 		return false
 	}
+	at, aok := toTime(a)
+	bt, bok := toTime(b)
+	if aok && bok {
+		return at.Equal(bt)
+	}
 	af, aok := toFloat64(a)
 	bf, bok := toFloat64(b)
 	if aok && bok {
@@ -649,6 +696,38 @@ func aggregateColumn(rows []map[string]any, col, agg string) (float64, bool) {
 		return m, true
 	default:
 		return 0, false
+	}
+}
+
+func aggregateTimeColumn(rows []map[string]any, col, agg string) (time.Time, bool) {
+	var vals []time.Time
+	for _, row := range rows {
+		if v, ok := toTime(row[col]); ok {
+			vals = append(vals, v)
+		}
+	}
+	if len(vals) == 0 {
+		return time.Time{}, false
+	}
+	switch agg {
+	case "MIN":
+		m := vals[0]
+		for _, v := range vals[1:] {
+			if v.Before(m) {
+				m = v
+			}
+		}
+		return m, true
+	case "MAX":
+		m := vals[0]
+		for _, v := range vals[1:] {
+			if v.After(m) {
+				m = v
+			}
+		}
+		return m, true
+	default:
+		return time.Time{}, false
 	}
 }
 

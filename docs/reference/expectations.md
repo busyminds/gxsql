@@ -203,6 +203,70 @@ These shapes reuse ordinary per-row reporting: complete failed counts, capped
 samples and failed keys, `WithScope`, `WithMaxFailedCount`, summary mode,
 declaration order, `ContinueOnError`, and privacy-safe default export.
 
+## Timestamp columns
+
+`Timestamp(name string) TimestampColumn` starts temporal window and freshness
+checks on one timestamp/datetime column. Callers supply every bound and cutoff
+as Go `time.Time`. Bounds are bound SQL parameters; gxsql never interpolates
+timestamps as text and never calls database current-time functions such as
+`NOW()` or `CURRENT_TIMESTAMP`.
+
+| Method | Policy |
+| ------ | ------ |
+| `InWindow(start, end time.Time)` | Half-open per-row window `start <= value < end`. |
+| `FreshSince(cutoff time.Time)` | Table-level `MAX(column) >= cutoff` over the scoped population. |
+
+Temporal checks use the database and driver timestamp behavior for the selected
+dialect. Use a combination that accepts bound Go `time.Time` values and
+configure its connection or session timezone consistently with the stored
+instants. Comparisons operate on timestamp values, not formatted strings.
+Fractional-second precision follows the database and driver; test exact
+boundary behavior at the precision your schema preserves.
+
+The built-in conformance matrix covers PostgreSQL, SQLite, DuckDB, and MySQL.
+Date-only values, time-only values, implicit timezone conversion, and other
+temporal types are not separate gxsql rule inputs.
+
+### Half-open window
+
+`Timestamp("event_time").InWindow(start, end)` fails SQL `NULL` values. An empty
+table or empty scoped population passes vacuously. Preflight rejects a zero
+bound and `end <= start` before SQL. Results use `KindTimestampInWindow` (`timestamp_in_window`)
+and publish `Result.Facts.ConfiguredTimeStart` /
+`ConfiguredTimeEnd`. Ordinary per-row reporting applies: complete failed counts,
+capped samples and failed keys, `WithScope`, `WithMaxFailedCount`, summary mode,
+declaration order, `ContinueOnError`, and privacy-safe default export.
+
+```go
+windowStart := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+windowEnd := windowStart.Add(24 * time.Hour)
+suite := gxsql.NewSuite(
+    gxsql.Timestamp("event_time").InWindow(windowStart, windowEnd),
+)
+```
+
+### Freshness cutoff
+
+`Timestamp("ingested_at").FreshSince(cutoff)` reads the maximum non-NULL column
+value in scope. It passes when an observed maximum exists and
+`observed >= cutoff`. Empty scopes and non-empty all-NULL scopes fail because no
+accepted watermark exists. NULL rows do not themselves fail this aggregate when
+another non-NULL value supplies the maximum; use `NotNull` when completeness is
+required. A maximum later than the cutoff passes: gxsql has no independent idea
+of “future” beyond the caller-supplied cutoff. Preflight rejects a zero cutoff.
+
+Results use `KindTimestampFreshSince` (`timestamp_fresh_since`), set `RowDenominatorUnavailable`
+(no row total, percentage, samples, or failed keys), and publish
+`ConfiguredTimeCutoff` plus `ObservedTime` / `ObservedTimePresent`. Present is a `*bool`: nil when freshness does not apply, pointer false for
+explicit absence, and pointer true when `ObservedTime` is set.
+
+```go
+cutoff := time.Date(2026, 7, 1, 23, 30, 0, 0, time.UTC)
+suite := gxsql.NewSuite(
+    gxsql.Timestamp("ingested_at").FreshSince(cutoff),
+)
+```
+
 ## String columns
 
 `String(name string) StringColumn` starts string-specific checks. SQL `NULL`
@@ -254,8 +318,9 @@ membership checks, single-column `Unique()`, composite `Columns(...).Unique()`,
 `NotEqualColumn`, `LessThanColumn`, `LessOrEqualColumn`, `GreaterThanColumn`,
 `GreaterOrEqualColumn`), `Int(...).RatioEqual`, numeric per-row bound
 comparisons (`Between`, `GreaterThan`, `GreaterOrEqual`, `LessThan`,
-`LessOrEqual`), and string checks (`NotEmpty`, `Empty`, `LenEqual`,
-`LenBetween`). Wrapping a table-level, aggregate, distinct-count, row-count, or
+`LessOrEqual`), string checks (`NotEmpty`, `Empty`, `LenEqual`,
+`LenBetween`), and `Timestamp(...).InWindow`. Table-level `FreshSince` is not
+eligible. Wrapping a table-level, aggregate, distinct-count, row-count, or
 custom-count declaration—or a negative bound, nil inner expectation, or a second
 nested tolerance—fails `ValidateTable` preflight before SQL.
 

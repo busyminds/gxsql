@@ -53,7 +53,7 @@ built-in set are not part of the published CI matrix; do not document or
 implement them unless explicitly in scope.
 
 `Expectation` is **sealed** — build expectations only via `RowCount`, `Column`,
-`Int`, `Float`, `String`, and `CustomCount` builders. Do not implement
+`Int`, `Float`, `String`, `Timestamp`, and `CustomCount` builders. Do not implement
 `Expectation` outside package `gxsql`.
 
 ## Validation model

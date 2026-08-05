@@ -3,7 +3,7 @@
 Complete these guides in order if you are new to `gxsql`.
 
 1. [Validate a table](getting-started.md) — install `gxsql`, open a database,
-   build a suite, and handle validation outcomes.
+   build a suite (including timestamp window/freshness checks), and handle validation outcomes.
 2. [Use gxsql in Go tests](testing.md) — assert on table quality with the
    `gxsqltest` helpers.
 

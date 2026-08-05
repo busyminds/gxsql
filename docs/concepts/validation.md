@@ -25,9 +25,11 @@ Built-in builders create the expectations that `gxsql` supports:
 | Builder                             | Examples                                                      |
 | ----------------------------------- | ------------------------------------------------------------- |
 | `RowCount()`                        | `Equal`, `Between`, `GreaterOrEqual`                          |
+| `RequiredColumns` / `ExactColumns`  | unordered column-set presence or exact-set contracts          |
 | `Column(name)`                      | `IsNull`, `NotNull`, `In`, `NotIn`, `Unique`, `DistinctCount` |
 | `Int(name)` / `Float(name)`         | range and comparison checks, plus aggregate checks            |
 | `String(name)`                      | `Empty`, `NotEmpty`, `LenEqual`, `LenBetween`                 |
+| `Timestamp(name)`                   | `InWindow`, `FreshSince`                                      |
 | `TrustedCountQuery` + `CustomCount` | Trusted SQL count returning one non-negative failure count    |
 
 Do not implement `Expectation` outside `gxsql`. It is a sealed interface.
@@ -84,6 +86,36 @@ By default, results retain counts and capped sample values, but not full failed
 row identities. Add `WithKey("id")` to retain caller-selected keys. Use
 `SummaryOnly()` to state that counts and samples are intended. Per-run options
 override suite-level caps.
+
+## Structural column contracts
+
+Use `RequiredColumns` or `ExactColumns` to gate table shape before content
+checks. Both compare unordered column-name sets against the physical spellings
+reported by `Rows.Columns()`, byte-for-byte, with no case folding. Column order
+does not affect the verdict. Discovery is a read-only zero-row
+`SELECT * ... WHERE 1 = 0` probe.
+
+`RequiredColumns` allows extra discovered columns. `ExactColumns` rejects both
+missing and unexpected names. Missing and unexpected differences are ordinary
+table-level results with structured facts. A missing target or permission
+denial is a typed execution error, not a content-policy failure. These builders
+do not validate types, nullability, or ordinal position.
+
+`WithScope` is incompatible and fails preflight. Prefer a separate structural
+suite when fail-fast shape gating matters:
+
+```go
+structure := gxsql.NewSuite(
+    gxsql.RequiredColumns("id", "event_time", "payload"),
+    gxsql.ExactColumns("id", "event_time", "payload"),
+)
+report, err := structure.ValidateTable(ctx, db, gxsql.Table("ingest_events"),
+    gxsql.WithDialect(gxsql.Postgres()),
+)
+```
+
+See the [expectations reference](../reference/expectations.md#structural-columns)
+for fact ordering and error details.
 
 ## Scoped validation
 
@@ -240,8 +272,11 @@ columns. Preflight errors include:
 - invalid or duplicated `{{target}}`/`{{scope}}` markers
 - custom placeholders that appear before `{{scope}}`
 - custom-placeholder arity mismatch
+- empty, duplicate, or invalid `RequiredColumns` / `ExactColumns` names
+- `WithScope` combined with `RequiredColumns` or `ExactColumns`
 
-Invalid custom-count declarations never execute SQL.
+Invalid custom-count declarations never execute SQL. Structural column
+expectations never ignore an attached scope.
 
 `ContinueOnError()` does not make a nil top-level error mean success. Inspect
 `report.OK()`, `report.Err()`, and each `Result.Err` when it is enabled.

@@ -22,19 +22,25 @@ type fakeDriver struct{}
 func (fakeDriver) Open(string) (driver.Conn, error) {
 	harnessMu.Lock()
 	tables := harnessTables
+	schemas := harnessSchemas
 	harnessMu.Unlock()
-	if tables == nil {
+	if tables == nil && schemas == nil {
 		return nil, fmt.Errorf("gxsqltest: no harness data configured")
 	}
 	cp := make(map[string][]map[string]any, len(tables))
 	for k, v := range tables {
 		cp[k] = append([]map[string]any(nil), v...)
 	}
-	return &fakeConn{tables: cp}, nil
+	sc := make(map[string][]string, len(schemas))
+	for k, v := range schemas {
+		sc[k] = append([]string(nil), v...)
+	}
+	return &fakeConn{tables: cp, schemas: sc}, nil
 }
 
 type fakeConn struct {
-	tables map[string][]map[string]any
+	tables  map[string][]map[string]any
+	schemas map[string][]string
 }
 
 func (c *fakeConn) Prepare(string) (driver.Stmt, error) {
@@ -52,7 +58,7 @@ func (c *fakeConn) QueryContext(_ context.Context, query string, nargs []driver.
 	for i, nv := range nargs {
 		args[i] = nv.Value
 	}
-	cols, rows, err := executeHarnessQuery(query, args, c.tables)
+	cols, rows, err := executeHarnessQuery(query, args, c.tables, c.schemas)
 	if err != nil {
 		return nil, err
 	}
@@ -79,8 +85,9 @@ func (r *fakeRows) Next(dest []driver.Value) error {
 }
 
 var (
-	harnessMu     sync.Mutex
-	harnessTables map[string][]map[string]any
+	harnessMu      sync.Mutex
+	harnessTables  map[string][]map[string]any
+	harnessSchemas map[string][]string
 )
 
 func setHarnessData(t *testing.T, tables map[string][]map[string]any) {
@@ -91,6 +98,20 @@ func setHarnessData(t *testing.T, tables map[string][]map[string]any) {
 	t.Cleanup(func() {
 		harnessMu.Lock()
 		harnessTables = nil
+		harnessMu.Unlock()
+	})
+}
+
+// setHarnessColumns configures ordered physical column names for SELECT *
+// discovery probes. Names are returned by Rows.Columns without quote characters.
+func setHarnessColumns(t *testing.T, schemas map[string][]string) {
+	t.Helper()
+	harnessMu.Lock()
+	harnessSchemas = schemas
+	harnessMu.Unlock()
+	t.Cleanup(func() {
+		harnessMu.Lock()
+		harnessSchemas = nil
 		harnessMu.Unlock()
 	})
 }

@@ -49,8 +49,8 @@ configured bound from `Result.Facts.ConfiguredMaxFailedCount`.
 
 Only per-row and uniqueness expectations qualify, including composite
 `Columns(...).Unique()` and `References()`. Wrapping a table-level, aggregate,
-distinct-count, row-count, or custom-count declaration fails preflight.
-Execution and configuration errors are never tolerated.
+distinct-count, row-count, custom-count, or structural column declaration fails
+preflight. Execution and configuration errors are never tolerated.
 
 For composite uniqueness and referential integrity, remediate from local
 `FailedCount`, capped `SampleValues`, and opted-in `FailedKeys`. Read component
@@ -81,12 +81,15 @@ Per-row checks set `RowDenominator` to `RowDenominatorAvailable` and populate:
   `WithMaxFailedCount`; false for clean passes, above-bound failures, empty
   populations, and errors.
 
-Table-level checks—row count, distinct count, numeric aggregates, and custom
-counts—use `RowDenominatorUnavailable`. Their `Total` remains zero because no
-per-row population is reported. Custom counts instead expose their complete
-`FailedCount`, including zero, and do not retain `FailedPercent`, samples, or
-failed keys. Read the observed value and configured threshold from `Facts` for
-built-in table-level checks. `Name` is only human-facing display text.
+Table-level checks—row count, distinct count, numeric aggregates, freshness,
+structural column contracts, and custom counts—use `RowDenominatorUnavailable`.
+Their `Total` remains zero because no per-row population is reported. Custom
+counts instead expose their complete `FailedCount`, including zero, and do not
+retain `FailedPercent`, samples, or failed keys. Structural `RequiredColumns` / `ExactColumns` results also omit samples and
+failed keys; remediate from `Facts.RequiredColumns`, `Facts.MissingColumns`, and
+`Facts.UnexpectedColumns`. Read the observed value
+and configured threshold from `Facts` for built-in table-level checks. `Name` is
+only human-facing display text.
 
 `ID` and `Kind` are stable machine-facing identity fields. Use `WithID` to
 supply an ID and `Result.Kind` to classify a built-in expectation. See

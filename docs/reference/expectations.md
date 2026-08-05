@@ -20,6 +20,66 @@ Row-count results have `RowDenominatorUnavailable`; per-row fields stay at their
 zero values. Observed counts and configured thresholds are available in
 `Result.Facts`.
 
+## Structural columns
+
+`RequiredColumns(names ...string)` and `ExactColumns(names ...string)` are
+table-level column-set contracts. Supply one or more separately validated
+identifiers. An empty list, duplicate names, or invalid identifiers fail
+`ValidateTable` preflight before SQL.
+
+| Builder | Policy |
+| ------- | ------ |
+| `RequiredColumns(names ...string)` | Every expected name exists on the target; additional discovered names are allowed. |
+| `ExactColumns(names ...string)` | The discovered column set matches `names` exactly: no missing names and no unexpected names. |
+
+Both builders compare unordered sets. Column order never changes the verdict.
+Names compare byte-for-byte against dialect/driver-reported
+`database/sql.Rows.Columns()` spellings. gxsql does not lowercase, uppercase, or
+otherwise normalize expected names; callers must supply the physical reported
+spelling.
+
+Discovery uses a read-only zero-row probe:
+
+```sql
+SELECT * FROM <quoted target> WHERE 1 = 0
+```
+
+followed by `Rows.Columns()`. The probe never scans row values and never writes
+schema. Missing and unexpected columns on a successfully discovered target are
+ordinary table-level policy results. A missing target, inaccessible target,
+permission denial, query or render failure, or metadata capability failure is a
+typed execution or preflight error (for example `CategoryDatabase`), not a
+failed structural result.
+
+Results use `KindRequiredColumns` (`required_columns`) or `KindExactColumns`
+(`exact_columns`), leave `Result.Column` blank, and set
+`RowDenominatorUnavailable`. They never retain samples or failed keys.
+`WithKey`, sample caps, and `SummaryOnly()` do not add diagnostics.
+`WithMaxFailedCount` is not eligible; wrapping either builder fails preflight.
+
+Structured facts publish:
+
+- `Result.Facts.RequiredColumns`: expected names in caller declaration order
+- `Result.Facts.MissingColumns`: absent expected names in declaration order
+- `Result.Facts.UnexpectedColumns`: for `ExactColumns` only, discovered names
+  absent from the expected set, in discovery order
+
+These checks do not validate column types, nullability, defaults, or ordinal
+position. `WithScope` is incompatible: pairing either expectation with
+`WithScope` fails `ValidateTable` preflight rather than ignoring scope. Run a
+separate structural suite before content validation when shape fail-fast
+matters:
+
+```go
+structure := gxsql.NewSuite(
+    gxsql.RequiredColumns("id", "event_time", "payload"),
+    gxsql.ExactColumns("id", "event_time", "payload"),
+)
+report, err := structure.ValidateTable(ctx, db, gxsql.Table("ingest_events"),
+    gxsql.WithDialect(gxsql.Postgres()),
+)
+```
+
 ## Generic columns
 
 `Column(name string) ColumnBuilder` starts generic column checks.
@@ -319,10 +379,11 @@ membership checks, single-column `Unique()`, composite `Columns(...).Unique()`,
 `GreaterOrEqualColumn`), `Int(...).RatioEqual`, numeric per-row bound
 comparisons (`Between`, `GreaterThan`, `GreaterOrEqual`, `LessThan`,
 `LessOrEqual`), string checks (`NotEmpty`, `Empty`, `LenEqual`,
-`LenBetween`), and `Timestamp(...).InWindow`. Table-level `FreshSince` is not
-eligible. Wrapping a table-level, aggregate, distinct-count, row-count, or
-custom-count declaration—or a negative bound, nil inner expectation, or a second
-nested tolerance—fails `ValidateTable` preflight before SQL.
+`LenBetween`), and `Timestamp(...).InWindow`. Table-level `FreshSince`,
+`RequiredColumns`, and `ExactColumns` are not eligible. Wrapping a table-level,
+aggregate, distinct-count, row-count, custom-count, or structural column
+declaration—or a negative bound, nil inner expectation, or a second nested
+tolerance—fails `ValidateTable` preflight before SQL.
 
 Tolerance changes only the policy verdict after the inner expectation evaluates
 once. Raw `Total`, `FailedCount`, `FailedPercent`, samples, and failed keys

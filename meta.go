@@ -82,6 +82,25 @@ func usesRowDenominator(exp Expectation) bool {
 	}
 }
 
+// rejectsScope marks expectations that cannot run under WithScope. Structural
+// column contracts implement this so suite preflight can peel WithID and
+// WithMaxFailedCount wrappers before rejecting the combination.
+type rejectsScope interface {
+	rejectsScope()
+}
+
+// isStructuralExpectation reports whether exp is a structural column contract
+// (RequiredColumns / ExactColumns), including when wrapped by WithID or
+// WithMaxFailedCount.
+func isStructuralExpectation(exp Expectation) bool {
+	_, ok := unwrapExpectation(exp).(rejectsScope)
+	return ok
+}
+
+func structuralScopeIncompatibleError() error {
+	return newConfigError(fmt.Errorf("WithScope is incompatible with structural column expectations"))
+}
+
 func configErrorResult(exp Expectation, err error) Result {
 	kind := expectationKind(exp)
 	name := "<configuration error>"

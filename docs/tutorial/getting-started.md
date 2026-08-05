@@ -110,6 +110,36 @@ suite := gxsql.NewSuite(
 Use the builders for the data type and assertion you need. The
 [expectations reference](../reference/expectations.md) lists every builder.
 
+### Gate table shape first
+
+Before content checks, confirm the target still exposes the expected columns.
+`RequiredColumns` and `ExactColumns` compare unordered physical column-name
+sets byte-for-byte against `Rows.Columns()`. They do not validate types,
+nullability, or column order. Run them in a separate unscoped suite; `WithScope`
+is rejected at preflight:
+
+```go
+structure := gxsql.NewSuite(
+    gxsql.RequiredColumns("id", "event_time", "payload"),
+    gxsql.ExactColumns("id", "event_time", "payload"),
+)
+structureReport, err := structure.ValidateTable(ctx, db, gxsql.Table("ingest_events"),
+    gxsql.WithDialect(gxsql.Postgres()),
+)
+if err != nil {
+    // Missing target, permission denial, or other typed execution/preflight error.
+    log.Fatalf("structural discovery error: %v", err)
+}
+if err := structureReport.Err(); err != nil {
+    // Missing or unexpected column names; inspect Result.Facts.
+    log.Fatalf("structural check failed: %v", err)
+}
+```
+
+Discovery is a read-only zero-row probe. Missing and unexpected names appear as
+ordinary table-level results with structured facts; they never include samples
+or failed keys.
+
 ## Run validation
 
 Pass a table reference and the dialect matching the database behind `db`:

@@ -190,6 +190,18 @@ func (s *Suite) ValidateTable(
 			})
 		}
 	}
+	if cfg.hasScope {
+		for i, exp := range s.expectations {
+			if !isStructuralExpectation(exp) || pf.hasIssueAt(i) {
+				continue
+			}
+			pf.issues = append(pf.issues, PreflightIssue{
+				Index: i,
+				ID:    expectationID(exp),
+				Err:   structuralScopeIncompatibleError(),
+			})
+		}
+	}
 	if len(pf.issues) > 0 && !cfg.continueOnError {
 		return Report{}, &PreflightErrors{Issues: pf.issues}
 	}

@@ -49,6 +49,8 @@ func TestTolerancePreflightUnsupportedShapesFailBeforeSQL(t *testing.T) {
 			"pending",
 			TrustedCountQuery("SELECT COUNT(*) FROM {{target}} WHERE {{scope}} AND status = ?", "pending"),
 		))},
+		{name: "requiredColumns", exp: WithMaxFailedCount(1, RequiredColumns("id"))},
+		{name: "exactColumns", exp: WithMaxFailedCount(1, ExactColumns("id"))},
 		{name: "nil", exp: WithMaxFailedCount(1, nil)},
 		{name: "customTest", exp: WithMaxFailedCount(1, customTestExpectation{name: "probe"})},
 	}

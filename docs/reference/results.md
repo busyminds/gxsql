@@ -72,6 +72,12 @@ Parent values never appear in diagnostics.
 - `Reference` holds local-to-parent mapping facts for referential checks:
   `LocalColumns`, structured `Parent` (`TableRef`), and `ParentColumns`. Nil
   when the result is not a reference check.
+- `ConfiguredTimeStart` and `ConfiguredTimeEnd` hold caller-supplied half-open
+  window bounds for `Timestamp(...).InWindow`.
+- `ConfiguredTimeCutoff`, `ObservedTime`, and `ObservedTimePresent` hold
+  freshness configuration and observation for `Timestamp(...).FreshSince`.
+  `ObservedTimePresent` is a `*bool`: nil when freshness does not apply, pointer
+  false for explicit absence, and pointer true when `ObservedTime` is set.
 
 Built-in expectations populate threshold and mapping fields at construction
 time. Do not encode composite tuples as comma-separated `Column` text.

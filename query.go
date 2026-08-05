@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 )
 
 func finishRowsRead(ctx context.Context, rows *sql.Rows) error {
@@ -467,6 +468,119 @@ func queryAggregateFloatWithArgs(
 		return 0, false, query, args, nil
 	}
 	return v.Float64, true, query, args, nil
+}
+
+// queryAggregateTimeWithArgs runs SELECT <agg>(column) over the scoped table and
+// scans a nullable timestamp. ok is false when the aggregate is SQL NULL
+// (empty population or all-NULL values). The returned query and args are the
+// aggregate statement only; callers capture them under CaptureQueryDiagnostics.
+func queryAggregateTimeWithArgs(
+	ctx context.Context,
+	db DB,
+	table TableRef,
+	opts evalOptions,
+	column, agg string,
+) (time.Time, bool, string, []any, error) {
+	tbl, err := renderTable(opts.dialect, table)
+	if err != nil {
+		return time.Time{}, false, "", nil, categorizeRenderError(err)
+	}
+	col, err := quoteIdent(opts.dialect, column)
+	if err != nil {
+		return time.Time{}, false, "", nil, categorizeRenderError(err)
+	}
+
+	scopePred, err := composeRowPredicateWithScope(opts.scope, rowPredicate{}, opts.dialect)
+	if err != nil {
+		return time.Time{}, false, "", nil, categorizeRenderError(err)
+	}
+
+	query := fmt.Sprintf("SELECT %s(%s) FROM %s", agg, col, tbl)
+	if scopePred.where != "" {
+		query += " WHERE " + scopePred.where
+	}
+	args := append([]any(nil), scopePred.args...)
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return time.Time{}, false, query, args, categorizeExecutionError(ctx, err)
+	}
+
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return time.Time{}, false, query, args, categorizeScanError(ctx, err)
+		}
+		if err := rows.Close(); err != nil {
+			return time.Time{}, false, query, args, categorizeScanError(ctx, err)
+		}
+		return time.Time{}, false, query, args, categorizeScanError(ctx, sql.ErrNoRows)
+	}
+	var raw any
+	if err := rows.Scan(&raw); err != nil {
+		_ = rows.Close()
+		return time.Time{}, false, query, args, categorizeScanError(ctx, err)
+	}
+	if err := finishRowsRead(ctx, rows); err != nil {
+		return time.Time{}, false, query, args, err
+	}
+	observed, ok, err := coerceScannedTime(raw)
+	if err != nil {
+		return time.Time{}, false, query, args, categorizeScanError(ctx, err)
+	}
+	if !ok {
+		return time.Time{}, false, query, args, nil
+	}
+	return observed, true, query, args, nil
+}
+
+func coerceScannedTime(raw any) (time.Time, bool, error) {
+	switch v := raw.(type) {
+	case nil:
+		return time.Time{}, false, nil
+	case time.Time:
+		return v, true, nil
+	case *time.Time:
+		if v == nil {
+			return time.Time{}, false, nil
+		}
+		return *v, true, nil
+	case []byte:
+		if len(v) == 0 {
+			return time.Time{}, false, nil
+		}
+		return parseScannedTimeString(string(v))
+	case string:
+		if v == "" {
+			return time.Time{}, false, nil
+		}
+		return parseScannedTimeString(v)
+	default:
+		return time.Time{}, false, fmt.Errorf("unsupported timestamp scan type %T", raw)
+	}
+}
+
+func parseScannedTimeString(s string) (time.Time, bool, error) {
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05.999999999-07",
+		"2006-01-02 15:04:05.999999999 +0000 UTC",
+		"2006-01-02 15:04:05.999999999 -0700 MST",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05.999999999Z07:00",
+		"2006-01-02T15:04:05Z07:00",
+	}
+	var err error
+	for _, layout := range layouts {
+		var ts time.Time
+		ts, err = time.Parse(layout, s)
+		if err == nil {
+			return ts, true, nil
+		}
+	}
+	return time.Time{}, false, fmt.Errorf("parse timestamp %q: %w", s, err)
 }
 
 // queryCustomCountScalar executes a rendered trusted-count query and requires

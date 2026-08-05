@@ -73,6 +73,8 @@ README:
 4. `ExportReport` for machine-readable JSON export.
 5. `TrustedCountQuery` / `CustomCount` for portable join and aggregate counts.
 6. `WithMaxFailedCount` for a known failed-row allowance.
+7. `Timestamp(...).InWindow(...)` and `Timestamp(...).FreshSince(...)` for
+   caller-supplied temporal windows and freshness cutoffs.
 
 ## Quick start
 
@@ -325,7 +327,7 @@ go test -race -run '^TestDuckDBConformance$' ./...
 | Concept             | Description                                                                                                                                                                                                                                                            |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Suite**           | An ordered set of expectations from `gxsql.NewSuite(...)`. Results appear in the same declaration order.                                                                                                                                                               |
-| **Expectation**     | One data-quality assertion over a table, built with `RowCount`, `Column`, `Int`, `Float`, `String`, or `CustomCount`.                                                                                                                                                  |
+| **Expectation**     | One data-quality assertion over a table, built with `RowCount`, `Column`, `Int`, `Float`, `String`, `Timestamp`, or `CustomCount`.                                                                                                                                                  |
 | **TableRef**        | Names the table under test: `gxsql.Table("users")` or `gxsql.SchemaTable("public", "users")`. Identifiers must match `^[A-Za-z_][A-Za-z0-9_]*$`.                                                                                                                       |
 | **Dialect**         | Renders identifiers, placeholders, and string-length expressions. Built-in: `gxsql.Postgres()`, `gxsql.SQLite()`, `gxsql.DuckDB()`, and `gxsql.MySQL()`. `ValidateTable` defaults to PostgreSQL when no dialect is supplied; pass `gxsql.WithDialect(...)` explicitly. |
 | **Report / Result** | A `Report` holds one `Result` per expectation. Use `report.OK()`, `report.Failures()`, `report.Err()`, and `report.String()` to gate and inspect outcomes.                                                                                                             |
@@ -338,6 +340,10 @@ identifiers, database errors, context cancellation, and similar). Use
 ## Expectation examples
 
 ```go
+windowStart := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+windowEnd := windowStart.Add(24 * time.Hour)
+cutoff := windowEnd.Add(-30 * time.Minute)
+
 suite := gxsql.NewSuite(
     // Table-level row count
     gxsql.RowCount().Between(100, 10_000),
@@ -360,13 +366,22 @@ suite := gxsql.NewSuite(
     gxsql.Int("amount").AverageBetween(0, 1_000),
     gxsql.Int("amount").MinGreaterOrEqual(0),
     gxsql.Int("amount").MaxLessOrEqual(1_000_000),
+
+    // Timestamp window and freshness (caller-supplied time.Time only)
+    gxsql.Timestamp("event_time").InWindow(windowStart, windowEnd),
+    gxsql.Timestamp("ingested_at").FreshSince(cutoff),
 )
 ```
 
+`InWindow` is half-open (`start <= value < end`): NULL fails and an empty scope
+passes vacuously. `FreshSince` requires `MAX(column) >= cutoff`; empty and
+all-NULL scopes fail, while a future-valued maximum still passes against that
+explicit cutoff. gxsql never embeds database current-time SQL.
+
 Per-row checks set `Total` to the table row count and populate `FailedCount`,
 `FailedPercent`, `SampleValues`, and optionally `FailedKeys` on failure.
-Table-level checks (row count, distinct count, aggregates) append observed
-values to `Result.Name` (for example `row count >= 1: got 42`).
+Table-level checks (row count, distinct count, aggregates, freshness) append
+observed values to `Result.Name` (for example `row count >= 1: got 42`).
 
 ## Failed rows and reports
 

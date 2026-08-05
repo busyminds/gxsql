@@ -202,6 +202,7 @@ func setupSQLite(t *testing.T, db *sql.DB) {
 		`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER, score REAL, nullable TEXT, payload BLOB, tenant_id TEXT, batch_id INTEGER, event_at TIMESTAMP, order_id TEXT, customer_id INTEGER, paid_cents INTEGER, invoice_cents INTEGER, start_at TIMESTAMP, end_at TIMESTAMP, actual_units INTEGER, planned_units INTEGER)`,
 		`CREATE TABLE empty_users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER, score REAL, nullable TEXT, payload BLOB, tenant_id TEXT, batch_id INTEGER, event_at TIMESTAMP, order_id TEXT, customer_id INTEGER, paid_cents INTEGER, invoice_cents INTEGER, start_at TIMESTAMP, end_at TIMESTAMP, actual_units INTEGER, planned_units INTEGER)`,
 		`CREATE TABLE cross_column_rows (id INTEGER PRIMARY KEY, paid_cents INTEGER, invoice_cents INTEGER, start_at TIMESTAMP, end_at TIMESTAMP, actual_units INTEGER, planned_units INTEGER, label TEXT, amount INTEGER)`,
+		`CREATE TABLE temporal_rows (id INTEGER PRIMARY KEY, tenant_id TEXT, event_at TIMESTAMP, ingested_at TIMESTAMP)`,
 	} {
 		if _, err := db.Exec(query); err != nil {
 			t.Fatalf("SQLite schema: %v", err)
@@ -210,6 +211,7 @@ func setupSQLite(t *testing.T, db *sql.DB) {
 	insertParentFixtures(t, db, "?", "customers")
 	insertFixtures(t, db, "?", "users")
 	insertCrossColumnFixtures(t, db, "?", "cross_column_rows")
+	insertTemporalFixtures(t, db, "?", "temporal_rows")
 }
 
 func setupDuckDB(t *testing.T, db *sql.DB) {
@@ -219,6 +221,8 @@ func setupDuckDB(t *testing.T, db *sql.DB) {
 		`DROP TABLE IF EXISTS empty_users`,
 		`DROP TABLE IF EXISTS customers`,
 		`DROP TABLE IF EXISTS cross_column_rows`,
+		`DROP TABLE IF EXISTS temporal_rows`,
+		`SET TimeZone='UTC'`,
 	} {
 		if _, err := db.Exec(query); err != nil {
 			t.Fatalf("DuckDB cleanup: %v", err)
@@ -226,9 +230,10 @@ func setupDuckDB(t *testing.T, db *sql.DB) {
 	}
 	for _, query := range []string{
 		`CREATE TABLE customers (tenant_id VARCHAR NOT NULL, id BIGINT NOT NULL, PRIMARY KEY (tenant_id, id))`,
-		`CREATE TABLE users (id BIGINT PRIMARY KEY, name VARCHAR, age INTEGER, score DOUBLE, nullable VARCHAR, payload BLOB, tenant_id VARCHAR, batch_id BIGINT, event_at TIMESTAMP, order_id VARCHAR, customer_id BIGINT, paid_cents BIGINT, invoice_cents BIGINT, start_at TIMESTAMP, end_at TIMESTAMP, actual_units BIGINT, planned_units BIGINT)`,
-		`CREATE TABLE empty_users (id BIGINT PRIMARY KEY, name VARCHAR, age INTEGER, score DOUBLE, nullable VARCHAR, payload BLOB, tenant_id VARCHAR, batch_id BIGINT, event_at TIMESTAMP, order_id VARCHAR, customer_id BIGINT, paid_cents BIGINT, invoice_cents BIGINT, start_at TIMESTAMP, end_at TIMESTAMP, actual_units BIGINT, planned_units BIGINT)`,
+		`CREATE TABLE users (id BIGINT PRIMARY KEY, name VARCHAR, age INTEGER, score DOUBLE, nullable VARCHAR, payload BLOB, tenant_id VARCHAR, batch_id BIGINT, event_at TIMESTAMPTZ, order_id VARCHAR, customer_id BIGINT, paid_cents BIGINT, invoice_cents BIGINT, start_at TIMESTAMP, end_at TIMESTAMP, actual_units BIGINT, planned_units BIGINT)`,
+		`CREATE TABLE empty_users (id BIGINT PRIMARY KEY, name VARCHAR, age INTEGER, score DOUBLE, nullable VARCHAR, payload BLOB, tenant_id VARCHAR, batch_id BIGINT, event_at TIMESTAMPTZ, order_id VARCHAR, customer_id BIGINT, paid_cents BIGINT, invoice_cents BIGINT, start_at TIMESTAMP, end_at TIMESTAMP, actual_units BIGINT, planned_units BIGINT)`,
 		`CREATE TABLE cross_column_rows (id BIGINT PRIMARY KEY, paid_cents BIGINT, invoice_cents BIGINT, start_at TIMESTAMP, end_at TIMESTAMP, actual_units BIGINT, planned_units BIGINT, label VARCHAR, amount BIGINT)`,
+		`CREATE TABLE temporal_rows (id BIGINT PRIMARY KEY, tenant_id VARCHAR, event_at TIMESTAMPTZ, ingested_at TIMESTAMPTZ)`,
 	} {
 		if _, err := db.Exec(query); err != nil {
 			t.Fatalf("DuckDB schema: %v", err)
@@ -237,18 +242,23 @@ func setupDuckDB(t *testing.T, db *sql.DB) {
 	insertParentFixtures(t, db, "$", "customers")
 	insertFixtures(t, db, "$", "users")
 	insertCrossColumnFixtures(t, db, "$", "cross_column_rows")
+	insertTemporalFixtures(t, db, "$", "temporal_rows")
 }
 
 func setupPostgres(t *testing.T, db *sql.DB) {
 	t.Helper()
-	if _, err := db.Exec(`DROP TABLE IF EXISTS public.users, public.empty_users, public.customers, public.cross_column_rows`); err != nil {
+	if _, err := db.Exec(`DROP TABLE IF EXISTS public.users, public.empty_users, public.customers, public.cross_column_rows, public.temporal_rows`); err != nil {
 		t.Fatalf("PostgreSQL cleanup: %v", err)
+	}
+	if _, err := db.Exec(`SET TIME ZONE 'UTC'`); err != nil {
+		t.Fatalf("PostgreSQL timezone: %v", err)
 	}
 	for _, query := range []string{
 		`CREATE TABLE public.customers (tenant_id TEXT NOT NULL, id BIGINT NOT NULL, PRIMARY KEY (tenant_id, id))`,
 		`CREATE TABLE public.users (id BIGINT PRIMARY KEY, name TEXT, age INTEGER, score DOUBLE PRECISION, nullable TEXT, payload BYTEA, tenant_id TEXT, batch_id BIGINT, event_at TIMESTAMP WITH TIME ZONE, order_id TEXT, customer_id BIGINT, paid_cents BIGINT, invoice_cents BIGINT, start_at TIMESTAMP WITH TIME ZONE, end_at TIMESTAMP WITH TIME ZONE, actual_units BIGINT, planned_units BIGINT)`,
 		`CREATE TABLE public.empty_users (id BIGINT PRIMARY KEY, name TEXT, age INTEGER, score DOUBLE PRECISION, nullable TEXT, payload BYTEA, tenant_id TEXT, batch_id BIGINT, event_at TIMESTAMP WITH TIME ZONE, order_id TEXT, customer_id BIGINT, paid_cents BIGINT, invoice_cents BIGINT, start_at TIMESTAMP WITH TIME ZONE, end_at TIMESTAMP WITH TIME ZONE, actual_units BIGINT, planned_units BIGINT)`,
 		`CREATE TABLE public.cross_column_rows (id BIGINT PRIMARY KEY, paid_cents BIGINT, invoice_cents BIGINT, start_at TIMESTAMP WITH TIME ZONE, end_at TIMESTAMP WITH TIME ZONE, actual_units BIGINT, planned_units BIGINT, label TEXT, amount BIGINT)`,
+		`CREATE TABLE public.temporal_rows (id BIGINT PRIMARY KEY, tenant_id TEXT, event_at TIMESTAMP WITH TIME ZONE, ingested_at TIMESTAMP WITH TIME ZONE)`,
 	} {
 		if _, err := db.Exec(query); err != nil {
 			t.Fatalf("PostgreSQL schema: %v", err)
@@ -257,8 +267,9 @@ func setupPostgres(t *testing.T, db *sql.DB) {
 	insertParentFixtures(t, db, "$", "public.customers")
 	insertFixtures(t, db, "$", "public.users")
 	insertCrossColumnFixtures(t, db, "$", "public.cross_column_rows")
+	insertTemporalFixtures(t, db, "$", "public.temporal_rows")
 	t.Cleanup(func() {
-		_, _ = db.Exec(`DROP TABLE IF EXISTS public.users, public.empty_users, public.customers, public.cross_column_rows`)
+		_, _ = db.Exec(`DROP TABLE IF EXISTS public.users, public.empty_users, public.customers, public.cross_column_rows, public.temporal_rows`)
 	})
 }
 
@@ -269,11 +280,14 @@ func setupMySQL(t *testing.T, db *sql.DB) {
 		`DROP TABLE IF EXISTS empty_users`,
 		`DROP TABLE IF EXISTS customers`,
 		`DROP TABLE IF EXISTS cross_column_rows`,
+		`DROP TABLE IF EXISTS temporal_rows`,
 		`DROP TABLE IF EXISTS utf8_char_length`,
+		`SET time_zone = '+00:00'`,
 		`CREATE TABLE customers (tenant_id VARCHAR(255) NOT NULL, id BIGINT NOT NULL, PRIMARY KEY (tenant_id, id)) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
 		`CREATE TABLE users (id BIGINT PRIMARY KEY, name VARCHAR(255), age INTEGER, score DOUBLE, nullable TEXT, payload BLOB, tenant_id VARCHAR(255), batch_id BIGINT, event_at DATETIME(6), order_id VARCHAR(255), customer_id BIGINT, paid_cents BIGINT, invoice_cents BIGINT, start_at DATETIME(6), end_at DATETIME(6), actual_units BIGINT, planned_units BIGINT) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
 		`CREATE TABLE empty_users (id BIGINT PRIMARY KEY, name VARCHAR(255), age INTEGER, score DOUBLE, nullable TEXT, payload BLOB, tenant_id VARCHAR(255), batch_id BIGINT, event_at DATETIME(6), order_id VARCHAR(255), customer_id BIGINT, paid_cents BIGINT, invoice_cents BIGINT, start_at DATETIME(6), end_at DATETIME(6), actual_units BIGINT, planned_units BIGINT) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
 		`CREATE TABLE cross_column_rows (id BIGINT PRIMARY KEY, paid_cents BIGINT, invoice_cents BIGINT, start_at DATETIME(6), end_at DATETIME(6), actual_units BIGINT, planned_units BIGINT, label VARCHAR(255), amount BIGINT) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
+		`CREATE TABLE temporal_rows (id BIGINT PRIMARY KEY, tenant_id VARCHAR(255), event_at DATETIME(6), ingested_at DATETIME(6)) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
 		`CREATE TABLE utf8_char_length (id BIGINT PRIMARY KEY, name VARCHAR(255)) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
 	} {
 		if _, err := db.Exec(query); err != nil {
@@ -283,6 +297,7 @@ func setupMySQL(t *testing.T, db *sql.DB) {
 	insertParentFixtures(t, db, "?", "customers")
 	insertFixtures(t, db, "?", "users")
 	insertCrossColumnFixtures(t, db, "?", "cross_column_rows")
+	insertTemporalFixtures(t, db, "?", "temporal_rows")
 	if _, err := db.Exec(`INSERT INTO utf8_char_length (id, name) VALUES (?, ?)`, 1, "é"); err != nil {
 		t.Fatalf("MySQL utf8_char_length fixture: %v", err)
 	}
@@ -291,6 +306,7 @@ func setupMySQL(t *testing.T, db *sql.DB) {
 		_, _ = db.Exec(`DROP TABLE IF EXISTS empty_users`)
 		_, _ = db.Exec(`DROP TABLE IF EXISTS customers`)
 		_, _ = db.Exec(`DROP TABLE IF EXISTS cross_column_rows`)
+		_, _ = db.Exec(`DROP TABLE IF EXISTS temporal_rows`)
 		_, _ = db.Exec(`DROP TABLE IF EXISTS utf8_char_length`)
 	})
 }
@@ -543,6 +559,49 @@ func insertCrossColumnFixtures(t *testing.T, db *sql.DB, placeholder, table stri
 			fixture.startAt, fixture.endAt, fixture.actualUnits, fixture.plannedUnits,
 			fixture.label, fixture.amount); err != nil {
 			t.Fatalf("insert cross_column fixture %d: %v", fixture.id, err)
+		}
+	}
+}
+
+func insertTemporalFixtures(t *testing.T, db *sql.DB, placeholder, table string) {
+	t.Helper()
+	argsPlaceholders := make([]string, 4)
+	for i := range argsPlaceholders {
+		if placeholder == "?" {
+			argsPlaceholders[i] = placeholder
+			continue
+		}
+		argsPlaceholders[i] = fmt.Sprintf("%s%d", placeholder, i+1)
+	}
+	query := fmt.Sprintf(
+		"INSERT INTO %s (id, tenant_id, event_at, ingested_at) VALUES (%s, %s, %s, %s)",
+		table,
+		argsPlaceholders[0], argsPlaceholders[1], argsPlaceholders[2], argsPlaceholders[3],
+	)
+	start := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	end := start.Add(24 * time.Hour)
+	cutoff := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	fractional := start.Add(123456 * time.Microsecond)
+	// Use microsecond boundaries, the precision supported by MySQL DATETIME(6).
+	fixtures := []struct {
+		id         int64
+		tenantID   string
+		eventAt    any
+		ingestedAt any
+	}{
+		{1, "tenant-a", start, cutoff},
+		{2, "tenant-a", start.Add(12 * time.Hour), end},
+		{3, "tenant-a", end, cutoff.Add(-time.Hour)},
+		{4, "tenant-a", start.Add(-time.Microsecond), cutoff},
+		{5, "tenant-a", end.Add(time.Microsecond), cutoff},
+		{6, "tenant-a", nil, nil},
+		{7, "tenant-b", start.Add(time.Hour), cutoff},
+		{8, "tenant-b", end, cutoff},
+		{9, "tenant-c", fractional, cutoff},
+	}
+	for _, fixture := range fixtures {
+		if _, err := db.Exec(query, fixture.id, fixture.tenantID, fixture.eventAt, fixture.ingestedAt); err != nil {
+			t.Fatalf("insert temporal fixture %d: %v", fixture.id, err)
 		}
 	}
 }

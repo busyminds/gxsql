@@ -82,7 +82,7 @@ table name. | 125:| `ExportedScope` | Optional stable caller scope identity as
 caps, opted-in diagnostics, and categorized errors. | 127:| `ExportedCounts` |
 Optional total, failed count, and failed percentage. | 128:| `ExportedFacts` |
 Observations and configured thresholds, including optional
-`configured_max_failed_count`, `key_columns`, and `reference`. | |
+`configured_max_failed_count`, temporal `configured_time_*` / `observed_time` fields, `key_columns`, and `reference`. | |
 `ExportedReferenceFacts` | Structured local-to-parent mapping (`local_columns`,
 parent target, `parent_columns`) for reference results. | 129:| `ExportedCaps` |
 Returned and truncated flags for opted-in samples and keys. | 130:|
@@ -91,7 +91,18 @@ truncation flags. | 131:| `ExportedError` | Stable error category and
 export-safe message. | 132: 133:`PolicyVerdict` is `pass`, `fail`, or
 `unevaluated`. `unevaluated` is used when 134:the source `Result` has `Err`.
 `ExecutionOutcome` distinguishes a successful 135:execution, policy failure,
-execution failure, and configuration failure. 136: 137:## Normalized values 138:
+execution failure, and configuration failure. 136: 137:
+## Temporal facts
+
+Window results export `configured_time_start` and `configured_time_end` as
+`time_rfc3339` normalized UTC RFC3339Nano values. Freshness results export
+`configured_time_cutoff`, and when a maximum exists also `observed_time` with
+`observed_time_present: true`. Explicit absence (empty or all-NULL scope) keeps
+`configured_time_cutoff` and emits `observed_time_present: false` while omitting
+`observed_time`. Non-freshness results omit the presence marker. Default export
+still omits samples, failed keys, and query diagnostics.
+
+## Normalized values 138:
 139:`NormalizedValue` is the JSON-safe representation for returned SQL values.
 It 140:has `Kind`, optional `Value`, and optional `Exact`; `Exact` is present
 only for 141:lossless encodings. Its kinds are `null`, `bool`, `string`,

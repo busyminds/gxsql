@@ -3,6 +3,7 @@ package gxsql
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // RowDenominator reports whether Total and FailedPercent are meaningful for a
@@ -27,6 +28,10 @@ type ResultFacts struct {
 	ObservedCount *int
 	// ObservedFloat is a floating-point aggregate observation when set.
 	ObservedFloat *float64
+	// ObservedTime is the observed maximum timestamp for freshness checks when
+	// ObservedTimePresent is true. Nil with Present false means explicit
+	// absence (empty or all-NULL scope). Retains nanosecond precision.
+	ObservedTime *time.Time
 
 	// ConfiguredCount is the exact-count threshold for equal-style expectations.
 	ConfiguredCount *int
@@ -46,11 +51,23 @@ type ResultFacts struct {
 	ConfiguredBoundLower any
 	// ConfiguredBoundUpper is the inclusive per-row upper bound.
 	ConfiguredBoundUpper any
+	// ConfiguredTimeStart is the caller-configured half-open window start.
+	ConfiguredTimeStart *time.Time
+	// ConfiguredTimeEnd is the caller-configured half-open window end.
+	ConfiguredTimeEnd *time.Time
+	// ConfiguredTimeCutoff is the caller-configured freshness cutoff.
+	ConfiguredTimeCutoff *time.Time
 
 	// ConfiguredMaxFailedCount is the inclusive maximum failed-row bound when a
 	// WithMaxFailedCount policy decorated this result. Nil means no tolerance
 	// was applied.
 	ConfiguredMaxFailedCount *int
+
+	// ObservedTimePresent marks whether a freshness observation was produced.
+	// Nil means observation is not applicable (non-freshness results). A
+	// pointer to false means the maximum is explicitly absent; true means
+	// ObservedTime holds the observed maximum.
+	ObservedTimePresent *bool
 
 	// KeyColumns names local composite-key components in declaration order.
 	// Used by multi-column uniqueness (and similar) so tuples are not encoded

@@ -85,6 +85,11 @@ const (
 	// KindMaxLessOrEqual marks an expectation from NumberColumn.MaxLessOrEqual.
 	KindMaxLessOrEqual ExpectationKind = "max_less_or_equal"
 
+	// KindTimestampInWindow marks an expectation from TimestampColumn.InWindow.
+	KindTimestampInWindow ExpectationKind = "timestamp_in_window"
+	// KindTimestampFreshSince marks an expectation from TimestampColumn.FreshSince.
+	KindTimestampFreshSince ExpectationKind = "timestamp_fresh_since"
+
 	// KindCustom is the explicit kind for expectations without built-in metadata.
 	KindCustom ExpectationKind = "custom"
 )

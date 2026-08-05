@@ -125,6 +125,8 @@ type ExportedFacts struct {
 	ObservedCount *int `json:"observed_count,omitempty"`
 	// ObservedFloat is a normalized floating-point observation when set.
 	ObservedFloat *NormalizedValue `json:"observed_float,omitempty"`
+	// ObservedTime is the normalized observed maximum timestamp when present.
+	ObservedTime *NormalizedValue `json:"observed_time,omitempty"`
 	// ConfiguredCount is the exact-count threshold for equal-style expectations.
 	ConfiguredCount *int `json:"configured_count,omitempty"`
 	// ConfiguredCountLower and ConfiguredCountUpper are inclusive integer bounds.
@@ -140,9 +142,19 @@ type ExportedFacts struct {
 	ConfiguredBound      *NormalizedValue `json:"configured_bound,omitempty"`
 	ConfiguredBoundLower *NormalizedValue `json:"configured_bound_lower,omitempty"`
 	ConfiguredBoundUpper *NormalizedValue `json:"configured_bound_upper,omitempty"`
+	// ConfiguredTimeStart and ConfiguredTimeEnd are half-open window bounds.
+	ConfiguredTimeStart *NormalizedValue `json:"configured_time_start,omitempty"`
+	ConfiguredTimeEnd   *NormalizedValue `json:"configured_time_end,omitempty"`
+	// ConfiguredTimeCutoff is the freshness cutoff when set.
+	ConfiguredTimeCutoff *NormalizedValue `json:"configured_time_cutoff,omitempty"`
 	// ConfiguredMaxFailedCount is the inclusive WithMaxFailedCount bound when
 	// that decorator was applied.
 	ConfiguredMaxFailedCount *int `json:"configured_max_failed_count,omitempty"`
+	// ObservedTimePresent is the explicit freshness observation marker. Nil
+	// omits the field for non-freshness; pointer false emits explicit absence
+	// while ConfiguredTimeCutoff remains exported; true means ObservedTime is
+	// present.
+	ObservedTimePresent *bool `json:"observed_time_present,omitempty"`
 	// KeyColumns names local composite-key components in declaration order.
 	KeyColumns []string `json:"key_columns,omitempty"`
 	// Reference holds local-to-parent mapping facts for referential integrity.
@@ -450,6 +462,14 @@ func exportFacts(facts ResultFacts) (*ExportedFacts, error) {
 		out.ObservedFloat = &nv
 		has = true
 	}
+	if facts.ObservedTime != nil {
+		nv, err := normalizeValue(*facts.ObservedTime)
+		if err != nil {
+			return nil, err
+		}
+		out.ObservedTime = &nv
+		has = true
+	}
 	if facts.ConfiguredCount != nil {
 		out.ConfiguredCount = facts.ConfiguredCount
 		has = true
@@ -510,8 +530,36 @@ func exportFacts(facts ResultFacts) (*ExportedFacts, error) {
 		out.ConfiguredBoundUpper = &nv
 		has = true
 	}
+	if facts.ConfiguredTimeStart != nil {
+		nv, err := normalizeValue(*facts.ConfiguredTimeStart)
+		if err != nil {
+			return nil, err
+		}
+		out.ConfiguredTimeStart = &nv
+		has = true
+	}
+	if facts.ConfiguredTimeEnd != nil {
+		nv, err := normalizeValue(*facts.ConfiguredTimeEnd)
+		if err != nil {
+			return nil, err
+		}
+		out.ConfiguredTimeEnd = &nv
+		has = true
+	}
+	if facts.ConfiguredTimeCutoff != nil {
+		nv, err := normalizeValue(*facts.ConfiguredTimeCutoff)
+		if err != nil {
+			return nil, err
+		}
+		out.ConfiguredTimeCutoff = &nv
+		has = true
+	}
 	if facts.ConfiguredMaxFailedCount != nil {
 		out.ConfiguredMaxFailedCount = facts.ConfiguredMaxFailedCount
+		has = true
+	}
+	if facts.ObservedTimePresent != nil {
+		out.ObservedTimePresent = facts.ObservedTimePresent
 		has = true
 	}
 	if len(facts.KeyColumns) > 0 {
@@ -643,6 +691,10 @@ func exportDisplayBase(res Result) string {
 		return col + " min >= (...)"
 	case KindMaxLessOrEqual:
 		return col + " max <= (...)"
+	case KindTimestampInWindow:
+		return col + " in window"
+	case KindTimestampFreshSince:
+		return col + " fresh since"
 	default:
 		name := res.Name
 		if idx := strings.Index(name, ": got "); idx >= 0 {

@@ -54,8 +54,8 @@ or more separately validated identifiers. Empty names, invalid identifiers,
 duplicates within one tuple, and fewer than two columns for composite uniqueness
 fail `ValidateTable` preflight before SQL.
 
-| Method                                                 | Policy                                                                                                       |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| Method                                                 | Policy                                                                                                         |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
 | `Unique()`                                             | Each complete non-`NULL` tuple appears at most once in the scoped local population; every duplicate row fails. |
 | `References(parent TableRef, parentColumns ...string)` | Every complete non-`NULL` local tuple resolves to at least one unscoped parent row; orphans fail locally.      |
 
@@ -65,10 +65,11 @@ with the same semantics and `KindReference`.
 ### Composite uniqueness
 
 `Columns("tenant_id", "order_id").Unique()` extends the single-column NULL
-policy to tuples: a row participates only when **every** component is non-`NULL`.
-A tuple with any `NULL` component is ignored. `FailedCount` is duplicate
-**rows**, never duplicate groups. Suite `WithScope` limits the evaluated
-population before duplicate detection. Empty scoped populations pass vacuously.
+policy to tuples: a row participates only when **every** component is
+non-`NULL`. A tuple with any `NULL` component is ignored. `FailedCount` is
+duplicate **rows**, never duplicate groups. Suite `WithScope` limits the
+evaluated population before duplicate detection. Empty scoped populations pass
+vacuously.
 
 Results use `KindCompositeUnique`, leave `Result.Column` blank, and populate
 `Result.Facts.KeyColumns` in declaration order. Samples (capped) and failed keys
@@ -99,9 +100,9 @@ complete local tuple fails when no parent row matches every mapped component.
 Multiple matching parent rows still pass; the check proves existence, not parent
 uniqueness. Orphans count as failing **local** rows. Empty local scopes pass.
 
-Partial mappings against a composite parent key are allowed by the API, but
-are only correct when the mapped parent columns are unique at that arity;
-otherwise unrelated parent rows can match.
+Partial mappings against a composite parent key are allowed by the API, but are
+only correct when the mapped parent columns are unique at that arity; otherwise
+unrelated parent rows can match.
 
 `WithScope` applies only to the local validated table. Parent lookup is
 intentionally unscoped: local scope is never reused on the parent side. There is
@@ -132,16 +133,16 @@ report, err := suite.ValidateTable(ctx, db, gxsql.Table("orders"),
 `Int(name string)` and `Float(name string)` both return `NumberColumn` for
 ordered numeric checks. Per-row comparisons treat SQL `NULL` as failing.
 
-| Method                             | Policy                                        |
-| ---------------------------------- | --------------------------------------------- |
-| `Between(lo, hi any)`              | `lo <= value <= hi`.                          |
-| `GreaterThan(bound any)`           | `value > bound`.                              |
-| `GreaterOrEqual(bound any)`        | `value >= bound`.                             |
-| `LessThan(bound any)`              | `value < bound`.                              |
-| `LessOrEqual(bound any)`           | `value <= bound`.                             |
-| `AverageBetween(lo, hi float64)`   | The column average is in the inclusive range. |
-| `MinGreaterOrEqual(bound float64)` | The column minimum is at least the bound.     |
-| `MaxLessOrEqual(bound float64)`    | The column maximum is at most the bound.      |
+| Method                                  | Policy                                                         |
+| --------------------------------------- | -------------------------------------------------------------- |
+| `Between(lo, hi any)`                   | `lo <= value <= hi`.                                           |
+| `GreaterThan(bound any)`                | `value > bound`.                                               |
+| `GreaterOrEqual(bound any)`             | `value >= bound`.                                              |
+| `LessThan(bound any)`                   | `value < bound`.                                               |
+| `LessOrEqual(bound any)`                | `value <= bound`.                                              |
+| `AverageBetween(lo, hi float64)`        | The column average is in the inclusive range.                  |
+| `MinGreaterOrEqual(bound float64)`      | The column minimum is at least the bound.                      |
+| `MaxLessOrEqual(bound float64)`         | The column maximum is at most the bound.                       |
 | `RatioEqual(right string, bound int64)` | Integer-only algebraic `value == right * bound` (not SQL `/`). |
 
 The aggregate methods are table-level checks. They pass vacuously when the
@@ -188,10 +189,10 @@ A row fails when either operand is SQL `NULL` or when the named relationship is
 false. An empty table or empty scoped population passes vacuously. Preflight
 rejects invalid identifiers and identical left/right operands before SQL.
 
-The first portable fixture families are like-for-like integer/numeric columns and
-like-for-like temporal columns. Operands are compared natively: gxsql does not
-coerce types, cast to text, or substitute a different predicate. When the engine
-rejects an incompatible pair, the failure is a typed execution error
+The first portable fixture families are like-for-like integer/numeric columns
+and like-for-like temporal columns. Operands are compared natively: gxsql does
+not coerce types, cast to text, or substitute a different predicate. When the
+engine rejects an incompatible pair, the failure is a typed execution error
 (`CategoryDatabase`), not a rewritten comparison.
 
 Results use distinct kinds (`KindEqualColumn`, `KindNotEqualColumn`,

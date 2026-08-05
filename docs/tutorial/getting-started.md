@@ -1,7 +1,8 @@
 # Validate a Table
 
-This guide validates an existing table with `gxsql` and PostgreSQL. The same
-flow works with SQLite, DuckDB, or MySQL after selecting the matching dialect.
+Use this guide to validate an existing table with `gxsql` and PostgreSQL. The
+same flow works with SQLite, DuckDB, or MySQL after you select the matching
+dialect.
 
 ## Install
 
@@ -34,7 +35,7 @@ if err != nil {
 defer db.Close()
 ```
 
-For a local run, SQLite with `modernc.org/sqlite` is an option:
+For a local run, open SQLite with `modernc.org/sqlite`:
 
 ```go
 import _ "modernc.org/sqlite"
@@ -42,8 +43,8 @@ import _ "modernc.org/sqlite"
 db, err := sql.Open("sqlite", "file:example.db")
 ```
 
-`gxsql` only needs `QueryContext` and `QueryRowContext`, so `*sql.DB` satisfies
-its `DB` interface directly.
+`gxsql` needs only `QueryContext` and `QueryRowContext`. `*sql.DB` satisfies the
+`DB` interface directly.
 
 ## Build a suite
 
@@ -63,14 +64,14 @@ suite := gxsql.NewSuite(
 )
 ```
 
-Composite uniqueness ignores tuples with any SQL `NULL` component and counts
+Composite uniqueness ignores tuples with any SQL `NULL` component. It counts
 every duplicate participating **row**. Referential checks pass rows with any
-`NULL` local key component, count orphaned complete local tuples, and look up
-parents without applying local `WithScope`. Samples and failed keys stay local
-under existing caps.
+`NULL` local key component. Those checks count orphaned complete local tuples.
+Referential checks look up parents without applying local `WithScope`. Samples
+and failed keys stay local under existing caps.
 
-For ordering and simple reconciliation, use the fixed same-row builders rather
-than raw operators or expressions:
+For ordering and simple reconciliation, use the fixed same-row builders instead
+of raw operators or expressions:
 
 ```go
 suite := gxsql.NewSuite(
@@ -80,12 +81,12 @@ suite := gxsql.NewSuite(
 )
 ```
 
-Comparisons require both operands to be non-`NULL`; an empty scoped population
-passes vacuously. Direct comparisons cover like-for-like integer/numeric or
+Comparisons require both operands to be non-`NULL`. An empty scoped population
+passes vacuously. Direct comparisons cover like-for-like integer, numeric, or
 temporal columns without coercion. `RatioEqual` checks
-`actual_units == planned_units * 2` algebraically (not via SQL division), fails a
-zero denominator, and is integer-only. Decimal or floating ratios and arbitrary
-expressions are unsupported.
+`actual_units == planned_units * 2` algebraically, not through SQL division. It
+fails a zero denominator and supports integers only. Decimal ratios, floating
+ratios, and arbitrary expressions are unsupported.
 
 Use the builders for the data type and assertion you need. The
 [expectations reference](../reference/expectations.md) lists every builder.
@@ -110,8 +111,8 @@ if err := report.Err(); err != nil {
 ```
 
 Use `gxsql.SQLite()`, `gxsql.DuckDB()`, or `gxsql.MySQL()` for those engines.
-`ValidateTable` defaults to PostgreSQL when no dialect is supplied, but passing
-it explicitly keeps rendered SQL coupled to the selected driver.
+`ValidateTable` defaults to PostgreSQL when no dialect is supplied. Pass the
+dialect explicitly so rendered SQL stays coupled to the selected driver.
 
 `WithKey("id")` retains the identities of failing rows, up to the failed-key
 cap. Omit it when counts and sample values are enough. See
@@ -121,15 +122,14 @@ cap. Omit it when counts and sample values are enough. See
 
 A completed validation has two independent outcomes:
 
-| Signal                | Meaning                                                               |
-| --------------------- | --------------------------------------------------------------------- |
-| `err != nil`          | A configuration or SQL execution failure prevented a complete report. |
-| `report.Err() != nil` | Validation completed, but at least one expectation failed.            |
+| Signal                | Meaning                                                              |
+| --------------------- | -------------------------------------------------------------------- |
+| `err != nil`          | A configuration or SQL execution failure prevented a complete report |
+| `report.Err() != nil` | Validation completed, but at least one expectation failed            |
 
 `ValidateTable` collects all policy failures in declaration order. It stops on
-configuration and execution failures by default. `ContinueOnError()` instead
-records those failures in the affected `Result` and evaluates later
-expectations. See
+configuration and execution failures by default. `ContinueOnError()` records
+those failures in the affected `Result` and evaluates later expectations. See
 [validation behavior](../concepts/validation.md#error-handling) for the complete
 error model.
 

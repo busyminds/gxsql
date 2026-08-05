@@ -15,15 +15,15 @@ order and `Target *TableRef`, which `ValidateTable` sets.
 
 `Result` is the outcome of one expectation. Its exported fields are:
 
-| Field                                                     | Meaning                                                                     |
-| --------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `ID`, `Kind`                                              | Machine-facing identity.                                                    |
+| Field                                                     | Meaning                                                                                                                             |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `ID`, `Kind`                                              | Machine-facing identity.                                                                                                            |
 | `Name`, `Column`                                          | Human-facing check description and affected column. Do not parse `Name`. Blank `Column` for composite unique and reference results. |
-| `Success`, `Err`                                          | Policy outcome and a per-expectation failure recorded by `ContinueOnError`. |
-| `Tolerated`                                               | True when a nonzero raw failure count passed within `WithMaxFailedCount`.   |
-| `RowDenominator`, `Total`, `FailedCount`, `FailedPercent` | Population metrics; `FailedCount` uses the expectation-specific unit.       |
-| `Facts`                                                   | Structured observed values and configured thresholds.                       |
-| `SampleValues`, `FailedKeys`                              | Capped diagnostic data.                                                     |
+| `Success`, `Err`                                          | Policy outcome and a per-expectation failure recorded by `ContinueOnError`.                                                         |
+| `Tolerated`                                               | True when a nonzero raw failure count passed within `WithMaxFailedCount`.                                                           |
+| `RowDenominator`, `Total`, `FailedCount`, `FailedPercent` | Population metrics; `FailedCount` uses the expectation-specific unit.                                                               |
+| `Facts`                                                   | Structured observed values and configured thresholds.                                                                               |
+| `SampleValues`, `FailedKeys`                              | Capped diagnostic data.                                                                                                             |
 
 `RowDenominatorAvailable` means `Total` and `FailedPercent` describe a per-row
 population. `RowDenominatorUnavailable` marks a table-level check; `Total == 0`
@@ -36,13 +36,12 @@ custom counts never retain samples or failed keys; `WithKey`, sample caps, and
 
 `WithMaxFailedCount` applies only to per-row and uniqueness shapes
 (`RowDenominatorAvailable`), including composite uniqueness and referential
-integrity. It changes
-`Success` only. Raw observations stay complete under existing caps. Empty
-evaluated populations pass without division by zero or `NaN` and are not
-tolerated. Scope remains the evaluated population for all raw counts.
-Table-level, aggregate, distinct-count, row-count, and custom-count wrappers
-fail preflight. Execution and configuration errors keep `Success: false` and
-`Tolerated: false`.
+integrity. It changes `Success` only. Raw observations stay complete under
+existing caps. Empty evaluated populations pass without division by zero or
+`NaN` and are not tolerated. Scope remains the evaluated population for all raw
+counts. Table-level, aggregate, distinct-count, row-count, and custom-count
+wrappers fail preflight. Execution and configuration errors keep
+`Success: false` and `Tolerated: false`.
 
 `RowKey` is `[]any` containing caller-supplied `WithKey` values in the same
 column order.

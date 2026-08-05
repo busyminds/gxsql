@@ -1,8 +1,8 @@
 # Use gxsql in Go Tests
 
-The `gxsqltest` subpackage turns a suite result into a Go test assertion. It
-accepts the same options as `Suite.ValidateTable`, so test SQL is rendered for
-the correct database engine.
+Use the `gxsqltest` subpackage to turn a suite result into a Go test assertion.
+The helpers accept the same options as `Suite.ValidateTable`. Test SQL is
+rendered for the selected database engine.
 
 ```go
 import (
@@ -25,13 +25,13 @@ func TestUsers(t *testing.T) {
 
 ## Choose an assertion helper
 
-| Helper              | Failure behavior                             | Return value                                                     |
-| ------------------- | -------------------------------------------- | ---------------------------------------------------------------- |
-| `gxsqltest.Check`   | Calls `t.Errorf` and lets the test continue. | `true` only if validation executed and every expectation passed. |
-| `gxsqltest.Require` | Calls `t.Fatalf` and stops the test.         | None.                                                            |
+| Helper              | Failure behavior                            | Return value                                                    |
+| ------------------- | ------------------------------------------- | --------------------------------------------------------------- |
+| `gxsqltest.Check`   | Calls `t.Errorf` and lets the test continue | `true` only if validation executed and every expectation passed |
+| `gxsqltest.Require` | Calls `t.Fatalf` and stops the test         | None                                                            |
 
 Both helpers report execution errors and failed expectations. Use `Check` when
-later assertions remain useful after a validation failure; use `Require` when a
+later assertions remain useful after a validation failure. Use `Require` when a
 failed quality gate makes the rest of the test meaningless.
 
 ## Next

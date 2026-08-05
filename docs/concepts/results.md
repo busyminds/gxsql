@@ -1,4 +1,4 @@
-# Results and Remediation
+# Results and remediation
 
 A completed `ValidateTable` call returns a `Report` with one `Result` per
 expectation. Results preserve suite declaration order.
@@ -8,8 +8,8 @@ expectation. Results preserve suite declaration order.
 | Member              | Use                                                                            |
 | ------------------- | ------------------------------------------------------------------------------ |
 | `report.OK()`       | Test whether every result passed.                                              |
-| `report.Failures()` | Get only results whose `Success` is false.                                     |
-| `report.Err()`      | Get `nil` for a passing report or `*ValidationError` carrying the full report. |
+| `report.Failures()` | Return only results whose `Success` is false.                                  |
+| `report.Err()`      | Return `nil` for a passing report, or `*ValidationError` with the full report. |
 | `report.String()`   | Produce a human-readable summary and per-result lines.                         |
 
 A failed policy does not make `ValidateTable` return a non-nil error. Use
@@ -28,34 +28,34 @@ if err := report.Err(); err != nil {
 
 ## Raw observations versus policy verdict
 
-`Success` is the policy verdict. Raw observations (`Total`, `FailedCount`,
-`FailedPercent`, samples, and failed keys) stay intact under their normal cap
-settings even when a policy pass is tolerated.
+`Success` is the policy verdict. Raw observations stay intact under their normal
+cap settings even when a policy pass is tolerated. Those observations include
+`Total`, `FailedCount`, `FailedPercent`, samples, and failed keys.
 
 `WithMaxFailedCount(max, exp)` sets an inclusive non-negative maximum failed-row
 count. Equality passes. There is no percentage, pass-rate, `Mostly`, rounding,
-or compound policy. Tolerance changes only the verdict: a nonzero raw failure
+or compound policy. Tolerance changes only the verdict. A nonzero raw failure
 count at or below `max` yields `Success: true` and `Tolerated: true`. Above the
 bound, `Success` is false and `Tolerated` is false. A raw-zero or empty
-evaluated population passes and is not tolerated; empty populations do not
+evaluated population passes and is not tolerated. Empty populations do not
 divide by zero or produce `NaN`. Scope remains the evaluated population for all
 raw counts.
 
-Tolerated results count as successful for `report.OK()` and `report.Err()`;
+Tolerated results count as successful for `report.OK()` and `report.Err()`.
 `report.Failures()` omits them. They remain visible in `Result.Tolerated`,
 `Report.String()`, and exported JSON. For remediation, walk `Report.Results` and
-inspect `Result.Tolerated`—do not rely on `Failures()` alone. Read the
+inspect `Result.Tolerated`. Do not rely on `Failures()` alone. Read the
 configured bound from `Result.Facts.ConfiguredMaxFailedCount`.
 
 Only per-row and uniqueness expectations qualify, including composite
-`Columns(...).Unique()` and `References()`. Wrapping a table-level, aggregate, distinct-count,
-row-count, or custom-count declaration fails preflight. Execution and
-configuration errors are never tolerated.
+`Columns(...).Unique()` and `References()`. Wrapping a table-level, aggregate,
+distinct-count, row-count, or custom-count declaration fails preflight.
+Execution and configuration errors are never tolerated.
 
 For composite uniqueness and referential integrity, remediate from local
 `FailedCount`, capped `SampleValues`, and opted-in `FailedKeys`. Read component
-names from `Facts.KeyColumns` or the parent mapping from `Facts.Reference`; do
-not parse `Name` or expect parent values in diagnostics.
+names from `Facts.KeyColumns` or the parent mapping from `Facts.Reference`. Do
+not parse `Name`. Do not expect parent values in diagnostics.
 
 ```go
 if err := report.Err(); err != nil {
@@ -86,7 +86,7 @@ counts—use `RowDenominatorUnavailable`. Their `Total` remains zero because no
 per-row population is reported. Custom counts instead expose their complete
 `FailedCount`, including zero, and do not retain `FailedPercent`, samples, or
 failed keys. Read the observed value and configured threshold from `Facts` for
-built-in table-level checks; `Name` is only human-facing display text.
+built-in table-level checks. `Name` is only human-facing display text.
 
 `ID` and `Kind` are stable machine-facing identity fields. Use `WithID` to
 supply an ID and `Result.Kind` to classify a built-in expectation. See
@@ -108,7 +108,7 @@ report, err := suite.ValidateTable(ctx, db, table,
 )
 ```
 
-Suite methods set defaults for future runs; options override them for one run.
+Suite methods set defaults for future runs. Options override them for one run.
 
 | Option                 | Effect                                                       |
 | ---------------------- | ------------------------------------------------------------ |

@@ -1,7 +1,7 @@
-# Stable Identity and Export
+# Stable identity and export
 
-Use stable IDs and the versioned export DTO when validation results must be
-joined, stored, or consumed outside the Go process.
+Use stable IDs and the versioned export data transfer object when you need to
+join, store, or consume validation results outside the Go process.
 
 ## Give expectations stable IDs
 
@@ -14,7 +14,7 @@ suite := gxsql.NewSuite(
 ```
 
 IDs are optional for ad-hoc validation. When present, `Result.ID` supplies a
-machine-joinable identity; IDs are never derived from `Result.Name`. Built-in
+machine-joinable identity. IDs are never derived from `Result.Name`. Built-in
 `Result.Kind` values provide a stable category for each expectation.
 
 Blank and duplicate IDs are preflight errors. By default they stop validation
@@ -23,7 +23,7 @@ the affected result contains `Err` and later expectations still run.
 
 ## Export a report
 
-`ExportReport` converts a `Report` to a versioned JSON DTO:
+`ExportReport` converts a `Report` to a versioned JSON data transfer object:
 
 ```go
 exported, err := gxsql.ExportReport(report)
@@ -34,13 +34,14 @@ data, err := json.Marshal(exported)
 ```
 
 The schema version is `gxsql.report.v1`. Version 1 guarantees declaration-order
-results; stable `id`, `kind`, `display_name`, verdicts, counts, facts, and
-categorized errors. It does not promise a public decoder. Custom-count results
-export only `counts.failed` when evaluation succeeds; `counts.total` and
-`counts.failed_percent` are omitted because no row denominator exists. They
-never export samples or failed keys, and their template SQL and bound arguments
-remain omitted unless query diagnostics are captured and explicitly requested at
-export time.
+results, stable `id`, `kind`, `display_name`, verdicts, counts, facts, and
+categorized errors. It does not promise a public decoder.
+
+Custom-count results export only `counts.failed` when evaluation succeeds.
+`counts.total` and `counts.failed_percent` are omitted because no row
+denominator exists. Custom-count results never export samples or failed keys.
+Their template SQL and bound arguments remain omitted unless query diagnostics
+are captured and explicitly requested at export time.
 
 ## Understand verdicts
 
@@ -48,12 +49,12 @@ Each exported result separates policy and execution status:
 
 - `policy_verdict` is `pass` or `fail` only when `Result.Err` is nil. A result
   with `Err` is `unevaluated`.
-- `execution_outcome` distinguishes an evaluated success, policy failure,
-  execution failure, and configuration failure.
+- `execution_outcome` distinguishes an evaluated success, a policy failure, an
+  execution failure, and a configuration failure.
 
 Configured thresholds appear in `facts.configured_*`. Default `display_name`
-redacts bound literals, so consumers should use structured facts rather than
-parse display text.
+redacts bound literals. Consumers should use structured facts rather than parse
+display text.
 
 ## Opt in to diagnostics deliberately
 
@@ -69,7 +70,7 @@ arguments. Opt in to each class separately:
 
 Use `WithQueryRedactor`, `WithArgsRedactor`, `WithSampleRedactor`, and
 `WithKeyRedactor` for custom redaction. Any redactor error or panic fails export
-without returning a partial DTO.
+without returning a partial data transfer object.
 
 ## Next
 

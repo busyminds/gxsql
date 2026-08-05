@@ -451,13 +451,13 @@ are not tolerated. Scope remains the evaluated population for all raw counts.
 `Report.String()`, and exported JSON. For remediation, walk `Report.Results` and
 inspect `Result.Tolerated`—do not rely on `Failures()` alone.
 
-Only per-row and uniqueness expectations qualify, including composite
-uniqueness and referential integrity. Wrapping a table-level, aggregate,
-distinct-count, row-count, or custom-count declaration fails preflight.
-Execution and configuration errors are never tolerated. Export stays
-privacy-safe by default: JSON exposes the tolerance flag, configured bound, and
-raw counts; samples, keys, query diagnostics, and arguments keep their existing
-opt-in and redaction rules. See the [results](docs/concepts/results.md),
+Only per-row and uniqueness expectations qualify, including composite uniqueness
+and referential integrity. Wrapping a table-level, aggregate, distinct-count,
+row-count, or custom-count declaration fails preflight. Execution and
+configuration errors are never tolerated. Export stays privacy-safe by default:
+JSON exposes the tolerance flag, configured bound, and raw counts; samples,
+keys, query diagnostics, and arguments keep their existing opt-in and redaction
+rules. See the [results](docs/concepts/results.md),
 [suite](docs/reference/suite.md), [reports](docs/reference/results.md), and
 [export](docs/reference/export.md) references for eligibility, display, and
 privacy-safe JSON fields.

@@ -1,12 +1,12 @@
 # Tutorials
 
-Follow these guides in order if you are new to `gxsql`.
+Complete these guides in order if you are new to `gxsql`.
 
-1. [Validate a table](getting-started.md) — connect a database, build a suite,
-   select a dialect, and gate on the result.
-2. [Use gxsql in Go tests](testing.md) — add table-quality assertions to a Go
-   test with `gxsqltest`.
+1. [Validate a table](getting-started.md) — install `gxsql`, open a database,
+   build a suite, and handle validation outcomes.
+2. [Use gxsql in Go tests](testing.md) — assert on table quality with the
+   `gxsqltest` helpers.
 
-For the execution model, failure data, and operational trade-offs behind the
-tutorial steps, read the [core concepts](../concepts/). For signatures and all
-available builders, use the [API reference](../reference/).
+Read the [core concepts](../concepts/) for the execution model, failure data,
+and operational trade-offs behind the tutorial steps. Use the
+[API reference](../reference/) for signatures and every available builder.

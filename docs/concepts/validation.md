@@ -1,11 +1,11 @@
-# Validation Behavior
+# Validation behavior
 
 ## What gxsql validates
 
-`gxsql` asserts facts about database-table contents through `database/sql`. Each
-expectation renders SQL and runs in the database, rather than loading the table
-into Go memory. It is useful for deployment gates, ETL checks, and
-integration-test databases.
+`gxsql` asserts facts about database table contents through `database/sql`. Each
+expectation renders SQL and runs in the database. It does not load the table
+into Go memory. Use it for deployment gates, ETL checks, and integration-test
+databases.
 
 It is not an ORM, migration tool, or schema linter.
 
@@ -20,7 +20,7 @@ suite := gxsql.NewSuite(
 )
 ```
 
-Built-in builders create the expectations `gxsql` supports:
+Built-in builders create the expectations that `gxsql` supports:
 
 | Builder                             | Examples                                                      |
 | ----------------------------------- | ------------------------------------------------------------- |
@@ -30,8 +30,8 @@ Built-in builders create the expectations `gxsql` supports:
 | `String(name)`                      | `Empty`, `NotEmpty`, `LenEqual`, `LenBetween`                 |
 | `TrustedCountQuery` + `CustomCount` | Trusted SQL count returning one non-negative failure count    |
 
-Do not implement `Expectation` outside `gxsql`. It is a sealed interface;
-construct expectations with these builders. The
+Do not implement `Expectation` outside `gxsql`. It is a sealed interface.
+Construct expectations with these builders. The
 [expectations reference](../reference/expectations.md) describes all methods.
 
 Expectations run in declaration order. A completed run contains one `Result` per
@@ -46,9 +46,9 @@ gxsql.Table("users")
 gxsql.SchemaTable("public", "users")
 ```
 
-Built-in dialects accept identifiers matching `^[A-Za-z_][A-Za-z0-9_]*$` and
-quote them before adding them to SQL. Invalid or empty identifiers are
-configuration errors.
+Built-in dialects accept identifiers matching `^[A-Za-z_][A-Za-z0-9_]*$`. They
+quote those identifiers before adding them to SQL. Invalid or empty identifiers
+are configuration errors.
 
 Select the renderer for the database behind the connection:
 
@@ -76,20 +76,23 @@ report, err := suite.ValidateTable(ctx, db, gxsql.Table("users"),
 )
 ```
 
-Policy failures are collect-all: a failing expectation does not stop later
-expectations, and `ValidateTable` returns `(report, nil)`. Use `report.OK()` or
+Policy failures are collect-all. A failing expectation does not stop later
+expectations. `ValidateTable` returns `(report, nil)`. Use `report.OK()` or
 `report.Err()` to decide whether the data passed.
 
-By default, results retain counts and capped sample values, but no full failed
-row identities. Add `WithKey("id")` to retain caller-selected keys, or use
+By default, results retain counts and capped sample values, but not full failed
+row identities. Add `WithKey("id")` to retain caller-selected keys. Use
 `SummaryOnly()` to state that counts and samples are intended. Per-run options
 override suite-level caps.
 
 ## Scoped validation
 
 Use `TrustedScope` with `WithScope` when one suite should validate only a
-selected population of rows. `TrustedScope` takes a stable caller identity, a
-predicate written in trusted Go code, and values for its `?` placeholders:
+selected population of rows. `TrustedScope` takes:
+
+- a stable caller identity
+- a predicate written in trusted Go code
+- values for its `?` placeholders
 
 ```go
 tenantID := authenticatedTenantID()
@@ -104,12 +107,12 @@ report, err := suite.ValidateTable(
 )
 ```
 
-The predicate is trusted Go-code input, not a sandbox for untrusted SQL. Callers
-must never pass user-authored predicate text to `TrustedScope`. Choose from
-predicates defined by the application, and pass request-derived data only as
-separately bound values. `gxsql` binds scope values before the expectation
-values and renders the placeholders for the selected dialect; do not interpolate
-values into the predicate.
+The predicate is trusted Go-code input, not a sandbox for untrusted SQL. Never
+pass user-authored predicate text to `TrustedScope`. Choose from predicates that
+the application defines. Pass request-derived data only as separately bound
+values. `gxsql` binds scope values before the expectation values and renders the
+placeholders for the selected dialect. Do not interpolate values into the
+predicate.
 
 The same pattern handles other bounded populations:
 
@@ -129,52 +132,55 @@ windowScope := gxsql.TrustedScope(
 
 Use a half-open time window (`>= start` and `< end`) to make adjacent windows
 unambiguous. Attach a scope with `gxsql.WithScope` in the `ValidateTable`
-options. Scope configuration, including placeholder arity, is validated before
-SQL runs.
+options. The library validates scope configuration, including placeholder arity,
+before SQL runs.
 
-`Report.ScopeID` contains only the normalized caller identity and is empty for
+`Report.ScopeID` contains only the normalized caller identity. It is empty for
 an unscoped run. It does not serialize the scope predicate text or bound
-arguments. `Report.Err()` and its default `ValidationError.Error()` text
-likewise omit those scope fields. `Report.String()` may still include ordinary
-result samples or failed keys, so redact those as appropriate; it does not
-serialize the scope predicate or its arguments.
+arguments. `Report.Err()` and its default `ValidationError.Error()` text also
+omit those scope fields. `Report.String()` may still include ordinary result
+samples or failed keys, so redact those as appropriate. It does not serialize
+the scope predicate or its arguments.
 
-`ExportReport` emits the caller identity as `scope.id` only: default exports
+`ExportReport` emits the caller identity as `scope.id` only. Default exports
 omit scope predicate text and bound arguments, along with captured SQL and
-arguments. Enable diagnostic export only deliberately and apply redaction when
+arguments. Enable diagnostic export only deliberately. Apply redaction when
 those values may be sensitive.
 
-In production, pass a context with a deadline to every `ValidateTable` call and
-use a read-only database role, preferably one restricted to the validation
+In production, pass a context with a deadline to every `ValidateTable` call. Use
+a read-only database role. Prefer a role that is restricted to the validation
 tables or views.
 
 ## Custom count checks
 
 `TrustedCountQuery` and `CustomCount` add one constrained custom shape: a
 trusted SQL template that returns a single non-negative failure count. Template
-text is trusted Go-code input, not a sandbox for untrusted SQL. Callers must
-never pass user-authored SQL in templates or interpolate identifiers or values
-into template text. The library inserts `{{target}}` from the validated
-`TableRef` and `{{scope}}` from `WithScope` (or `TRUE` when unscoped). The
-template author places both markers in valid SQL and qualifies scope references
-when aliases require it; `gxsql` does not parse, relocate, or rewrite arbitrary
-SQL.
+text is trusted Go-code input, not a sandbox for untrusted SQL. Never pass
+user-authored SQL in templates. Never interpolate identifiers or values into
+template text. The library inserts `{{target}}` from the validated `TableRef`
+and `{{scope}}` from `WithScope` (or `TRUE` when unscoped). Place both markers
+in valid SQL. Qualify scope references when aliases require it. `gxsql` does not
+parse, relocate, or rewrite arbitrary SQL.
 
-A template must contain exactly one `{{target}}` and one `{{scope}}`, both
-outside SQL strings and comments. Custom `?` placeholders must come after
+A template must contain exactly one `{{target}}` and one `{{scope}}`. Keep both
+markers outside SQL strings and comments. Place custom `?` placeholders after
 `{{scope}}` so bound arguments stay in scope-first, custom-second order across
-dialects. Preflight rejects missing, duplicate, quoted, or commented markers,
-malformed placeholder text, custom-placeholder arity mismatch, blank display
-names, and invalid scope composition before any custom-count SQL runs.
+dialects. Preflight rejects these problems before any custom-count SQL runs:
+
+- missing, duplicate, quoted, or commented markers
+- malformed placeholder text
+- custom-placeholder arity mismatch
+- blank display names
+- invalid scope composition
 
 The query must return exactly one row and one column. Signed integer driver
-values (`int`, `int8`, `int16`, `int32`, or `int64`) are accepted; textual
+values (`int`, `int8`, `int16`, `int32`, or `int64`) are accepted. Textual
 numerics are not coerced. The count must be non-negative and representable as Go
 `int`. On success the result uses `KindCustom`, blank `Column`,
 `RowDenominatorUnavailable`, and a complete `FailedCount` (including zero).
 `Total`, `FailedPercent`, `SampleValues`, and `FailedKeys` are unavailable.
 `WithKey`, sample caps, and `SummaryOnly()` add no diagnostics for custom
-counts—appropriate for gates, not row-level remediation.
+counts. That shape fits gates, not row-level remediation.
 
 Portable join count (scoped; qualify `{{scope}}` for the table alias):
 
@@ -225,11 +231,17 @@ export-only path subject to existing redactors.
 | `ContinueOnError()` is set               | `(report, nil)` for per-expectation failures | Affected result has `Success == false` and `Err` |
 
 Run-level errors include a nil dialect, negative caps, and invalid `WithKey`
-columns. Preflight errors include invalid identifiers, empty or nil-valued
-`In`/`NotIn` lists, duplicate or blank `WithID` values, blank custom-count
-display names, invalid or duplicated `{{target}}`/`{{scope}}` markers, custom
-placeholders that appear before `{{scope}}`, and custom-placeholder arity
-mismatch. Invalid custom-count declarations never execute SQL.
+columns. Preflight errors include:
+
+- invalid identifiers
+- empty or nil-valued `In`/`NotIn` lists
+- duplicate or blank `WithID` values
+- blank custom-count display names
+- invalid or duplicated `{{target}}`/`{{scope}}` markers
+- custom placeholders that appear before `{{scope}}`
+- custom-placeholder arity mismatch
+
+Invalid custom-count declarations never execute SQL.
 
 `ContinueOnError()` does not make a nil top-level error mean success. Inspect
 `report.OK()`, `report.Err()`, and each `Result.Err` when it is enabled.

@@ -13,7 +13,9 @@ evaluated population. One counts rows that match the failure predicate. Failures
 can add queries for samples and, with `WithKey`, failed-row identities.
 
 Table-level expectations—row count, distinct count, and aggregates—typically run
-one query each.
+one query each. Structural column contracts run one read-only zero-row discovery
+query (`SELECT * FROM <quoted target> WHERE 1 = 0`) and read `Rows.Columns()`;
+they do not scan row values or write schema.
 
 ## Limit retained data
 

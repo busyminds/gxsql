@@ -3,6 +3,7 @@ package gxsql
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -528,6 +529,65 @@ func TestExportTemporalFactsSerializeStructurally(t *testing.T) {
 	} {
 		if strings.Contains(jsonText, forbidden) {
 			t.Fatalf("default export unexpectedly contained %q in %s", forbidden, jsonText)
+		}
+	}
+}
+func TestExportStructuralColumnFactsAndPrivacy(t *testing.T) {
+	rep := Report{
+		Target: &TableRef{Name: "events"},
+		Results: []Result{{
+			Kind:           KindExactColumns,
+			Name:           "exact columns: missing payload; unexpected note",
+			Success:        false,
+			RowDenominator: RowDenominatorUnavailable,
+			SampleValues:   []any{"secret-sample"},
+			FailedKeys:     []RowKey{{"secret-key"}},
+			diagnostics: &resultDiagnostics{
+				query: "SELECT secret_query",
+				args:  []any{"secret-arg"},
+			},
+			Facts: ResultFacts{
+				RequiredColumns:   []string{"id", "payload"},
+				MissingColumns:    []string{"payload"},
+				UnexpectedColumns: []string{"note"},
+			},
+		}},
+	}
+
+	dto, err := ExportReport(rep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := dto.Results[0].Facts
+	if facts == nil {
+		t.Fatal("structural facts omitted")
+	}
+	if !reflect.DeepEqual(facts.RequiredColumns, []string{"id", "payload"}) ||
+		!reflect.DeepEqual(facts.MissingColumns, []string{"payload"}) ||
+		!reflect.DeepEqual(facts.UnexpectedColumns, []string{"note"}) {
+		t.Fatalf("structural facts = %#v", facts)
+	}
+
+	data, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsonText := string(data)
+	for _, want := range []string{
+		`"required_columns":["id","payload"]`,
+		`"missing_columns":["payload"]`,
+		`"unexpected_columns":["note"]`,
+	} {
+		if !strings.Contains(jsonText, want) {
+			t.Fatalf("export JSON missing %s in %s", want, jsonText)
+		}
+	}
+	for _, forbidden := range []string{
+		"secret-sample", "secret-key", "secret_query", "secret-arg",
+		`"samples"`, `"failed_keys"`, `"diagnostics"`,
+	} {
+		if strings.Contains(jsonText, forbidden) {
+			t.Fatalf("default export leaked %q in %s", forbidden, jsonText)
 		}
 	}
 }

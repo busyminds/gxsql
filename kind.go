@@ -90,6 +90,11 @@ const (
 	// KindTimestampFreshSince marks an expectation from TimestampColumn.FreshSince.
 	KindTimestampFreshSince ExpectationKind = "timestamp_fresh_since"
 
+	// KindRequiredColumns marks an expectation from RequiredColumns.
+	KindRequiredColumns ExpectationKind = "required_columns"
+	// KindExactColumns marks an expectation from ExactColumns.
+	KindExactColumns ExpectationKind = "exact_columns"
+
 	// KindCustom is the explicit kind for expectations without built-in metadata.
 	KindCustom ExpectationKind = "custom"
 )

@@ -20,10 +20,11 @@ type DB interface {
 }
 
 // Expectation is the sealed unit of SQL validation over a table. Construct
-// expectations with the column, row-count, and aggregate builders; its
-// unexported methods prevent implementations outside package gxsql. The
-// [Name] method supplies display text, while [Suite.ValidateTable] reports a
-// library-defined [Result.Kind]. Attach a stable result ID with [WithID].
+// expectations with the RowCount, RequiredColumns, ExactColumns, column,
+// aggregate, temporal, and CustomCount builders; its unexported methods prevent
+// implementations outside package gxsql. The [Name] method supplies display
+// text, while [Suite.ValidateTable] reports a library-defined [Result.Kind].
+// Attach a stable result ID with [WithID].
 type Expectation interface {
 	Name() string
 	evaluateSQL(ctx context.Context, db DB, table TableRef, opts evalOptions) (Result, error)
@@ -169,10 +170,10 @@ type maxFailedCountExpectation struct {
 // WithMaxFailedCount wraps an eligible expectation with an inclusive maximum
 // failed-row allowance. Only per-row and uniqueness expectations qualify,
 // including composite uniqueness and referential integrity; table-level,
-// aggregate, distinct-count, row-count, and custom-count declarations are
-// rejected at ValidateTable preflight. Negative max values are also rejected
-// at preflight. The wrapper is immutable and may nest with WithID in either
-// order.
+// aggregate, distinct-count, row-count, custom-count, and structural column
+// declarations are rejected at ValidateTable preflight. Negative max values
+// are also rejected at preflight. The wrapper is immutable and may nest with
+// WithID in either order.
 //
 // Tolerance changes only the policy verdict. Raw Total, FailedCount,
 // FailedPercent, SampleValues, and FailedKeys are preserved under their

@@ -700,6 +700,7 @@ func Run(t *testing.T, cfg Config) {
 	runRelationalKeyIntegrity(t, cfg)
 	runCrossColumnRowInvariants(t, cfg)
 	runTemporalAndFreshness(t, cfg)
+	runStructuralColumnContracts(t, cfg)
 }
 
 func assertToleranceRawPreservation(t *testing.T, bare, tol gxsql.Result) {

@@ -77,6 +77,35 @@
 //		gxsql.Timestamp("ingested_at").FreshSince(cutoff),
 //	)
 //
+// Structural column contracts use [RequiredColumns] and [ExactColumns]. They
+// compare unordered column-name sets against dialect/driver-reported
+// [database/sql.Rows.Columns] spellings byte-for-byte (no case folding).
+// [RequiredColumns] passes when every expected name is present and allows
+// additional discovered names. [ExactColumns] passes only when the discovered
+// set matches exactly. Discovery is a read-only zero-row probe
+// (`SELECT * FROM <quoted target> WHERE 1 = 0`) that never scans row values or
+// writes schema. Missing and unexpected names are ordinary table-level results
+// under [KindRequiredColumns] / [KindExactColumns] with
+// [RowDenominatorUnavailable]: no samples, failed keys, or row denominator.
+// Facts publish [ResultFacts.RequiredColumns] plus ordered
+// [ResultFacts.MissingColumns] (declaration order) and, for exact checks,
+// [ResultFacts.UnexpectedColumns] (discovery order). A missing target,
+// permission denial, render failure, or metadata capability failure is a typed
+// execution or preflight error (for example [CategoryDatabase]), not a failed
+// structural result. Empty expected lists and duplicate or invalid identifiers
+// fail preflight. [WithScope] is incompatible and is rejected at ValidateTable
+// preflight rather than ignored. These checks do not validate column types,
+// nullability, or ordinal position. Prefer a separate structural suite before
+// content validation when shape fail-fast matters:
+//
+//	structure := gxsql.NewSuite(
+//		gxsql.RequiredColumns("id", "event_time", "payload"),
+//		gxsql.ExactColumns("id", "event_time", "payload"),
+//	)
+//	report, err := structure.ValidateTable(ctx, db, gxsql.Table("ingest_events"),
+//		gxsql.WithDialect(gxsql.Postgres()),
+//	)
+//
 // For scoped validation, use [TrustedScope] with [WithScope]. The scope
 // predicate limits every expectation to matching rows and uses dialect-neutral
 // ? placeholders; each value is bound separately through the arguments:
@@ -119,8 +148,8 @@
 // samples, and failed keys stay under existing caps. Gate with [Report.Err];
 // tolerated results count as successful and are omitted from
 // [Report.Failures], so inspect [Report.Results] and [Result.Tolerated] for
-// remediation. Table-level, aggregate, distinct-count, row-count, and
-// custom-count wrappers fail preflight. Execution and configuration errors
+// remediation. Table-level, aggregate, distinct-count, row-count,
+// custom-count, and structural column wrappers fail preflight. Execution and configuration errors
 // are never tolerated:
 //
 //	suite := gxsql.NewSuite(

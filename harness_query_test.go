@@ -14,6 +14,7 @@ var (
 	countDistinctRe = regexp.MustCompile(`(?is)^SELECT\s+COUNT\(DISTINCT\s+(.+?)\)\s+FROM\s+(.+?)(?:\s+WHERE\s+(.+))?$`)
 	aggRe           = regexp.MustCompile(`(?is)^SELECT\s+(AVG|MIN|MAX)\((.+?)\)\s+FROM\s+(.+?)(?:\s+WHERE\s+(.+))?$`)
 	selectRe        = regexp.MustCompile(`(?is)^SELECT\s+(.+?)\s+FROM\s+(.+?)(?:\s+WHERE\s+(.+?))?(?:\s+ORDER\s+BY\s+(.+?))?(?:\s+LIMIT\s+(.+))?$`)
+	zeroRowStarRe   = regexp.MustCompile(`(?is)^SELECT\s+\*\s+FROM\s+(.+?)\s+WHERE\s+1\s*=\s*0$`)
 	subUniqueRe     = regexp.MustCompile(
 		`(?is)^(.+?)\s+IS\s+NOT\s+NULL\s+AND\s+(.+?)\s+IN\s+\(\s*SELECT\s+(.+?)\s+FROM\s+(.+?)(?:\s+WHERE\s+(.+?))?\s+GROUP\s+BY\s+(.+?)\s+HAVING\s+COUNT\(\*\)\s*>\s*1\s*\)$`,
 	)
@@ -28,8 +29,16 @@ var (
 	ratioEqualRe  = regexp.MustCompile(`(?is)^(.+?)\s*<>\s*(.+?)\s*\*\s*(\$\d+|\?)$`)
 )
 
-func executeHarnessQuery(query string, args []any, tables map[string][]map[string]any) ([]string, [][]driver.Value, error) {
+func executeHarnessQuery(query string, args []any, tables map[string][]map[string]any, schemas map[string][]string) ([]string, [][]driver.Value, error) {
 	q := collapseSpaces(query)
+
+	if m := zeroRowStarRe.FindStringSubmatch(q); m != nil {
+		cols, err := resolveHarnessColumns(m[1], tables, schemas)
+		if err != nil {
+			return nil, nil, err
+		}
+		return cols, nil, nil
+	}
 
 	if m := countRe.FindStringSubmatch(q); m != nil {
 		table, err := resolveTable(m[1], tables)
@@ -180,6 +189,44 @@ func toInt(v any) (int, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func resolveHarnessColumns(ref string, tables map[string][]map[string]any, schemas map[string][]string) ([]string, error) {
+	name, err := resolveTableName(ref, tables, schemas)
+	if err != nil {
+		return nil, err
+	}
+	// Ordered physical names come only from setHarnessColumns. Row map key
+	// iteration is nondeterministic, so never derive discovery order from maps.
+	cols, ok := schemas[name]
+	if !ok {
+		return nil, fmt.Errorf("gxsqltest: table %s has no column schema; call setHarnessColumns", name)
+	}
+	if len(cols) == 0 {
+		return nil, fmt.Errorf("gxsqltest: table %s column schema is empty", name)
+	}
+	return append([]string(nil), cols...), nil
+}
+
+func resolveTableName(ref string, tables map[string][]map[string]any, schemas map[string][]string) (string, error) {
+	ref = strings.TrimSpace(ref)
+	if m := tableAliasRe.FindStringSubmatch(ref); m != nil {
+		ref = strings.TrimSpace(m[1])
+	}
+	candidates := []string{ref, unquoteIdent(ref)}
+	if strings.Contains(ref, ".") {
+		parts := strings.Split(ref, ".")
+		candidates = append(candidates, unquoteIdent(parts[len(parts)-1]))
+	}
+	for _, name := range candidates {
+		if _, ok := tables[name]; ok {
+			return name, nil
+		}
+		if _, ok := schemas[name]; ok {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("gxsqltest: unknown table %s", ref)
 }
 
 func resolveTable(ref string, tables map[string][]map[string]any) ([]map[string]any, error) {

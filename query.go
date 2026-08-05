@@ -20,6 +20,32 @@ func finishRowsRead(ctx context.Context, rows *sql.Rows) error {
 	}
 }
 
+// discoverTableColumns runs a read-only zero-row probe and returns column names
+// in driver discovery order. It never scans row values or issues schema writes.
+// The returned query string is suitable for CaptureQueryDiagnostics.
+func discoverTableColumns(
+	ctx context.Context, db DB, table TableRef, opts evalOptions,
+) (columns []string, query string, err error) {
+	tbl, err := renderTable(opts.dialect, table)
+	if err != nil {
+		return nil, "", categorizeRenderError(err)
+	}
+	query = "SELECT * FROM " + tbl + " WHERE 1 = 0"
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, query, categorizeExecutionError(ctx, err)
+	}
+	names, err := rows.Columns()
+	if err != nil {
+		_ = rows.Close()
+		return nil, query, categorizeScanError(ctx, err)
+	}
+	if err := finishRowsRead(ctx, rows); err != nil {
+		return nil, query, err
+	}
+	return append([]string(nil), names...), query, nil
+}
+
 // queryScalarInt scans one integer. NULL is coerced to 0; callers must use it
 // only for COUNT(*) and other never-null aggregates.
 func queryScalarInt(ctx context.Context, db DB, query string, args ...any) (int, error) {

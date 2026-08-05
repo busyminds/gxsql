@@ -43,6 +43,11 @@ denominator exists. Custom-count results never export samples or failed keys.
 Their template SQL and bound arguments remain omitted unless query diagnostics
 are captured and explicitly requested at export time.
 
+Structural column results likewise omit counts total/percent, samples, and
+failed keys. They export schema-name facts as `required_columns`,
+`missing_columns`, and `unexpected_columns` under `gxsql.report.v1`. Those names
+are metadata, not row values.
+
 ## Understand verdicts
 
 Each exported result separates policy and execution status:

@@ -38,7 +38,7 @@ override suite-level caps.
 | `SummaryOnly()`              | Does not load failed-row identities.                                                                    |
 | `ContinueOnError()`          | Records preflight and execution errors on results and continues.                                        |
 | `CaptureQueryDiagnostics()`  | Records SQL and arguments for optional export only.                                                     |
-| `WithScope(scope Scope)`     | Limits every expectation to rows matching the scope predicate; validates the scope when the run starts. |
+| `WithScope(scope Scope)`     | Limits every expectation to rows matching the scope predicate; validates the scope when the run starts. Incompatible with `RequiredColumns` and `ExactColumns`. |
 
 When neither `WithKey` nor `SummaryOnly` is supplied, results contain counts and
 capped samples but no failed-row identities. Invalid run-level options—such as a
@@ -91,6 +91,11 @@ errors, display output, and exports omit those scope fields. Ordinary samples
 and failed keys remain subject to the usual report redaction guidance. Captured
 SQL and arguments require explicit diagnostic capture and export options; treat
 them as sensitive.
+
+`RequiredColumns` and `ExactColumns` have no row population. Pairing either
+expectation with `WithScope` fails `ValidateTable` preflight with an
+`invalid_config` error rather than ignoring scope. Run a separate unscoped
+structural suite when shape checks must gate content validation.
 
 Production callers should use a database role with read-only permissions and
 pass a context with a deadline:
@@ -174,9 +179,9 @@ is no percentage, pass-rate, `Mostly`, rounding, or compound policy.
 
 Only per-row and uniqueness expectations qualify, including composite
 `Columns(...).Unique()` and `References()`. Wrapping a table-level, aggregate,
-distinct-count, row-count, or custom-count declaration—or a negative bound, nil
-inner expectation, or a second nested tolerance—fails `ValidateTable` preflight
-before SQL. Without `ContinueOnError()`, invalid tolerance returns the zero
+distinct-count, row-count, custom-count, or structural column
+declaration—or a negative bound, nil inner expectation, or a second nested
+tolerance—fails `ValidateTable` preflight before SQL. Without `ContinueOnError()`, invalid tolerance returns the zero
 report and `*PreflightErrors`. With it, the matching declaration-order slot
 records the configuration error and later expectations still run.
 

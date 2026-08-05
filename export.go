@@ -163,6 +163,15 @@ type ExportedFacts struct {
 	Comparison *ExportedComparisonFacts `json:"comparison,omitempty"`
 	// Ratio holds same-row integer ratio facts.
 	Ratio *ExportedRatioFacts `json:"ratio,omitempty"`
+	// RequiredColumns lists caller-configured expected column names in
+	// declaration order for structural column expectations.
+	RequiredColumns []string `json:"required_columns,omitempty"`
+	// MissingColumns lists expected names absent from discovery, in caller
+	// declaration order.
+	MissingColumns []string `json:"missing_columns,omitempty"`
+	// UnexpectedColumns lists discovered names absent from the expected set,
+	// in discovery order.
+	UnexpectedColumns []string `json:"unexpected_columns,omitempty"`
 }
 
 // ExportedComparisonFacts is the JSON form of ComparisonFacts.
@@ -591,6 +600,18 @@ func exportFacts(facts ResultFacts) (*ExportedFacts, error) {
 			RightColumn: facts.Ratio.RightColumn,
 			Bound:       facts.Ratio.Bound,
 		}
+		has = true
+	}
+	if len(facts.RequiredColumns) > 0 {
+		out.RequiredColumns = append([]string(nil), facts.RequiredColumns...)
+		has = true
+	}
+	if len(facts.MissingColumns) > 0 {
+		out.MissingColumns = append([]string(nil), facts.MissingColumns...)
+		has = true
+	}
+	if len(facts.UnexpectedColumns) > 0 {
+		out.UnexpectedColumns = append([]string(nil), facts.UnexpectedColumns...)
 		has = true
 	}
 	if !has {

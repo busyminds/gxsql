@@ -75,6 +75,8 @@ README:
 6. `WithMaxFailedCount` for a known failed-row allowance.
 7. `Timestamp(...).InWindow(...)` and `Timestamp(...).FreshSince(...)` for
    caller-supplied temporal windows and freshness cutoffs.
+8. `RequiredColumns(...)` and `ExactColumns(...)` for portable structural
+   column-set gates before content validation.
 
 ## Quick start
 
@@ -199,6 +201,37 @@ those scope fields. Ordinary samples and failed keys remain subject to the usual
 report redaction guidance. For production validation, use a read-only database
 role (ideally limited to validation views) and set a context deadline on every
 `ValidateTable` call.
+
+## Structural column contracts
+
+Use `RequiredColumns` and `ExactColumns` to catch migration or producer drift
+before content checks obscure the cause. Both compare unordered column-name sets
+against dialect/driver-reported `Rows.Columns()` spellings byte-for-byte, with
+no case folding. Column order never changes the verdict. Discovery is a
+read-only zero-row probe and never scans row values.
+
+```go
+structure := gxsql.NewSuite(
+    gxsql.RequiredColumns("id", "event_time", "payload"),
+    gxsql.ExactColumns("id", "event_time", "payload"),
+)
+structureReport, err := structure.ValidateTable(ctx, db, gxsql.Table("ingest_events"),
+    gxsql.WithDialect(gxsql.Postgres()),
+)
+if err != nil {
+    log.Fatal(err) // missing target, permission denial, or other typed error
+}
+if err := structureReport.Err(); err != nil {
+    log.Fatal(err) // missing or unexpected column names
+}
+```
+
+`RequiredColumns` allows additional discovered names. `ExactColumns` requires an
+exact set match. Missing names are ordered by caller declaration; unexpected
+names are ordered by discovery. Results use `RowDenominatorUnavailable` and
+never retain samples or failed keys. These builders do not validate types,
+nullability, or ordinal position. `WithScope` is incompatible and fails
+preflight; run structural checks in a separate unscoped suite.
 
 ## Custom count checks
 
@@ -327,7 +360,7 @@ go test -race -run '^TestDuckDBConformance$' ./...
 | Concept             | Description                                                                                                                                                                                                                                                            |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Suite**           | An ordered set of expectations from `gxsql.NewSuite(...)`. Results appear in the same declaration order.                                                                                                                                                               |
-| **Expectation**     | One data-quality assertion over a table, built with `RowCount`, `Column`, `Int`, `Float`, `String`, `Timestamp`, or `CustomCount`.                                                                                                                                                  |
+| **Expectation**     | One data-quality assertion over a table, built with `RowCount`, `RequiredColumns`, `ExactColumns`, `Column`, `Int`, `Float`, `String`, `Timestamp`, or `CustomCount`.                                                                                                              |
 | **TableRef**        | Names the table under test: `gxsql.Table("users")` or `gxsql.SchemaTable("public", "users")`. Identifiers must match `^[A-Za-z_][A-Za-z0-9_]*$`.                                                                                                                       |
 | **Dialect**         | Renders identifiers, placeholders, and string-length expressions. Built-in: `gxsql.Postgres()`, `gxsql.SQLite()`, `gxsql.DuckDB()`, and `gxsql.MySQL()`. `ValidateTable` defaults to PostgreSQL when no dialect is supplied; pass `gxsql.WithDialect(...)` explicitly. |
 | **Report / Result** | A `Report` holds one `Result` per expectation. Use `report.OK()`, `report.Failures()`, `report.Err()`, and `report.String()` to gate and inspect outcomes.                                                                                                             |
@@ -371,6 +404,12 @@ suite := gxsql.NewSuite(
     gxsql.Timestamp("event_time").InWindow(windowStart, windowEnd),
     gxsql.Timestamp("ingested_at").FreshSince(cutoff),
 )
+
+// Structural shape gates belong in a separate unscoped suite:
+structure := gxsql.NewSuite(
+    gxsql.RequiredColumns("id", "event_time", "payload"),
+    gxsql.ExactColumns("id", "event_time", "payload"),
+)
 ```
 
 `InWindow` is half-open (`start <= value < end`): NULL fails and an empty scope
@@ -382,6 +421,8 @@ Per-row checks set `Total` to the table row count and populate `FailedCount`,
 `FailedPercent`, `SampleValues`, and optionally `FailedKeys` on failure.
 Table-level checks (row count, distinct count, aggregates, freshness) append
 observed values to `Result.Name` (for example `row count >= 1: got 42`).
+Structural column results publish ordered missing and unexpected names in
+`Result.Facts` instead of samples or failed keys.
 
 ## Failed rows and reports
 

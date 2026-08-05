@@ -80,6 +80,16 @@ type ResultFacts struct {
 	Comparison *ComparisonFacts
 	// Ratio holds same-row integer ratio facts.
 	Ratio *RatioFacts
+
+	// RequiredColumns lists caller-configured expected column names in
+	// declaration order for structural column expectations. Empty when unset.
+	RequiredColumns []string
+	// MissingColumns lists expected names absent from discovery, in caller
+	// declaration order. Empty when unset or none missing.
+	MissingColumns []string
+	// UnexpectedColumns lists discovered names absent from the expected set,
+	// in discovery order. Empty when unset or none unexpected.
+	UnexpectedColumns []string
 }
 
 // ComparisonFacts identifies the operands and fixed relationship of a direct

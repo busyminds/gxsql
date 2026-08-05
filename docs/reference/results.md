@@ -34,14 +34,19 @@ even though `Total` and `FailedPercent` are unavailable. `Column` is blank and
 custom counts never retain samples or failed keys; `WithKey`, sample caps, and
 `SummaryOnly()` do not change this shape.
 
+Structural column results (`KindRequiredColumns`, `KindExactColumns`) also use
+`RowDenominatorUnavailable` with blank `Column`. They never retain samples or
+failed keys. Missing and unexpected names are ordinary policy outcomes published
+in `Result.Facts`; they are not row diagnostics.
+
 `WithMaxFailedCount` applies only to per-row and uniqueness shapes
 (`RowDenominatorAvailable`), including composite uniqueness and referential
 integrity. It changes `Success` only. Raw observations stay complete under
 existing caps. Empty evaluated populations pass without division by zero or
 `NaN` and are not tolerated. Scope remains the evaluated population for all raw
-counts. Table-level, aggregate, distinct-count, row-count, and custom-count
-wrappers fail preflight. Execution and configuration errors keep
-`Success: false` and `Tolerated: false`.
+counts. Table-level, aggregate, distinct-count, row-count, custom-count, and
+structural column wrappers fail preflight. Execution and configuration errors
+keep `Success: false` and `Tolerated: false`.
 
 `RowKey` is `[]any` containing caller-supplied `WithKey` values in the same
 column order.
@@ -78,6 +83,10 @@ Parent values never appear in diagnostics.
   freshness configuration and observation for `Timestamp(...).FreshSince`.
   `ObservedTimePresent` is a `*bool`: nil when freshness does not apply, pointer
   false for explicit absence, and pointer true when `ObservedTime` is set.
+- `RequiredColumns` lists expected structural column names in declaration order.
+- `MissingColumns` lists absent expected names in declaration order.
+- `UnexpectedColumns` lists unexpected discovered names in discovery order for
+  `ExactColumns` failures.
 
 Built-in expectations populate threshold and mapping fields at construction
 time. Do not encode composite tuples as comma-separated `Column` text.

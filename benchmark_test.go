@@ -146,3 +146,50 @@ func BenchmarkScopedTotalReuse(b *testing.B) {
 		}
 	})
 }
+
+// BenchmarkSequentialSharedScalarFixture measures sequential failure-count
+// evaluation for a repeated compatible per-row suite on the fake harness.
+func BenchmarkSequentialSharedScalarFixture(b *testing.B) {
+	benchmarkScopedTotalDialects(b, func(b *testing.B, dialect Dialect, db DB, scope Scope) {
+		suite := NewSuite(benchmarkScopedTotalExpectations()...)
+		ctx := context.Background()
+		table := Table("users")
+		opts := []Option{
+			WithDialect(dialect),
+			WithScope(scope),
+			SummaryOnly(),
+			WithSampleCap(0),
+		}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			if _, err := suite.ValidateTable(ctx, db, table, opts...); err != nil {
+				b.Fatalf("ValidateTable: %v", err)
+			}
+		}
+	})
+}
+
+// BenchmarkSharedScalarEvaluationFixture measures the same suite with
+// WithSharedScalarEvaluation enabled on the fake harness.
+func BenchmarkSharedScalarEvaluationFixture(b *testing.B) {
+	benchmarkScopedTotalDialects(b, func(b *testing.B, dialect Dialect, db DB, scope Scope) {
+		suite := NewSuite(benchmarkScopedTotalExpectations()...)
+		ctx := context.Background()
+		table := Table("users")
+		opts := []Option{
+			WithDialect(dialect),
+			WithScope(scope),
+			SummaryOnly(),
+			WithSampleCap(0),
+			WithSharedScalarEvaluation(),
+		}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			if _, err := suite.ValidateTable(ctx, db, table, opts...); err != nil {
+				b.Fatalf("ValidateTable: %v", err)
+			}
+		}
+	})
+}

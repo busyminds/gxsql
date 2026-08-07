@@ -38,12 +38,24 @@ override suite-level caps.
 | `SummaryOnly()`              | Does not load failed-row identities.                                                                    |
 | `ContinueOnError()`          | Records preflight and execution errors on results and continues.                                        |
 | `CaptureQueryDiagnostics()`  | Records SQL and arguments for optional export only.                                                     |
+| `WithSharedScalarEvaluation()` | Combines contiguous compatible built-in per-row failure counts into conditional-aggregate statement(s). Disabled by default; incompatible expectations and non-contiguous compatible slots stay sequential. |
 | `WithScope(scope Scope)`     | Limits every expectation to rows matching the scope predicate; validates the scope when the run starts. Incompatible with `RequiredColumns` and `ExactColumns`. |
 
 When neither `WithKey` nor `SummaryOnly` is supplied, results contain counts and
 capped samples but no failed-row identities. Invalid run-level options—such as a
 nil dialect, negative caps, invalid key columns, or invalid scopes—always
 prevent evaluation.
+
+`WithSharedScalarEvaluation()` is an opt-in performance option. It does not change
+published semantic report fields for compatible built-in per-row scalar checks:
+counts, verdicts, tolerance, samples, failed keys, declaration order, and scope
+behavior stay aligned with sequential evaluation. Only contiguous runs of
+compatible per-row checks are combined, so intervening incompatible expectations
+still execute in declaration order. Large contiguous runs are split across
+multiple statements when needed to stay within engine SELECT target limits.
+Captured diagnostics, when enabled, record the actual combined statement rather
+than fabricated per-check SQL. Uniqueness, table-level, aggregate, distinct-count,
+custom-count, structural, and relation checks are never combined.
 
 ## Scoped validation
 

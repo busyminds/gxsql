@@ -37,6 +37,7 @@ type evalOptions struct {
 	keyColumns         []string
 	summaryOnly        bool
 	captureDiagnostics bool
+	continueOnError    bool
 	scope              *trustedScope
 	// scopedTotal caches one shared COUNT(*) for denominator-using expectations
 	// within a ValidateTable call. Nil means each resolve loads locally.

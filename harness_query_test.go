@@ -40,6 +40,10 @@ func executeHarnessQuery(query string, args []any, tables map[string][]map[strin
 		return cols, nil, nil
 	}
 
+	if cols, rows, err, ok := executeSharedScalarCountQuery(q, args, tables); ok {
+		return cols, rows, err
+	}
+
 	if m := countRe.FindStringSubmatch(q); m != nil {
 		table, err := resolveTable(m[1], tables)
 		if err != nil {
@@ -146,6 +150,83 @@ func executeHarnessQuery(query string, args []any, tables map[string][]map[strin
 	}
 
 	return nil, nil, fmt.Errorf("gxsqltest: unsupported query: %s", query)
+}
+
+func executeSharedScalarCountQuery(q string, args []any, tables map[string][]map[string]any) ([]string, [][]driver.Value, error, bool) {
+	upper := strings.ToUpper(q)
+	if !strings.Contains(upper, "COUNT(CASE WHEN") {
+		return nil, nil, nil, false
+	}
+	m := selectRe.FindStringSubmatch(q)
+	if m == nil {
+		return nil, nil, fmt.Errorf("gxsqltest: unsupported shared scalar query: %s", q), true
+	}
+	selectList := strings.TrimSpace(m[1])
+	table, err := resolveTable(m[2], tables)
+	if err != nil {
+		return nil, nil, err, true
+	}
+	where := strings.TrimSpace(m[3])
+	caseRe := regexp.MustCompile(`(?is)^COUNT\s*\(\s*CASE\s+WHEN\s+(.+?)\s+THEN\s+1\s+END\s*\)$`)
+	parts := splitTopLevel(selectList, ",")
+	preds := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		cm := caseRe.FindStringSubmatch(part)
+		if cm == nil {
+			return nil, nil, fmt.Errorf("gxsqltest: unsupported shared scalar select expr: %s", part), true
+		}
+		preds = append(preds, strings.TrimSpace(cm[1]))
+	}
+	counts := make([]driver.Value, len(preds))
+	for i := range counts {
+		counts[i] = int64(0)
+	}
+
+	// Numbered placeholders address the full args slice. Question-mark
+	// placeholders follow SQL appearance order: SELECT predicate args first,
+	// then trailing WHERE scope args.
+	whereArgs := args
+	predArgSets := make([][]any, len(preds))
+	if !strings.Contains(q, "$") {
+		predArgSets, whereArgs = splitSharedScalarQuestionArgs(preds, where, args)
+	} else {
+		for i := range preds {
+			predArgSets[i] = args
+		}
+	}
+
+	for _, row := range table {
+		if where != "" && !rowMatchesWhere(where, whereArgs, row, m[2], table, tables) {
+			continue
+		}
+		for i, pred := range preds {
+			if rowMatchesWhere(pred, predArgSets[i], row, m[2], table, tables) {
+				counts[i] = counts[i].(int64) + 1
+			}
+		}
+	}
+	names := make([]string, len(preds))
+	for i := range names {
+		names[i] = fmt.Sprintf("c%d", i+1)
+	}
+	return names, [][]driver.Value{counts}, nil, true
+}
+
+func splitSharedScalarQuestionArgs(preds []string, where string, args []any) ([][]any, []any) {
+	predArgSets := make([][]any, len(preds))
+	cursor := 0
+	for i, pred := range preds {
+		n := strings.Count(pred, "?")
+		if cursor+n > len(args) {
+			predArgSets[i] = args[cursor:]
+			cursor = len(args)
+			continue
+		}
+		predArgSets[i] = args[cursor : cursor+n]
+		cursor += n
+	}
+	return predArgSets, args[cursor:]
 }
 
 func collapseSpaces(s string) string {

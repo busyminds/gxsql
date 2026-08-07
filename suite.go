@@ -45,15 +45,16 @@ func (s *Suite) WithFailedKeysCap(n int) *Suite {
 type Option func(*validateConfig)
 
 type validateConfig struct {
-	dialect            Dialect
-	sampleCap          int
-	failedKeysCap      int
-	keyColumns         []string
-	summaryOnly        bool
-	continueOnError    bool
-	captureDiagnostics bool
-	scope              Scope
-	hasScope           bool
+	dialect                Dialect
+	sampleCap              int
+	failedKeysCap          int
+	keyColumns             []string
+	summaryOnly            bool
+	continueOnError        bool
+	captureDiagnostics     bool
+	sharedScalarEvaluation bool
+	scope                  Scope
+	hasScope               bool
 }
 
 // WithScope limits every expectation to rows matching the trusted predicate.
@@ -117,6 +118,14 @@ func ContinueOnError() Option {
 // exposed through default Result serialization or default export.
 func CaptureQueryDiagnostics() Option {
 	return func(cfg *validateConfig) { cfg.captureDiagnostics = true }
+}
+
+// WithSharedScalarEvaluation combines contiguous compatible built-in per-row
+// failure counts into conditional aggregate statement(s) for this validation
+// run. Non-contiguous compatible slots separated by incompatible expectations
+// stay sequential. It is disabled by default.
+func WithSharedScalarEvaluation() Option {
+	return func(cfg *validateConfig) { cfg.sharedScalarEvaluation = true }
 }
 
 // ValidateTable runs every expectation in declaration order (collect-all, never
@@ -221,11 +230,52 @@ func (s *Suite) ValidateTable(
 		keyColumns:         cfg.keyColumns,
 		summaryOnly:        cfg.summaryOnly,
 		captureDiagnostics: cfg.captureDiagnostics,
+		continueOnError:    cfg.continueOnError,
 		scope:              validatedScope,
 		scopedTotal:        scopedTotal,
 	}
 
 	results := make([]Result, len(s.expectations))
+
+	var sharedBatches []sharedScalarBatch
+	indexBatch := map[int]int{}
+	if cfg.sharedScalarEvaluation {
+		sharedPlans := make(map[int]sharedScalarPlan)
+		var sharedOrder []int
+		for i, exp := range s.expectations {
+			if pf.hasIssueAt(i) || exp == nil {
+				continue
+			}
+			plan, ok, err := sharedScalarPlanFor(exp, evalOpts)
+			if err != nil || !ok {
+				continue
+			}
+			sharedPlans[i] = plan
+			sharedOrder = append(sharedOrder, i)
+		}
+		sharedBatches = groupContiguousSharedBatches(sharedOrder, sharedPlans)
+		for bi, batch := range sharedBatches {
+			for _, idx := range batch.indices {
+				indexBatch[idx] = bi
+			}
+		}
+	}
+
+	batchEvaluated := make([]bool, len(sharedBatches))
+	batchResults := make([]map[int]Result, len(sharedBatches))
+	batchErrs := make([]error, len(sharedBatches))
+
+	evaluateBatch := func(bi int) {
+		batch := sharedBatches[bi]
+		values, err := evalSharedScalarCounts(ctx, db, table, evalOpts, batch.plans)
+		batchErrs[bi] = err
+		batchResults[bi] = make(map[int]Result, len(batch.indices))
+		for i, index := range batch.indices {
+			batchResults[bi][index] = values[i]
+		}
+		batchEvaluated[bi] = true
+	}
+
 	for i, exp := range s.expectations {
 		if pf.hasIssueAt(i) {
 			results[i] = configErrorResult(exp, pf.errAt(i))
@@ -233,6 +283,31 @@ func (s *Suite) ValidateTable(
 		}
 		if exp == nil {
 			results[i] = configErrorResult(nil, newConfigError(fmt.Errorf("nil expectation at index %d", i)))
+			continue
+		}
+		if bi, ok := indexBatch[i]; ok {
+			if !batchEvaluated[bi] {
+				evaluateBatch(bi)
+			}
+			res := batchResults[bi][i]
+			if batchErrs[bi] != nil {
+				if cfg.continueOnError {
+					if res.Err == nil {
+						res.Err = batchErrs[bi]
+					}
+					res.Success = false
+					results[i] = res
+					continue
+				}
+				return Report{}, batchErrs[bi]
+			}
+			if res.Err != nil {
+				res.Success = false
+				if !cfg.continueOnError {
+					return Report{}, res.Err
+				}
+			}
+			results[i] = res
 			continue
 		}
 		res, err := exp.evaluateSQL(ctx, db, table, evalOpts)

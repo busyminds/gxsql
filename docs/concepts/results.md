@@ -1,9 +1,9 @@
-# Results and remediation
+# Results and Remediation
 
 A completed `ValidateTable` call returns a `Report` with one `Result` per
 expectation. Results preserve suite declaration order.
 
-## Read a report
+## Read a Report
 
 | Member              | Use                                                                            |
 | ------------------- | ------------------------------------------------------------------------------ |
@@ -13,7 +13,7 @@ expectation. Results preserve suite declaration order.
 | `report.String()`   | Produce a human-readable summary and per-result lines.                         |
 
 A failed policy does not make `ValidateTable` return a non-nil error. Use
-`report.Err()` when validation should gate an application action:
+`report.Err()` when validation must gate an application action:
 
 ```go
 if err := report.Err(); err != nil {
@@ -26,7 +26,7 @@ if err := report.Err(); err != nil {
 }
 ```
 
-## Raw observations versus policy verdict
+## Raw Observations Versus Policy Verdict
 
 `Success` is the policy verdict. Raw observations stay intact under their normal
 cap settings even when a policy pass is tolerated. Those observations include
@@ -68,7 +68,7 @@ for _, result := range report.Results {
 }
 ```
 
-## Read a result
+## Read a Result
 
 Per-row checks set `RowDenominator` to `RowDenominatorAvailable` and populate:
 
@@ -85,17 +85,17 @@ Table-level checks—row count, distinct count, numeric aggregates, freshness,
 structural column contracts, and custom counts—use `RowDenominatorUnavailable`.
 Their `Total` remains zero because no per-row population is reported. Custom
 counts instead expose their complete `FailedCount`, including zero, and do not
-retain `FailedPercent`, samples, or failed keys. Structural `RequiredColumns` / `ExactColumns` results also omit samples and
-failed keys; remediate from `Facts.RequiredColumns`, `Facts.MissingColumns`, and
-`Facts.UnexpectedColumns`. Read the observed value
-and configured threshold from `Facts` for built-in table-level checks. `Name` is
-only human-facing display text.
+retain `FailedPercent`, samples, or failed keys. Structural `RequiredColumns` /
+`ExactColumns` results also omit samples and failed keys; remediate from
+`Facts.RequiredColumns`, `Facts.MissingColumns`, and `Facts.UnexpectedColumns`.
+Read the observed value and configured threshold from `Facts` for built-in
+table-level checks. `Name` is only human-facing display text.
 
 `ID` and `Kind` are stable machine-facing identity fields. Use `WithID` to
 supply an ID and `Result.Kind` to classify a built-in expectation. See
-[stable identity and export](export.md).
+[Stable Identity and Export](export.md).
 
-## Control retained failure data
+## Control Retained Failure Data
 
 The defaults are `DefaultSampleCap` (20) sample values and
 `DefaultFailedKeysCap` (100) row keys per result. Counts and percentages remain
@@ -123,7 +123,7 @@ Suite methods set defaults for future runs. Options override them for one run.
 Use `WithFailedKeysCap(0)` only when every failed identity is required and
 unbounded retention is acceptable.
 
-## Vacuous passes
+## Vacuous Passes
 
 Some expectations pass because no applicable values exist:
 
@@ -134,8 +134,14 @@ Some expectations pass because no applicable values exist:
 | Per-row check on an empty table                       | Passes when its failure predicate matches no rows; `Total == 0`. |
 | Empty `In` or `NotIn` list                            | Configuration error before SQL.                                  |
 
-If an empty table or all-null column must fail, add an explicit row-count or
-non-null expectation.
+`Timestamp(...).FreshSince(cutoff)` is not vacuous. It requires an observed
+maximum non-`NULL` value in the scoped population and
+`observed >= cutoff`. An empty scope fails. A non-empty all-`NULL` scope also
+fails because no accepted watermark exists. Use `NotNull` when completeness is
+required.
+
+If an empty table or all-null column must fail for other checks, add an
+explicit row-count or non-null expectation.
 
 ## Next
 

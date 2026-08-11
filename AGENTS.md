@@ -10,7 +10,7 @@ loaded into Go memory first.
 - **Core package:** uses `database/sql` and does not import a concrete driver.
   PostgreSQL, SQLite, DuckDB, and MySQL drivers live only in `integration/`.
 
-## Start here
+## Start Here
 
 Read in this order before changing behavior:
 
@@ -29,7 +29,7 @@ Read in this order before changing behavior:
 | `docs/`                 | Tutorial, concepts, API reference                                           |
 | `internal/conformance/` | Shared real-engine contract runner (used by `integration/`; not public API) |
 
-## Driver and dialect boundaries
+## Driver and Dialect Boundaries
 
 **Caller owns the driver.** Open `*sql.DB` with any `database/sql` driver, then
 pass it as `gxsql.DB` (narrow interface: `QueryContext`, `QueryRowContext`
@@ -57,15 +57,15 @@ implement them unless explicitly in scope.
 `Timestamp`, and `CustomCount` builders. Do not implement `Expectation` outside
 package `gxsql`.
 
-## Validation model
+## Validation Model
 
-### Collect-all, declaration order
+### Collect-All, Declaration Order
 
 `NewSuite(exps...)` preserves declaration order. `ValidateTable` runs every
 expectation in that order. **Assertion failures never stop later expectations.**
 `Report.Results[i]` always corresponds to `expectations[i]`.
 
-### Policy failures vs returned errors
+### Policy Failures vs. Returned Errors
 
 These are separate channels:
 
@@ -103,7 +103,7 @@ With `gxsql.ContinueOnError()`:
 - Optional `CaptureQueryDiagnostics()` still captures SQL on execution errors;
   captured content is never exposed through default serialization or export.
 
-## SummaryOnly, WithKey, and caps
+## SummaryOnly, WithKey, and Caps
 
 | Control                | Default            | Effect                                                                                                      |
 | ---------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------- |
@@ -117,9 +117,10 @@ Suite-level `Suite.WithSampleCap` / `WithFailedKeysCap` set defaults;
 `ValidateTable` options override for one run. When keys are capped,
 `FailedCount` and `FailedPercent` remain complete.
 
-**Resource note:** each per-row expectation issues at least two full-table
-`COUNT(*)` queries (total + failing). Prefer `SummaryOnly()` on large tables
-with widespread failures; use `WithFailedKeysCap(0)` only when unbounded key
+**Resource note:** per-row checks share one full-table population `COUNT(*)`
+per validation run. Without `WithSharedScalarEvaluation()`, each check then
+issues one failure-count query. Prefer `SummaryOnly()` on large tables with
+widespread failures; use `WithFailedKeysCap(0)` only when unbounded key
 retention is acceptable. **Operational safeguards:**
 
 - Set a deadline on every `ValidateTable` context. Production validation
@@ -127,7 +128,7 @@ retention is acceptable. **Operational safeguards:**
 - Each `In` / `NotIn` value adds a bound placeholder; keep lists in the low
   thousands or use a lookup-table join instead.
 
-## Diagnostics and export privacy
+## Diagnostics and Export Privacy
 
 - `CaptureQueryDiagnostics()` records SQL and bound args on `Result` for
   optional export only — never in default `Result` string output or default
@@ -150,7 +151,7 @@ retention is acceptable. **Operational safeguards:**
 Attach stable machine identity with `WithID(id, exp)`; built-in expectations set
 library-defined `Kind` on each `Result`.
 
-## Test conventions
+## Test Conventions
 
 Run from the module root. For behavior changes, follow the test-first loop:
 write a focused test that fails for the intended reason, implement the minimum
@@ -169,7 +170,7 @@ go test -race -run '^TestSQLiteConformance$' ./...
 GXSQL_POSTGRES_DSN='postgres://…' go test -race -run '^TestPostgresConformance$' ./...
 GXSQL_MYSQL_DSN='user:password@tcp(localhost:3306)/gxsql?parseTime=true' \
   go test -race -run '^TestMySQLConformance$' ./...
-go test -race -run '^TestDuckDBConformance$' ./...
+CGO_ENABLED=1 go test -race -run '^TestDuckDBConformance$' ./...
 ```
 
 All four delegate to `internal/conformance.Run`.

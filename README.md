@@ -7,12 +7,12 @@
 
 `gxsql` is a SQL-native data quality assertion framework for Go. It validates
 database tables through `database/sql`, renders each expectation as SQL, and
-evaluates checks in the database instead of loading whole tables into
+runs those checks in the database instead of loading whole tables into
 application memory. Validation is collect-all: every expectation runs in
-declaration order and one report captures all passes and failures. Execution
-errors are different — by default they stop evaluation and return an error; use
-`gxsql.ContinueOnError()` when later expectations should still run after
-per-expectation database errors.
+declaration order, and one report captures all passes and policy failures.
+Configuration and execution errors are separate. By default they stop
+evaluation and return an error. Use `gxsql.ContinueOnError()` when later
+expectations must still run after per-expectation database errors.
 
 ## Install
 
@@ -23,14 +23,14 @@ go get github.com/busyminds/gxsql
 `gxsql` requires Go 1.24 or newer.
 
 The core package is driver-neutral and has no runtime dependencies outside the
-Go standard library. `gxsql` does not choose a SQL driver for you: open a
-`*sql.DB` with your own `database/sql` driver, then select the dialect
-explicitly when validating. The examples below use
+Go standard library. You own the driver: open a `*sql.DB` with your
+`database/sql` driver, then pass `gxsql.WithDialect(...)` explicitly so the
+rendered SQL matches that engine. The examples below use
 `github.com/jackc/pgx/v5/stdlib`, `modernc.org/sqlite`,
 `github.com/duckdb/duckdb-go/v2`, and `github.com/go-sql-driver/mysql` only as
-conformance/integration drivers.
+conformance and integration drivers.
 
-## Support matrix
+## Support Matrix
 
 Support levels used in this module:
 
@@ -62,13 +62,13 @@ caller-selected `database/sql` driver, while PostgreSQL, SQLite, DuckDB, and
 MySQL appear in the matrix as CI conformance paths rather than bundled runtime
 dependencies.
 
-## Example entry points
+## Example Entry Points
 
 The most common entry points are below and are expanded in the rest of this
 README:
 
-1. `ValidateTable` quick start.
-2. Report gating with `report.Err()` / `report.Failures()`.
+1. `ValidateTable` quick start with explicit dialect selection.
+2. Report gating with `report.Err()` / `report.Failures()` after a completed run.
 3. `gxsqltest.Check` and `gxsqltest.Require` for `testing.T`.
 4. `ExportReport` for machine-readable JSON export.
 5. `TrustedCountQuery` / `CustomCount` for portable join and aggregate counts.
@@ -78,7 +78,12 @@ README:
 8. `RequiredColumns(...)` and `ExactColumns(...)` for portable structural
    column-set gates before content validation.
 
-## Quick start
+## Quick Start
+
+Open the database connection yourself and select the dialect that matches that
+driver. A returned `error` from `ValidateTable` is a configuration or execution
+failure. Use `report.Err()` to gate on data-quality (policy) failures after a
+completed run:
 
 ```go
 package main
@@ -127,15 +132,15 @@ func main() {
 }
 ```
 
-## Scoped validation
+## Scoped Validation
 
-Use `TrustedScope` with `WithScope` to limit every expectation to rows matching
-a caller-defined predicate. Predicate text is trusted Go-code input, not an
-untrusted SQL sandbox: callers must not pass user-authored predicate text. Keep
+Use `TrustedScope` with `WithScope` to limit every expectation to rows that match
+a caller-defined predicate. The predicate is trusted Go-code input, not a
+sandbox for untrusted SQL. Do not pass user-authored predicate text. Keep the
 predicate text fixed in Go, use `?` placeholders, and pass each dynamic value as
-a separate argument so the dialect renderer and `database/sql` bind the values
-without string interpolation. The following examples assume `ctx`, `db`, and
-`suite` from the quick start:
+a separate argument. The dialect renderer and `database/sql` bind those values;
+do not interpolate them into the predicate. The examples below assume `ctx`,
+`db`, and `suite` from the quick start:
 
 ```go
 tenantID := "tenant-acme"
@@ -194,21 +199,23 @@ if err := windowReport.Err(); err != nil {
 }
 ```
 
-`Report.ScopeID` and the exported JSON `scope.id` carry caller identity only;
-they do not serialize the scope predicate text or bound arguments. Default
+`Report.ScopeID` and the exported JSON `scope.id` carry caller identity only.
+They do not serialize the scope predicate text or bound arguments. Default
 errors, `Report.String()` display output, and default `ExportReport` output omit
-those scope fields. Ordinary samples and failed keys remain subject to the usual
-report redaction guidance. For production validation, use a read-only database
-role (ideally limited to validation views) and set a context deadline on every
+those scope fields. Ordinary samples and failed keys still need the usual report
+redaction. For production validation, use a read-only database role that is
+restricted to validation tables or views, and set a context deadline on every
 `ValidateTable` call.
 
-## Structural column contracts
+## Structural Column Contracts
 
 Use `RequiredColumns` and `ExactColumns` to catch migration or producer drift
-before content checks obscure the cause. Both compare unordered column-name sets
-against dialect/driver-reported `Rows.Columns()` spellings byte-for-byte, with
-no case folding. Column order never changes the verdict. Discovery is a
-read-only zero-row probe and never scans row values.
+before content checks hide the cause. Both compare unordered column-name sets
+against dialect- and driver-reported `Rows.Columns()` spellings byte-for-byte,
+with no case folding. Column order never changes the verdict. Discovery is a
+read-only zero-row probe and never scans row values. A missing target or
+permission denial is an execution error. Missing or unexpected names are policy
+failures on the completed report.
 
 ```go
 structure := gxsql.NewSuite(
@@ -233,7 +240,7 @@ never retain samples or failed keys. These builders do not validate types,
 nullability, or ordinal position. `WithScope` is incompatible and fails
 preflight; run structural checks in a separate unscoped suite.
 
-## Custom count checks
+## Custom Count Checks
 
 Use `TrustedCountQuery` and `CustomCount` when a built-in expectation cannot
 express the rule but a trusted SQL count can. Template SQL is Go-code input that
@@ -283,7 +290,7 @@ report, err := suite.ValidateTable(ctx, db, gxsql.Table("order_lines"),
 - **Test integration** — the `gxsqltest` subpackage provides `Check` and
   `Require` adapters for `*testing.T`.
 
-## When to use gxsql
+## When to Use gxsql
 
 Use `gxsql` when you need to:
 
@@ -293,7 +300,7 @@ Use `gxsql` when you need to:
 - Collect every data-quality failure in one report instead of failing on the
   first check.
 
-## When not to use gxsql
+## When Not to Use gxsql
 
 - **In-memory Go data** — `gxsql` validates database tables only; load rows into
   Go and validate in memory with a different approach.
@@ -301,7 +308,7 @@ Use `gxsql` when you need to:
 - **Custom expectation types** — built-in expectations are constructed via the
   provided builders; `Expectation` is sealed and not an extension point.
 
-## Dialect notes
+## Dialect Notes
 
 - Built-in dialects are `gxsql.Postgres()`, `gxsql.SQLite()`, `gxsql.DuckDB()`,
   and `gxsql.MySQL()`.
@@ -321,7 +328,7 @@ Use `gxsql` when you need to:
 - Other engines are possible only through a correct `Dialect` implementation;
   they are not part of the built-in dialect set.
 
-## Real-engine conformance
+## Real-Engine Conformance
 
 CI runs one shared conformance kit against PostgreSQL 16, SQLite 3.50.4, DuckDB
 1.5.4, and MySQL 8.4 using the integration-only drivers
@@ -352,10 +359,18 @@ Run DuckDB conformance locally from the integration module:
 
 ```bash
 cd integration
-go test -race -run '^TestDuckDBConformance$' ./...
+CGO_ENABLED=1 go test -race -run '^TestDuckDBConformance$' ./...
 ```
 
-## Core concepts
+Run MySQL conformance by supplying an isolated database:
+
+```bash
+cd integration
+GXSQL_MYSQL_DSN='user:password@tcp(localhost:3306)/gxsql?parseTime=true' \
+  go test -race -run '^TestMySQLConformance$' ./...
+```
+
+## Core Concepts
 
 | Concept             | Description                                                                                                                                                                                                                                                            |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -365,12 +380,12 @@ go test -race -run '^TestDuckDBConformance$' ./...
 | **Dialect**         | Renders identifiers, placeholders, and string-length expressions. Built-in: `gxsql.Postgres()`, `gxsql.SQLite()`, `gxsql.DuckDB()`, and `gxsql.MySQL()`. `ValidateTable` defaults to PostgreSQL when no dialect is supplied; pass `gxsql.WithDialect(...)` explicitly. |
 | **Report / Result** | A `Report` holds one `Result` per expectation. Use `report.OK()`, `report.Failures()`, `report.Err()`, and `report.String()` to gate and inspect outcomes.                                                                                                             |
 
-Validation failures do **not** make `ValidateTable` return an error. The
-returned `error` means SQL execution or configuration failed (invalid
-identifiers, database errors, context cancellation, and similar). Use
-`report.Err()` to gate on data quality.
+Policy failures do **not** make `ValidateTable` return an error. The returned
+`error` means configuration or SQL execution failed (invalid identifiers,
+database errors, or context cancellation). Use `report.Err()` to gate on data
+quality.
 
-## Expectation examples
+## Expectation Examples
 
 ```go
 windowStart := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
@@ -424,12 +439,12 @@ observed values to `Result.Name` (for example `row count >= 1: got 42`).
 Structural column results publish ordered missing and unexpected names in
 `Result.Facts` instead of samples or failed keys.
 
-## Failed rows and reports
+## Failed Rows and Reports
 
 By default, per-row failures include failed counts and capped sample values
 (`DefaultSampleCap` is 20). When neither `WithKey` nor `SummaryOnly()` is
-supplied, `ValidateTable` uses summary-only mode internally (no complete
-failed-row keys).
+supplied, `ValidateTable` uses summary-only mode internally and does not load
+complete failed-row keys.
 
 ```go
 // Counts plus capped samples only
@@ -465,7 +480,7 @@ individual `Result.Err` values while later expectations still run. Inspect
 `report.Err()` and per-result errors — a nil top-level error is not success in
 that mode.
 
-## Bounded failure tolerance
+## Bounded Failure Tolerance
 
 Use `WithMaxFailedCount` when a known number of bad rows may remain visible
 without failing the run. Wrap one eligible per-row or uniqueness expectation
@@ -509,8 +524,9 @@ inspect `Result.Tolerated`—do not rely on `Failures()` alone.
 
 Only per-row and uniqueness expectations qualify, including composite uniqueness
 and referential integrity. Wrapping a table-level, aggregate, distinct-count,
-row-count, or custom-count declaration fails preflight. Execution and
-configuration errors are never tolerated. Export stays privacy-safe by default:
+row-count, custom-count, or structural column declaration (`RequiredColumns` /
+`ExactColumns`) fails preflight. Execution and configuration errors are never
+tolerated. Export stays privacy-safe by default:
 JSON exposes the tolerance flag, configured bound, and raw counts; samples,
 keys, query diagnostics, and arguments keep their existing opt-in and redaction
 rules. See the [results](docs/concepts/results.md),
@@ -541,17 +557,25 @@ func TestUsers(t *testing.T) {
 }
 ```
 
-- `Check` reports failures with `t.Errorf`, continues the test, and returns
-  `true` when every expectation passes.
-- `Require` calls `t.Fatalf` on execution or validation failure and stops the
-  test.
+- `Check` reports an execution/configuration error or a policy failure with
+  `t.Errorf`, continues the test, and returns `true` only when validation
+  executed and every expectation passed.
+- `Require` calls `t.Fatalf` on an execution/configuration error or a policy
+  failure and stops the test.
 
-## Operational notes
+## Operational Notes
 
-`gxsql` executes SQL against the database. Each per-row expectation issues at
-least two full-table `COUNT(*)` queries (total rows plus failing rows). Plan
-query cost on large tables and set `context` deadlines on every `ValidateTable`
-call.
+`gxsql` executes SQL against the database. Per-row checks share one population
+`COUNT(*)` during a validation run. Without `WithSharedScalarEvaluation()`, each
+check then runs one failure-count query. Failures can add sample and failed-key
+queries. Plan query cost on large tables. Set a deadline on every
+`ValidateTable` context.
+
+To combine contiguous compatible per-row failure counts into fewer statements,
+pass `WithSharedScalarEvaluation()`. The option is off by default and does not
+change published semantic report fields. See
+[operational limits](docs/concepts/operations.md#use-shared-scalar-evaluation)
+for cost planning, compatibility limits, and diagnostics attribution.
 
 | Control                | Default                    | Effect                                                        |
 | ---------------------- | -------------------------- | ------------------------------------------------------------- |
@@ -560,23 +584,25 @@ call.
 | `SummaryOnly()`        | implicit without `WithKey` | No failed-row keys loaded                                     |
 | `WithKey(...)`         | off                        | Loads failing row keys (capped by default)                    |
 
-**Key mode guidance:** `WithKey` suits low failure rates or when you need row
-identities for remediation. On very large tables with widespread failures,
-prefer `SummaryOnly()` or pass `WithFailedKeysCap(0)` only when you accept
-unbounded key retention.
+**Result retention:** Use `WithKey` when failure rates are low or when you need
+row identities for remediation. Prefer `SummaryOnly()` for widespread failures
+on large tables. Pass `WithFailedKeysCap(0)` only when you accept unbounded key
+retention.
 
-**`In` / `NotIn` list size:** each value becomes a bound placeholder. Lists in
-the low thousands are usually fine; beyond that, split into multiple
-expectations or use a lookup table join outside `gxsql`.
+**`In` / `NotIn` lists:** Each value becomes a bound placeholder. Lists in the
+low thousands are generally practical. For larger domains, validate through a
+lookup-table join outside `gxsql`. Do not split a `NotIn` domain across multiple
+expectations; each expectation would exclude only its own values and would
+change the policy.
 
 **Database privileges:** `ValidateTable` inherits the connection's permissions.
-Use a read-only role scoped to validation views in production.
+Use a read-only role restricted to validation tables or views in production.
 
-**Report output:** `Report.String()` and `gxsqltest.Check`/`Require` may embed
-sample values in logs. Redact before shipping to observability backends when
-columns may contain PII or secrets.
+**Report output:** `Report.String()` and `gxsqltest.Check` / `Require` may embed
+sample values in logs. Redact before you send that output to observability
+systems when columns may hold PII or secrets.
 
-## Machine identity and export
+## Machine Identity and Export
 
 Attach stable result IDs with `gxsql.WithID(id, expectation)` for CI/ETL joins.
 IDs are optional for ad-hoc runs: when omitted, `Result.ID` stays empty and
@@ -607,10 +633,10 @@ normalized capped args; requires `CaptureQueryDiagnostics()` at validate time).
 Redactor failures fail closed with no partial JSON. v1 is **encode-only** — no
 public decoder is promised.
 
-See [API reference](docs/reference/README.md#exportreport) for export field
-policy, value encodings, and privacy defaults.
+See [stable IDs and report export](docs/reference/export.md#exportreport) for
+export field policy, value encodings, and privacy defaults.
 
-## Migration notes (pre-v1)
+## Migration Notes (Pre-v1)
 
 | Change                                      | Action                                                                          |
 | ------------------------------------------- | ------------------------------------------------------------------------------- |

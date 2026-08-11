@@ -1,9 +1,9 @@
 # Expectation Builders
 
-Builders return sealed `Expectation` values for `NewSuite`. Column and table
-identifiers are validated by the selected dialect during preflight.
+Builders return sealed `Expectation` values for `NewSuite`. The selected dialect
+validates column and table identifiers during preflight.
 
-## Row count
+## Row Count
 
 `RowCount() RowCountBuilder` starts a table-level row-count expectation.
 
@@ -16,26 +16,26 @@ identifiers are validated by the selected dialect during preflight.
 | `LessThan(bound int)`       | Row count is less than `bound`.    |
 | `LessOrEqual(bound int)`    | Row count is at most `bound`.      |
 
-Row-count results have `RowDenominatorUnavailable`; per-row fields stay at their
+Row-count results have `RowDenominatorUnavailable`. Per-row fields stay at their
 zero values. Observed counts and configured thresholds are available in
 `Result.Facts`.
 
-## Structural columns
+## Structural Columns
 
 `RequiredColumns(names ...string)` and `ExactColumns(names ...string)` are
 table-level column-set contracts. Supply one or more separately validated
-identifiers. An empty list, duplicate names, or invalid identifiers fail
+identifiers. An empty list, duplicate names, or invalid identifiers fails
 `ValidateTable` preflight before SQL.
 
-| Builder | Policy |
-| ------- | ------ |
-| `RequiredColumns(names ...string)` | Every expected name exists on the target; additional discovered names are allowed. |
-| `ExactColumns(names ...string)` | The discovered column set matches `names` exactly: no missing names and no unexpected names. |
+| Builder                            | Policy                                                                                 |
+| ---------------------------------- | -------------------------------------------------------------------------------------- |
+| `RequiredColumns(names ...string)` | Every expected name exists on the target; additional discovered names are allowed.     |
+| `ExactColumns(names ...string)`    | The discovered column set matches `names` exactly: no missing names and no unexpected names. |
 
 Both builders compare unordered sets. Column order never changes the verdict.
 Names compare byte-for-byte against dialect/driver-reported
 `database/sql.Rows.Columns()` spellings. gxsql does not lowercase, uppercase, or
-otherwise normalize expected names; callers must supply the physical reported
+otherwise normalize expected names. Callers must supply the physical reported
 spelling.
 
 Discovery uses a read-only zero-row probe:
@@ -80,7 +80,7 @@ report, err := structure.ValidateTable(ctx, db, gxsql.Table("ingest_events"),
 )
 ```
 
-## Generic columns
+## Generic Columns
 
 `Column(name string) ColumnBuilder` starts generic column checks.
 
@@ -107,7 +107,7 @@ duplicate detection. `FailedCount` counts every row in each duplicate group, not
 the number of groups. Empty tables and empty scoped populations pass vacuously.
 Results use `KindUnique` and set `Result.Column` to the checked column.
 
-## Composite columns
+## Composite Columns
 
 `Columns(names ...string) ColumnsBuilder` starts multi-column checks. Supply two
 or more separately validated identifiers. Empty names, invalid identifiers,
@@ -122,7 +122,7 @@ fail `ValidateTable` preflight before SQL.
 `Column(name).References(parent, parentColumn)` covers the single-column form
 with the same semantics and `KindReference`.
 
-### Composite uniqueness
+### Composite Uniqueness
 
 `Columns("tenant_id", "order_id").Unique()` extends the single-column NULL
 policy to tuples: a row participates only when **every** component is
@@ -147,7 +147,7 @@ report, err := suite.ValidateTable(ctx, db, gxsql.Table("orders"),
 )
 ```
 
-### Referential integrity
+### Referential Integrity
 
 `Columns("tenant_id", "customer_id").References(gxsql.SchemaTable("public", "customers"), "tenant_id", "id")`
 maps local columns to equal-arity parent columns. Parent targets use existing
@@ -188,7 +188,7 @@ report, err := suite.ValidateTable(ctx, db, gxsql.Table("orders"),
 )
 ```
 
-## Numeric columns
+## Numeric Columns
 
 `Int(name string)` and `Float(name string)` both return `NumberColumn` for
 ordered numeric checks. Per-row comparisons treat SQL `NULL` as failing.
@@ -225,7 +225,7 @@ expectation: complete counts, sample and failed-key caps, `WithScope`,
 `WithMaxFailedCount`, declaration order, `ContinueOnError`, and default export
 privacy all retain their existing behavior.
 
-## Same-row column comparisons
+## Same-Row Column Comparisons
 
 `Column(left)` compares two separately validated columns from the same target.
 Operators are selected by named methods; there is no public operator-string,
@@ -263,7 +263,7 @@ These shapes reuse ordinary per-row reporting: complete failed counts, capped
 samples and failed keys, `WithScope`, `WithMaxFailedCount`, summary mode,
 declaration order, `ContinueOnError`, and privacy-safe default export.
 
-## Timestamp columns
+## Timestamp Columns
 
 `Timestamp(name string) TimestampColumn` starts temporal window and freshness
 checks on one timestamp/datetime column. Callers supply every bound and cutoff
@@ -271,10 +271,10 @@ as Go `time.Time`. Bounds are bound SQL parameters; gxsql never interpolates
 timestamps as text and never calls database current-time functions such as
 `NOW()` or `CURRENT_TIMESTAMP`.
 
-| Method | Policy |
-| ------ | ------ |
-| `InWindow(start, end time.Time)` | Half-open per-row window `start <= value < end`. |
-| `FreshSince(cutoff time.Time)` | Table-level `MAX(column) >= cutoff` over the scoped population. |
+| Method                           | Policy                                                              |
+| -------------------------------- | ------------------------------------------------------------------- |
+| `InWindow(start, end time.Time)` | Half-open per-row window `start <= value < end`.                    |
+| `FreshSince(cutoff time.Time)`   | Table-level `MAX(column) >= cutoff` over the scoped population.     |
 
 Temporal checks use the database and driver timestamp behavior for the selected
 dialect. Use a combination that accepts bound Go `time.Time` values and
@@ -287,12 +287,12 @@ The built-in conformance matrix covers PostgreSQL, SQLite, DuckDB, and MySQL.
 Date-only values, time-only values, implicit timezone conversion, and other
 temporal types are not separate gxsql rule inputs.
 
-### Half-open window
+### Half-Open Window
 
 `Timestamp("event_time").InWindow(start, end)` fails SQL `NULL` values. An empty
 table or empty scoped population passes vacuously. Preflight rejects a zero
-bound and `end <= start` before SQL. Results use `KindTimestampInWindow` (`timestamp_in_window`)
-and publish `Result.Facts.ConfiguredTimeStart` /
+bound and `end <= start` before SQL. Results use `KindTimestampInWindow`
+(`timestamp_in_window`) and publish `Result.Facts.ConfiguredTimeStart` /
 `ConfiguredTimeEnd`. Ordinary per-row reporting applies: complete failed counts,
 capped samples and failed keys, `WithScope`, `WithMaxFailedCount`, summary mode,
 declaration order, `ContinueOnError`, and privacy-safe default export.
@@ -305,7 +305,7 @@ suite := gxsql.NewSuite(
 )
 ```
 
-### Freshness cutoff
+### Freshness Cutoff
 
 `Timestamp("ingested_at").FreshSince(cutoff)` reads the maximum non-NULL column
 value in scope. It passes when an observed maximum exists and
@@ -315,10 +315,11 @@ another non-NULL value supplies the maximum; use `NotNull` when completeness is
 required. A maximum later than the cutoff passes: gxsql has no independent idea
 of “future” beyond the caller-supplied cutoff. Preflight rejects a zero cutoff.
 
-Results use `KindTimestampFreshSince` (`timestamp_fresh_since`), set `RowDenominatorUnavailable`
-(no row total, percentage, samples, or failed keys), and publish
-`ConfiguredTimeCutoff` plus `ObservedTime` / `ObservedTimePresent`. Present is a `*bool`: nil when freshness does not apply, pointer false for
-explicit absence, and pointer true when `ObservedTime` is set.
+Results use `KindTimestampFreshSince` (`timestamp_fresh_since`), set
+`RowDenominatorUnavailable` (no row total, percentage, samples, or failed keys),
+and publish `ConfiguredTimeCutoff` plus `ObservedTime` /
+`ObservedTimePresent`. Present is a `*bool`: nil when freshness does not apply,
+pointer false for explicit absence, and pointer true when `ObservedTime` is set.
 
 ```go
 cutoff := time.Date(2026, 7, 1, 23, 30, 0, 0, time.UTC)
@@ -327,7 +328,7 @@ suite := gxsql.NewSuite(
 )
 ```
 
-## String columns
+## String Columns
 
 `String(name string) StringColumn` starts string-specific checks. SQL `NULL`
 fails each string policy.
@@ -342,7 +343,7 @@ fails each string policy.
 Length uses the dialect's SQL length expression—`CHAR_LENGTH` or `LENGTH`—not Go
 rune counting.
 
-## Custom counts
+## Custom Counts
 
 `TrustedCountQuery(template string, args ...any) CountQuery` creates an
 immutable trusted SQL template. Use `CustomCount(name string, query CountQuery)`
@@ -365,7 +366,7 @@ unavailable. `WithKey`, sample caps, and `SummaryOnly()` do not add diagnostics
 to custom-count results. See [suite and SQL integration](suite.md) for join and
 aggregate examples.
 
-## Bounded failure tolerance
+## Bounded Failure Tolerance
 
 `WithMaxFailedCount(max int, exp Expectation) Expectation` wraps one eligible
 builder result with an inclusive non-negative maximum failed-row count. Equality
@@ -398,7 +399,7 @@ and are omitted from `report.Failures()`; inspect `Report.Results` and
 [reports, errors, rendering, and limits](results.md) for display text, facts,
 and nesting details.
 
-## Machine identity
+## Machine Identity
 
 Use `WithID(id, expectation)` to decorate any builder result with a stable
 result identity. Read [stable IDs and export](export.md) for preflight rules and

@@ -10,9 +10,10 @@ dialect.
 go get github.com/busyminds/gxsql
 ```
 
-`gxsql` requires Go 1.24 or later. It does not bundle a database driver.
+`gxsql` requires Go 1.24 or later. It does not bundle a database driver. You own
+the `database/sql` driver and the connection settings.
 
-## Open a database
+## Open a Database
 
 Open `*sql.DB` with the driver and connection settings your application already
 uses. For PostgreSQL with `pgx`:
@@ -47,7 +48,7 @@ db, err := sql.Open("sqlite", "file:example.db")
 `gxsql` needs only `QueryContext` and `QueryRowContext`. `*sql.DB` satisfies the
 `DB` interface directly.
 
-## Build a suite
+## Build a Suite
 
 A suite is an ordered collection of expectations. Each expectation becomes SQL
 that checks table contents in the database:
@@ -66,10 +67,10 @@ suite := gxsql.NewSuite(
 ```
 
 Composite uniqueness ignores tuples with any SQL `NULL` component. It counts
-every duplicate participating **row**. Referential checks pass rows with any
-`NULL` local key component. Those checks count orphaned complete local tuples.
-Referential checks look up parents without applying local `WithScope`. Samples
-and failed keys stay local under existing caps.
+every duplicate participating row. Referential checks pass rows with any `NULL`
+local key component and count orphaned complete local tuples. Referential checks
+look up parents without applying local `WithScope`. Samples and failed keys stay
+local under the existing caps.
 
 For ordering and simple reconciliation, use the fixed same-row builders instead
 of raw operators or expressions:
@@ -89,12 +90,10 @@ temporal columns without coercion. `RatioEqual` checks
 fails a zero denominator and supports integers only. Decimal ratios, floating
 ratios, and arbitrary expressions are unsupported.
 
-
 Timestamp window and freshness checks take caller-supplied `time.Time` values.
 The window is half-open (`start <= value < end`); NULL fails and an empty scope
-passes vacuously. Freshness requires `MAX(column) >= cutoff`; empty and
-all-NULL scopes fail, while a future-valued maximum still passes against that
-explicit cutoff:
+passes vacuously. Freshness requires `MAX(column) >= cutoff`. Empty and all-NULL
+scopes fail. A future-valued maximum still passes against that explicit cutoff:
 
 ```go
 windowStart := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
@@ -110,7 +109,7 @@ suite := gxsql.NewSuite(
 Use the builders for the data type and assertion you need. The
 [expectations reference](../reference/expectations.md) lists every builder.
 
-### Gate table shape first
+## Gate Table Shape First
 
 Before content checks, confirm the target still exposes the expected columns.
 `RequiredColumns` and `ExactColumns` compare unordered physical column-name
@@ -137,12 +136,14 @@ if err := structureReport.Err(); err != nil {
 ```
 
 Discovery is a read-only zero-row probe. Missing and unexpected names appear as
-ordinary table-level results with structured facts; they never include samples
+ordinary table-level results with structured facts. They never include samples
 or failed keys.
 
-## Run validation
+## Run Validation
 
-Pass a table reference and the dialect matching the database behind `db`:
+Pass a table reference and the dialect that matches the database behind `db`.
+`ValidateTable` defaults to PostgreSQL when no dialect is supplied. Pass the
+dialect explicitly so rendered SQL stays coupled to the selected driver:
 
 ```go
 report, err := suite.ValidateTable(ctx, db, gxsql.Table("users"),
@@ -160,16 +161,42 @@ if err := report.Err(); err != nil {
 ```
 
 Use `gxsql.SQLite()`, `gxsql.DuckDB()`, or `gxsql.MySQL()` for those engines.
-`ValidateTable` defaults to PostgreSQL when no dialect is supplied. Pass the
-dialect explicitly so rendered SQL stays coupled to the selected driver.
 
 `WithKey("id")` retains the identities of failing rows, up to the failed-key
-cap. Omit it when counts and sample values are enough. See
-[results and remediation](../concepts/results.md) for the retention controls.
+cap. Omit it when counts and sample values are enough. When neither `WithKey`
+nor `SummaryOnly()` is supplied, `ValidateTable` uses summary-only mode
+internally. See [results and remediation](../concepts/results.md) for retention
+controls.
 
-## Understand the two outcomes
+## Scope the Population
 
-A completed validation has two independent outcomes:
+Use `TrustedScope` with `WithScope` to limit every expectation to matching rows.
+The predicate is trusted Go-code input, not a sandbox for untrusted SQL. Do not
+pass user-authored predicate text. Keep the predicate fixed in Go, use `?`
+placeholders, and bind each dynamic value as a separate argument:
+
+```go
+tenantID := "tenant-acme"
+scope := gxsql.TrustedScope("tenant-acme", "tenant_id = ?", tenantID)
+
+report, err := suite.ValidateTable(ctx, db, gxsql.Table("users"),
+    gxsql.WithDialect(gxsql.Postgres()),
+    gxsql.WithScope(scope),
+)
+if err != nil {
+    log.Fatalf("gxsql execution error: %v", err)
+}
+if err := report.Err(); err != nil {
+    log.Fatalf("data quality check failed: %v", err)
+}
+```
+
+`Report.ScopeID` carries caller identity only. Default errors, display output,
+and exports omit the predicate text and bound arguments.
+
+## Understand the Two Outcomes
+
+`ValidateTable` exposes two independent signals:
 
 | Signal                | Meaning                                                              |
 | --------------------- | -------------------------------------------------------------------- |
@@ -184,7 +211,7 @@ error model.
 
 ## Next
 
-- [Use gxsql in Go tests](testing.md)
+- [Use gxsql in Go Tests](testing.md)
 - [Learn validation behavior and dialects](../concepts/validation.md)
 - [Inspect reports and remediate failures](../concepts/results.md)
 - [Browse the API reference](../reference/)

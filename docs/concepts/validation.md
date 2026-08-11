@@ -1,15 +1,15 @@
-# Validation behavior
+# Validation Behavior
 
-## What gxsql validates
+## What gxsql Validates
 
 `gxsql` asserts facts about database table contents through `database/sql`. Each
 expectation renders SQL and runs in the database. It does not load the table
 into Go memory. Use it for deployment gates, ETL checks, and integration-test
 databases.
 
-It is not an ORM, migration tool, or schema linter.
+It is not an ORM, a migration tool, or a schema linter.
 
-## Suites and expectations
+## Suites and Expectations
 
 A `Suite` is an ordered collection of expectations:
 
@@ -22,15 +22,18 @@ suite := gxsql.NewSuite(
 
 Built-in builders create the expectations that `gxsql` supports:
 
-| Builder                             | Examples                                                      |
-| ----------------------------------- | ------------------------------------------------------------- |
-| `RowCount()`                        | `Equal`, `Between`, `GreaterOrEqual`                          |
-| `RequiredColumns` / `ExactColumns`  | unordered column-set presence or exact-set contracts          |
-| `Column(name)`                      | `IsNull`, `NotNull`, `In`, `NotIn`, `Unique`, `DistinctCount` |
-| `Int(name)` / `Float(name)`         | range and comparison checks, plus aggregate checks            |
-| `String(name)`                      | `Empty`, `NotEmpty`, `LenEqual`, `LenBetween`                 |
-| `Timestamp(name)`                   | `InWindow`, `FreshSince`                                      |
-| `TrustedCountQuery` + `CustomCount` | Trusted SQL count returning one non-negative failure count    |
+| Builder                             | Examples                                                                 |
+| ----------------------------------- | ------------------------------------------------------------------------ |
+| `RowCount()`                        | `Equal`, `Between`, `GreaterOrEqual`                                     |
+| `RequiredColumns` / `ExactColumns`  | unordered column-set presence or exact-set contracts                     |
+| `Column(name)`                      | `IsNull`, `NotNull`, `In`, `NotIn`, `Unique`, `DistinctCount`            |
+| `Column(left)` same-row comparisons | `EqualColumn`, `NotEqualColumn`, `LessThanColumn`, `GreaterOrEqualColumn` |
+| `Columns(names...)`                 | composite `Unique`, `References`                                         |
+| `Int(name)` / `Float(name)`         | range and comparison checks, plus aggregate checks                       |
+| `Int(name).RatioEqual`              | integer algebraic `value == right * bound` (not SQL `/`)                 |
+| `String(name)`                      | `Empty`, `NotEmpty`, `LenEqual`, `LenBetween`                            |
+| `Timestamp(name)`                   | `InWindow`, `FreshSince`                                                 |
+| `TrustedCountQuery` + `CustomCount` | Trusted SQL count returning one non-negative failure count               |
 
 Do not implement `Expectation` outside `gxsql`. It is a sealed interface.
 Construct expectations with these builders. The
@@ -39,7 +42,7 @@ Construct expectations with these builders. The
 Expectations run in declaration order. A completed run contains one `Result` per
 expectation in the same order.
 
-## Tables and dialects
+## Tables and Dialects
 
 Target a table with `Table` or `SchemaTable`:
 
@@ -48,9 +51,9 @@ gxsql.Table("users")
 gxsql.SchemaTable("public", "users")
 ```
 
-Built-in dialects accept identifiers matching `^[A-Za-z_][A-Za-z0-9_]*$`. They
-quote those identifiers before adding them to SQL. Invalid or empty identifiers
-are configuration errors.
+Built-in dialects accept identifiers that match `^[A-Za-z_][A-Za-z0-9_]*$`. They
+quote those identifiers before they add them to SQL. Invalid or empty
+identifiers are configuration errors.
 
 Select the renderer for the database behind the connection:
 
@@ -65,10 +68,10 @@ Select the renderer for the database behind the connection:
 dialect explicitly in application code and tests so the rendered SQL tracks the
 selected driver.
 
-`gxsql` neither opens connections nor bundles drivers. Its narrow `DB` interface
-is satisfied by `*sql.DB`.
+`gxsql` does not open connections and does not bundle drivers. Its narrow `DB`
+interface is satisfied by `*sql.DB`.
 
-## Validation modes
+## Validation Modes
 
 Call `ValidateTable` to run the suite:
 
@@ -87,17 +90,17 @@ row identities. Add `WithKey("id")` to retain caller-selected keys. Use
 `SummaryOnly()` to state that counts and samples are intended. Per-run options
 override suite-level caps.
 
-## Structural column contracts
+## Structural Column Contracts
 
 Use `RequiredColumns` or `ExactColumns` to gate table shape before content
 checks. Both compare unordered column-name sets against the physical spellings
-reported by `Rows.Columns()`, byte-for-byte, with no case folding. Column order
+that `Rows.Columns()` reports, byte-for-byte, with no case folding. Column order
 does not affect the verdict. Discovery is a read-only zero-row
 `SELECT * ... WHERE 1 = 0` probe.
 
 `RequiredColumns` allows extra discovered columns. `ExactColumns` rejects both
 missing and unexpected names. Missing and unexpected differences are ordinary
-table-level results with structured facts. A missing target or permission
+table-level results with structured facts. A missing target or a permission
 denial is a typed execution error, not a content-policy failure. These builders
 do not validate types, nullability, or ordinal position.
 
@@ -117,10 +120,10 @@ report, err := structure.ValidateTable(ctx, db, gxsql.Table("ingest_events"),
 See the [expectations reference](../reference/expectations.md#structural-columns)
 for fact ordering and error details.
 
-## Scoped validation
+## Scoped Validation
 
-Use `TrustedScope` with `WithScope` when one suite should validate only a
-selected population of rows. `TrustedScope` takes:
+Use `TrustedScope` with `WithScope` when one suite must validate only a selected
+population of rows. `TrustedScope` takes:
 
 - a stable caller identity
 - a predicate written in trusted Go code
@@ -183,7 +186,7 @@ In production, pass a context with a deadline to every `ValidateTable` call. Use
 a read-only database role. Prefer a role that is restricted to the validation
 tables or views.
 
-## Custom count checks
+## Custom Count Checks
 
 `TrustedCountQuery` and `CustomCount` add one constrained custom shape: a
 trusted SQL template that returns a single non-negative failure count. Template
@@ -253,7 +256,7 @@ Default reports, errors, and `ExportReport` omit template SQL and bound
 arguments, including driver-error text. `CaptureQueryDiagnostics()` is an opt-in
 export-only path subject to existing redactors.
 
-## Error handling
+## Error Handling
 
 | Situation                                | `ValidateTable`                              | Result data                                      |
 | ---------------------------------------- | -------------------------------------------- | ------------------------------------------------ |

@@ -1,6 +1,6 @@
 # Stable IDs and Report Export
 
-## Stable IDs and kinds
+## Stable IDs and Kinds
 
 `WithID(id string, exp Expectation) Expectation` decorates an expectation with a
 caller-supplied stable ID. It preserves the expectation policy while setting
@@ -30,7 +30,7 @@ an explicit zero. `counts.total` and `counts.failed_percent` are omitted because
 `RowDenominatorUnavailable`. Custom counts never export samples or failed keys.
 `WithKey`, sample caps, and `SummaryOnly()` do not change custom-count export.
 
-## Bounded failure tolerance
+## Bounded Failure Tolerance
 
 `WithMaxFailedCount` results remain discoverable in JSON without changing
 `ExportSchemaVersion`. When `Result.Tolerated` is true, `ExportedResult` emits
@@ -47,7 +47,7 @@ their existing opt-in and redaction rules (`IncludeSamples`,
 `IncludeFailedKeys`, `IncludeCapturedDiagnostics`, `IncludeCapturedArguments`,
 and redactors).
 
-## Scoped reports and privacy
+## Scoped Reports and Privacy
 
 `TrustedScope(id, predicate, args...)` creates a scope for trusted Go-code
 predicate input. The predicate is not a SQL sandbox: never pass user-authored
@@ -129,9 +129,9 @@ they remain subject to redactors.
 
 A redactor error or panic fails export closed.
 
-## Exported types
+## Exported Types
 
-| Type                     | JSON role                                                                                                                                                          |
+| Type                     | JSON Role                                                                                                                                                          |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `ExportedReport`         | Schema version, optional target/scope, and declaration-ordered results.                                                                                            |
 | `ExportedTarget`         | Optional schema and table name.                                                                                                                                    |
@@ -148,7 +148,7 @@ A redactor error or panic fails export closed.
 the source `Result` has `Err`. `ExecutionOutcome` distinguishes a successful
 execution, policy failure, execution failure, and configuration failure.
 
-## Temporal facts
+## Temporal Facts
 
 Window results export `configured_time_start` and `configured_time_end` as
 `time_rfc3339` normalized UTC RFC3339Nano values. Freshness results export
@@ -158,7 +158,7 @@ Window results export `configured_time_start` and `configured_time_end` as
 `observed_time`. Non-freshness results omit the presence marker. Default export
 still omits samples, failed keys, and query diagnostics.
 
-## Structural column facts
+## Structural Column Facts
 
 `RequiredColumns` and `ExactColumns` export schema-name lists only. They never
 export row values. Successful discovery publishes `required_columns` in caller
@@ -169,7 +169,7 @@ are omitted. Default export still omits samples, failed keys, and query
 diagnostics; column-name facts are not row diagnostics and follow the ordinary
 facts path under `gxsql.report.v1`.
 
-## Normalized values
+## Normalized Values
 
 `NormalizedValue` is the JSON-safe representation for returned SQL values. It
 has `Kind`, optional `Value`, and optional `Exact`; `Exact` is present only for

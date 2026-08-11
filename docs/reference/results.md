@@ -1,6 +1,6 @@
 # Reports, Errors, Rendering, and Limits
 
-## Report and result
+## Report and Result
 
 `Report` aggregates a validation run. It exposes `Results []Result` in suite
 order and `Target *TableRef`, which `ValidateTable` sets.
@@ -57,7 +57,7 @@ rows for `KindCompositeUnique`, orphaned local rows for `KindReference`. Samples
 and failed keys remain local, capped, and subject to existing privacy controls.
 Parent values never appear in diagnostics.
 
-## Structured facts
+## Structured Facts
 
 `ResultFacts` separates machine-readable values from display text:
 
@@ -77,6 +77,11 @@ Parent values never appear in diagnostics.
 - `Reference` holds local-to-parent mapping facts for referential checks:
   `LocalColumns`, structured `Parent` (`TableRef`), and `ParentColumns`. Nil
   when the result is not a reference check.
+- `Comparison` holds same-row operand and relationship facts:
+  `LeftColumn`, `RightColumn`, and `Relationship`. Nil when the result is not
+  a same-row column comparison.
+- `Ratio` holds same-row integer ratio facts: `LeftColumn`, `RightColumn`, and
+  `Bound`. Nil when the result is not a ratio-equality check.
 - `ConfiguredTimeStart` and `ConfiguredTimeEnd` hold caller-supplied half-open
   window bounds for `Timestamp(...).InWindow`.
 - `ConfiguredTimeCutoff`, `ObservedTime`, and `ObservedTimePresent` hold
@@ -91,7 +96,7 @@ Parent values never appear in diagnostics.
 Built-in expectations populate threshold and mapping fields at construction
 time. Do not encode composite tuples as comma-separated `Column` text.
 
-## Validation errors
+## Validation Errors
 
 `ValidationError` wraps a failed `Report`; use `errors.As` to recover its
 `Report` field.
@@ -108,7 +113,7 @@ unwraps its issue errors.
 `ErrCategoryDatabase`, `ErrCategoryScan`, `ErrCategoryContext`, or
 `ErrCategoryObserver`.
 
-## Display output
+## Display Output
 
 `Result.String()` includes at most ten sample values and ten failed keys in
 display output, even if more were retained. A tolerated result explicitly says

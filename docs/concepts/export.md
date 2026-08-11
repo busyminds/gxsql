@@ -1,9 +1,9 @@
-# Stable identity and export
+# Stable Identity and Export
 
 Use stable IDs and the versioned export data transfer object when you need to
 join, store, or consume validation results outside the Go process.
 
-## Give expectations stable IDs
+## Give Expectations Stable IDs
 
 Wrap an expectation with `WithID`:
 
@@ -21,7 +21,7 @@ Blank and duplicate IDs are preflight errors. By default they stop validation
 before SQL and are collected in `*PreflightErrors`. With `ContinueOnError()`,
 the affected result contains `Err` and later expectations still run.
 
-## Export a report
+## Export a Report
 
 `ExportReport` converts a `Report` to a versioned JSON data transfer object:
 
@@ -33,9 +33,10 @@ if err != nil {
 data, err := json.Marshal(exported)
 ```
 
-The schema version is `gxsql.report.v1`. Version 1 guarantees declaration-order
-results, stable `id`, `kind`, `display_name`, verdicts, counts, facts, and
-categorized errors. It does not promise a public decoder.
+The schema version is `gxsql.report.v1`. Version 1 preserves result declaration
+order and exports IDs, kinds, display names, verdicts, counts, facts, and
+categorized errors. Only `id` and `kind` provide stable machine identity. The
+format does not promise a public decoder.
 
 Custom-count results export only `counts.failed` when evaluation succeeds.
 `counts.total` and `counts.failed_percent` are omitted because no row
@@ -48,7 +49,7 @@ failed keys. They export schema-name facts as `required_columns`,
 `missing_columns`, and `unexpected_columns` under `gxsql.report.v1`. Those names
 are metadata, not row values.
 
-## Understand verdicts
+## Understand Verdicts
 
 Each exported result separates policy and execution status:
 
@@ -58,10 +59,10 @@ Each exported result separates policy and execution status:
   execution failure, and a configuration failure.
 
 Configured thresholds appear in `facts.configured_*`. Default `display_name`
-redacts bound literals. Consumers should use structured facts rather than parse
+redacts bound literals. Consumers must use structured facts rather than parse
 display text.
 
-## Opt in to diagnostics deliberately
+## Opt In to Diagnostics Deliberately
 
 By default, export excludes sample values, failed keys, SQL text, and bound
 arguments. Opt in to each class separately:

@@ -1,17 +1,17 @@
 # API Reference
 
-This reference groups the public `github.com/busyminds/gxsql` API by the job it
-performs. For complete Go doc comments and signatures, use `go doc` or
-pkg.go.dev alongside these guides.
+This reference groups the public `github.com/busyminds/gxsql` API by task. Use
+`go doc` or pkg.go.dev with these guides for full Go doc comments and
+signatures.
 
 | Page                                                 | Covers                                                                                                 |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| [Suites, options, and SQL integration](suite.md)     | `Suite`, `Option`, `ValidateTable`, `gxsqltest`, `DB`, `Dialect`, `TableRef`, and sealed `Expectation` |
-| [Expectation builders](expectations.md)              | row-count, structural columns, column, composite unique/reference, numeric, string, timestamp window/freshness, custom-count, and `WithMaxFailedCount` |
-| [Reports, errors, rendering, and limits](results.md) | `Report`, `Result`, key/reference/temporal/structural facts, custom-count semantics, errors, display text, and caps |
-| [Stable IDs and report export](export.md)            | `WithID`, `ExpectationKind`, `ExportReport`, export DTOs, verdicts, and normalized values              |
+| [Suites, Options, and SQL Integration](suite.md)     | `Suite`, `Option`, `ValidateTable`, `gxsqltest`, `DB`, `Dialect`, `TableRef`, and sealed `Expectation` |
+| [Expectation Builders](expectations.md)              | Row-count, structural columns, column, composite unique/reference, numeric, string, timestamp window/freshness, custom-count, and `WithMaxFailedCount` |
+| [Reports, Errors, Rendering, and Limits](results.md) | `Report`, `Result`, key/reference/temporal/structural facts, custom-count semantics, errors, display text, and caps |
+| [Stable IDs and Report Export](export.md)            | `WithID`, `ExpectationKind`, `ExportReport`, export DTOs, verdicts, and normalized values              |
 
-## Related guides
+## Related Guides
 
 - [Validate a table](../tutorial/getting-started.md)
 - [Validation behavior](../concepts/validation.md)

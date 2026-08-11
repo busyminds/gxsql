@@ -1,17 +1,21 @@
 # gxsql Documentation
 
 `gxsql` validates database table data through `database/sql`. It runs SQL in the
-database. Each validation run returns one report with results in declaration
-order.
+database. Each completed validation returns one report with results in
+declaration order.
 
-## Start here
+A returned `error` from `ValidateTable` is a configuration or execution failure.
+Use `report.Err()` to gate on data-quality (policy) failures after a completed
+run. You own the `database/sql` driver and must select the dialect explicitly.
 
-1. [Validate a table](tutorial/getting-started.md) — install `gxsql`, open a
+## Start Here
+
+1. [Validate a Table](tutorial/getting-started.md) — install `gxsql`, open a
    database, build a suite, and handle validation outcomes.
-2. [Use gxsql in Go tests](tutorial/testing.md) — assert on table quality with
+2. [Use gxsql in Go Tests](tutorial/testing.md) — assert on table quality with
    the `gxsqltest` helpers.
 
-## Learn how validation works
+## Learn How Validation Works
 
 | Topic                                            | Use this page to                                                                   |
 | ------------------------------------------------ | ---------------------------------------------------------------------------------- |
@@ -20,7 +24,10 @@ order.
 | [Operational limits](concepts/operations.md)     | plan query cost, control retained data, and protect sensitive values               |
 | [Stable identity and export](concepts/export.md) | join results across runs and export a privacy-preserving JSON data transfer object |
 
-## Look up an API
+For the opt-in `WithSharedScalarEvaluation()` performance option, see
+[operational limits](concepts/operations.md#use-shared-scalar-evaluation).
+
+## Look Up an API
 
 The [API reference](reference/) is organized by task:
 

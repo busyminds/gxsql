@@ -2,7 +2,7 @@
 
 ## Suite
 
-`Suite` is an ordered set of SQL expectations. Create it with `NewSuite`; its
+`Suite` is an ordered set of SQL expectations. Create it with `NewSuite`. Its
 fields are unexported.
 
 ```go
@@ -21,51 +21,72 @@ suite := gxsql.NewSuite(
 
 `ValidateTable` returns `(report, nil)` for failed validation policies. Gate on
 `report.OK()` or `report.Err()`. It returns `(Report{}, err)` for run-level,
-preflight, or execution errors unless `ContinueOnError()` handles a
+preflight, or execution errors unless `ContinueOnError()` records a
 per-expectation failure in the report.
 
 ## Options
 
-`Option` is an opaque function configuring one validation run. Per-run options
-override suite-level caps.
+`Option` is an opaque function that configures one validation run. Per-run
+options override suite-level caps.
 
-| Option                       | Effect                                                                                                  |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `WithDialect(d Dialect)`     | Selects the SQL renderer. Defaults to `Postgres()`.                                                     |
-| `WithSampleCap(n int)`       | Overrides the maximum retained sample values; `0` disables sample collection.                           |
-| `WithFailedKeysCap(n int)`   | Overrides the maximum retained failed keys; `0` is unlimited.                                           |
-| `WithKey(columns ...string)` | Retains supplied row-key columns and disables summary-only mode.                                        |
-| `SummaryOnly()`              | Does not load failed-row identities.                                                                    |
-| `ContinueOnError()`          | Records preflight and execution errors on results and continues.                                        |
-| `CaptureQueryDiagnostics()`  | Records SQL and arguments for optional export only.                                                     |
-| `WithSharedScalarEvaluation()` | Combines contiguous compatible built-in per-row failure counts into conditional-aggregate statement(s). Disabled by default; incompatible expectations and non-contiguous compatible slots stay sequential. |
-| `WithScope(scope Scope)`     | Limits every expectation to rows matching the scope predicate; validates the scope when the run starts. Incompatible with `RequiredColumns` and `ExactColumns`. |
+| Option                         | Effect                                                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `WithDialect(d Dialect)`       | Selects the SQL renderer. Defaults to `Postgres()`.                                                     |
+| `WithSampleCap(n int)`         | Overrides the maximum retained sample values; `0` disables sample collection.                           |
+| `WithFailedKeysCap(n int)`     | Overrides the maximum retained failed keys; `0` is unlimited.                                           |
+| `WithKey(columns ...string)`   | Retains supplied row-key columns and disables summary-only mode.                                        |
+| `SummaryOnly()`                | Does not load failed-row identities.                                                                    |
+| `ContinueOnError()`            | Records preflight and execution errors on results and continues.                                        |
+| `CaptureQueryDiagnostics()`    | Records SQL and arguments for optional export only.                                                     |
+| `WithSharedScalarEvaluation()` | Combines contiguous compatible built-in per-row failure counts into conditional-aggregate statement(s). Disabled by default. |
+| `WithScope(scope Scope)`       | Limits every expectation to rows that match the scope predicate; validates the scope when the run starts. Incompatible with `RequiredColumns` and `ExactColumns`. |
 
-When neither `WithKey` nor `SummaryOnly` is supplied, results contain counts and
-capped samples but no failed-row identities. Invalid run-level options—such as a
-nil dialect, negative caps, invalid key columns, or invalid scopes—always
-prevent evaluation.
+When the run supplies neither `WithKey` nor `SummaryOnly`, results contain
+counts and capped samples but no failed-row identities. Invalid run-level
+options—such as a nil dialect, negative caps, invalid key columns, or invalid
+scopes—always prevent evaluation.
 
-`WithSharedScalarEvaluation()` is an opt-in performance option. It does not change
-published semantic report fields for compatible built-in per-row scalar checks:
-counts, verdicts, tolerance, samples, failed keys, declaration order, and scope
-behavior stay aligned with sequential evaluation. Only contiguous runs of
-compatible per-row checks are combined, so intervening incompatible expectations
-still execute in declaration order. Large contiguous runs are split across
-multiple statements when needed to stay within engine SELECT target limits.
-Captured diagnostics, when enabled, record the actual combined statement rather
-than fabricated per-check SQL. Uniqueness, table-level, aggregate, distinct-count,
-custom-count, structural, and relation checks are never combined.
+### WithSharedScalarEvaluation
 
-## Scoped validation
+`WithSharedScalarEvaluation()` is an opt-in performance option. Pass it on a
+`ValidateTable` call when measurement shows that repeated per-row failure-count
+queries dominate the suite:
 
-`TrustedScope(id, predicate string, args ...any) Scope` constructs a `Scope`; it
+```go
+report, err := suite.ValidateTable(ctx, db, gxsql.Table("orders"),
+    gxsql.WithDialect(gxsql.Postgres()),
+    gxsql.WithSharedScalarEvaluation(),
+)
+```
+
+The option combines only contiguous runs of compatible built-in per-row scalar
+checks into conditional-aggregate statement(s). It does not change published
+semantic report fields for those checks: counts, verdicts, tolerance, samples,
+failed keys, declaration order, and scope behavior stay aligned with sequential
+evaluation. Captured diagnostics, when enabled, record the actual combined
+statement rather than fabricated per-check SQL.
+
+Rules and limits:
+
+- Disabled by default; omit the option to keep sequential evaluation.
+- Only contiguous compatible slots combine. Intervening incompatible
+  expectations stay sequential and keep declaration order.
+- Large contiguous runs split across multiple statements when needed to stay
+  within engine SELECT target limits.
+- Uniqueness, table-level, aggregate, distinct-count, custom-count, structural,
+  and relation checks never combine.
+- Shared statement errors attribute to every slot in that combined statement.
+  Per-expectation diagnostic failures attribute only to the affected result.
+
+## Scoped Validation
+
+`TrustedScope(id, predicate string, args ...any) Scope` constructs a `Scope`. It
 is not an `Option`. Attach the returned scope to a run with `WithScope`.
 
 `TrustedScope` predicates are trusted Go-code input. They are SQL fragments, not
-a sandbox for untrusted SQL. Keep the predicate text fixed in application code;
-callers must never pass user-authored predicate text. Values bind separately
-through `?` placeholders, and the number of placeholders must match the values
+a sandbox for untrusted SQL. Keep the predicate text fixed in application code.
+Callers must never pass user-authored predicate text. Values bind separately
+through `?` placeholders. The number of placeholders must match the values
 passed to `TrustedScope`.
 
 Use a stable caller identity and bind tenant, batch, and time-window values:
@@ -86,7 +107,7 @@ windowScope := gxsql.TrustedScope(
 )
 ```
 
-Attach one scope to a run with `WithScope`; the dialect renders the neutral
+Attach one scope to a run with `WithScope`. The dialect renders the neutral
 placeholders for the selected driver:
 
 ```go
@@ -97,7 +118,7 @@ report, err := suite.ValidateTable(
 )
 ```
 
-`Report.ScopeID` and exported `scope.id` carry caller identity only; neither
+`Report.ScopeID` and exported `scope.id` carry caller identity only. Neither
 serializes the scope predicate text or bound arguments. Default validation
 errors, display output, and exports omit those scope fields. Ordinary samples
 and failed keys remain subject to the usual report redaction guidance. Captured
@@ -123,7 +144,7 @@ report, err := suite.ValidateTable(ctx, readOnlyDB, gxsql.Table("events"),
 Check both `err` and `report.Err()` according to the run and policy failure
 rules described above.
 
-## Custom count checks
+## Custom Count Checks
 
 | API                                                          | Description                                                                                      |
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
@@ -137,7 +158,7 @@ one `{{target}}` and one `{{scope}}`, both outside SQL strings and comments. The
 library renders `{{target}}` only from the validated `TableRef`. `{{scope}}`
 renders `TRUE` for an unscoped run or the parenthesized scope predicate from
 `WithScope`. Place both markers in syntactically valid SQL and qualify scope
-column references when the query uses table aliases; `gxsql` does not parse or
+column references when the query uses table aliases. `gxsql` does not parse or
 rewrite joins, `GROUP BY`, `HAVING`, or aliases.
 
 Custom `?` placeholders must appear after `{{scope}}`. Bound arguments are scope
@@ -179,7 +200,7 @@ FROM (
 exp := gxsql.CustomCount("accounts with multiple order lines", query)
 ```
 
-## Bounded failure tolerance
+## Bounded Failure Tolerance
 
 `WithMaxFailedCount(max int, exp Expectation) Expectation` wraps one expectation
 with an inclusive non-negative maximum failed-row count. Equality passes. There
@@ -193,9 +214,10 @@ Only per-row and uniqueness expectations qualify, including composite
 `Columns(...).Unique()` and `References()`. Wrapping a table-level, aggregate,
 distinct-count, row-count, custom-count, or structural column
 declaration—or a negative bound, nil inner expectation, or a second nested
-tolerance—fails `ValidateTable` preflight before SQL. Without `ContinueOnError()`, invalid tolerance returns the zero
-report and `*PreflightErrors`. With it, the matching declaration-order slot
-records the configuration error and later expectations still run.
+tolerance—fails `ValidateTable` preflight before SQL. Without
+`ContinueOnError()`, invalid tolerance returns the zero report and
+`*PreflightErrors`. With it, the matching declaration-order slot records the
+configuration error and later expectations still run.
 
 Tolerance changes only the policy verdict after the inner expectation evaluates
 once. Raw `Total`, `FailedCount`, `FailedPercent`, samples, and failed keys
@@ -212,10 +234,10 @@ suite := gxsql.NewSuite(
 ```
 
 Gate with `report.OK()` or `report.Err()`. Tolerated results count as successful
-and are omitted from `report.Failures()`; inspect `Report.Results` and
+and are omitted from `report.Failures()`. Inspect `Report.Results` and
 `Result.Tolerated` for remediation.
 
-## Test helpers
+## Test Helpers
 
 The `github.com/busyminds/gxsql/gxsqltest` package adapts validation to Go
 tests. Its `TestingT` interface is the `Helper`, `Errorf`, and `Fatalf` subset
@@ -228,7 +250,7 @@ shared by `*testing.T` and `*testing.B`.
 
 Both helpers accept the same options as `ValidateTable`.
 
-## Database and dialects
+## Database and Dialects
 
 `DB` is the narrow query interface that `ValidateTable` needs:
 
@@ -244,14 +266,14 @@ type DB interface {
 A `Dialect` supplies identifier quoting, placeholders, and string-length SQL.
 The built-ins validate identifiers in `QuoteIdent`.
 
-| Constructor  | Identifier quoting | Placeholders  | String length       |
+| Constructor  | Identifier Quoting | Placeholders  | String Length       |
 | ------------ | ------------------ | ------------- | ------------------- |
 | `Postgres()` | double quotes      | `$1`, `$2`, … | `CHAR_LENGTH(expr)` |
 | `SQLite()`   | double quotes      | `?`           | `LENGTH(expr)`      |
 | `DuckDB()`   | double quotes      | `$1`, `$2`, … | `LENGTH(expr)`      |
 | `MySQL()`    | backticks          | `?`           | `CHAR_LENGTH(expr)` |
 
-## Table references
+## Table References
 
 `TableRef` holds exported `Schema` and `Name` fields. Construct one with
 `Table(name)` for an unqualified table or `SchemaTable(schema, name)` for a

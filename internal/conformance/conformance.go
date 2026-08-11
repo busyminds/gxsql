@@ -525,6 +525,55 @@ func Run(t *testing.T, cfg Config) {
 		}
 	})
 
+	t.Run("tolerance max-failed-percent and severity", func(t *testing.T) {
+		report, err := gxsql.NewSuite(
+			gxsql.WithPolicy(
+				gxsql.Int("age").Between(0, 120),
+				gxsql.Policy{
+					Severity:    gxsql.SeverityWarning,
+					Description: "age quality",
+					Tags:        []string{"z", "a"},
+					Tolerance:   gxsql.MaxFailedPercent(50),
+				},
+			),
+			gxsql.WithPolicy(
+				gxsql.Int("age").Between(0, 120),
+				gxsql.Policy{
+					Severity:  gxsql.SeverityError,
+					Tolerance: gxsql.MaxFailedPercent(49.999),
+				},
+			),
+		).ValidateTable(
+			context.Background(), cfg.DB, cfg.Table,
+			gxsql.WithDialect(cfg.Dialect), gxsql.WithKey("id"),
+		)
+		if err != nil {
+			t.Fatalf("ValidateTable: %v", err)
+		}
+		warning, failure := report.Results[0], report.Results[1]
+		if !warning.Success || !warning.Tolerated || warning.Severity != gxsql.SeverityWarning ||
+			warning.Facts.ConfiguredMaxFailedPercent == nil ||
+			*warning.Facts.ConfiguredMaxFailedPercent != 50 {
+			t.Fatalf("warning result = %#v, want tolerated 50%% policy pass", warning)
+		}
+		if failure.Success || failure.Severity != gxsql.SeverityError ||
+			failure.Facts.ConfiguredMaxFailedPercent == nil ||
+			*failure.Facts.ConfiguredMaxFailedPercent != 49.999 {
+			t.Fatalf("error result = %#v, want hard 49.999%% policy failure", failure)
+		}
+		if report.OK() || report.Err() == nil || len(report.Warnings()) != 1 {
+			t.Fatalf("gating = OK:%v Err:%v warnings:%d", report.OK(), report.Err(), len(report.Warnings()))
+		}
+		dto, err := gxsql.ExportReport(report)
+		if err != nil {
+			t.Fatalf("ExportReport: %v", err)
+		}
+		if dto.Results[0].Severity != "warning" || dto.Results[0].Facts == nil ||
+			dto.Results[0].Facts.ConfiguredMaxFailedPercent == nil {
+			t.Fatalf("exported warning policy = %#v", dto.Results[0])
+		}
+	})
+
 	t.Run("tolerance scoped population ignores out-of-scope failures", func(t *testing.T) {
 		scope := gxsql.TrustedScope("tenant-a", "tenant_id = ?", "tenant-a")
 		db := &recordingDB{DB: cfg.DB}

@@ -59,10 +59,12 @@ type ResultFacts struct {
 	ConfiguredTimeCutoff *time.Time
 
 	// ConfiguredMaxFailedCount is the inclusive maximum failed-row bound when a
-	// WithMaxFailedCount policy decorated this result. Nil means no tolerance
-	// was applied.
+	// WithMaxFailedCount policy decorated this result. Nil means no count
+	// tolerance was applied.
 	ConfiguredMaxFailedCount *int
-
+	// ConfiguredMaxFailedPercent is the inclusive maximum failed-row percentage
+	// when a MaxFailedPercent policy decorated this result.
+	ConfiguredMaxFailedPercent *float64
 	// ObservedTimePresent marks whether a freshness observation was produced.
 	// Nil means observation is not applicable (non-freshness results). A
 	// pointer to false means the maximum is explicitly absent; true means
@@ -154,6 +156,12 @@ type Result struct {
 	Name string
 	// Column is the validated SQL column for per-row checks and aggregates.
 	Column string
+	// Severity classifies policy gating. The zero value is SeverityError.
+	Severity Severity
+	// Description is optional human-oriented policy metadata.
+	Description string
+	// Tags are normalized, sorted policy metadata.
+	Tags []string
 	// Success is the policy verdict. False when the check fails or Result.Err is set.
 	Success bool
 	// RowDenominator states whether Total and FailedPercent describe rows.
@@ -166,7 +174,7 @@ type Result struct {
 	FailedCount int
 	// FailedPercent is the percentage of failing rows when the denominator is available.
 	FailedPercent float64
-	// Facts contains structured observations and configured thresholds.
+	// Facts contains machine-readable observations and configured thresholds.
 	Facts ResultFacts
 	// SampleValues holds capped offending column values on per-row failure.
 	SampleValues []any
@@ -176,9 +184,9 @@ type Result struct {
 	// Err is a categorized configuration or execution failure when non-nil.
 	Err error
 
-	// Tolerated is true when a nonzero raw FailedCount passed within a
-	// configured WithMaxFailedCount bound. Clean passes, above-bound failures,
-	// empty populations, and errors are never tolerated.
+	// Tolerated is true when a nonzero raw FailedCount passed within a configured
+	// allowance. Clean passes, above-bound failures, empty populations, and
+	// errors are never tolerated.
 	Tolerated bool
 
 	shape       resultShape
@@ -202,30 +210,89 @@ type Report struct {
 	ScopeID string
 }
 
-// OK reports whether every expectation passed (Success is true for all results).
+// OK reports whether no result has a hard-gating failure. Warning and info
+// policy failures remain visible but do not gate. Configuration and execution
+// errors always gate.
 func (r Report) OK() bool {
-	for _, res := range r.Results {
-		if !res.Success {
-			return false
-		}
-	}
-	return true
+	return len(r.GatingFailures()) == 0
 }
 
-// Failures returns results with Success false, including configuration and
-// execution failures recorded under ContinueOnError.
+// Failures returns results with Success false, including warning/info policy
+// failures and configuration/execution failures recorded under ContinueOnError.
 func (r Report) Failures() []Result {
+	return filterResults(r.Results, func(res Result) bool {
+		return !res.Success
+	})
+}
+
+// GatingFailures returns non-advisory policy failures and all result errors.
+// Unknown severities are treated as gating failures.
+func (r Report) GatingFailures() []Result {
+	return filterResults(r.Results, func(res Result) bool {
+		return res.Err != nil || (!res.Success && res.Severity != SeverityWarning && res.Severity != SeverityInfo)
+	})
+}
+
+// PolicyFailures returns evaluated data-quality failures, excluding result
+// configuration and execution errors.
+func (r Report) PolicyFailures() []Result {
+	return filterResults(r.Results, func(res Result) bool {
+		return res.Err == nil && !res.Success
+	})
+}
+
+// Warnings returns every result decorated with warning severity, preserving
+// declaration order. It includes passing and failing warning results.
+func (r Report) Warnings() []Result {
+	return filterResults(r.Results, func(res Result) bool {
+		return res.Severity == SeverityWarning
+	})
+}
+
+// Infos returns every result decorated with info severity, preserving
+// declaration order. It includes passing and failing info results.
+func (r Report) Infos() []Result {
+	return filterResults(r.Results, func(res Result) bool {
+		return res.Severity == SeverityInfo
+	})
+}
+
+// Unexpected returns evaluated results with raw failures, including tolerated
+// outcomes. Result errors are excluded because no raw observation exists.
+func (r Report) Unexpected() []Result {
+	return filterResults(r.Results, func(res Result) bool {
+		return res.Err == nil && res.FailedCount > 0
+	})
+}
+
+// ToleratedResults returns results whose nonzero raw failure count passed an
+// allowance. It preserves declaration order.
+func (r Report) ToleratedResults() []Result {
+	return filterResults(r.Results, func(res Result) bool {
+		return res.Tolerated
+	})
+}
+
+// ExecutionFailures returns all result slots with configuration or execution
+// errors recorded under ContinueOnError.
+func (r Report) ExecutionFailures() []Result {
+	return filterResults(r.Results, func(res Result) bool {
+		return res.Err != nil
+	})
+}
+
+func filterResults(results []Result, keep func(Result) bool) []Result {
 	var out []Result
-	for _, res := range r.Results {
-		if !res.Success {
+	for _, res := range results {
+		if keep(res) {
 			out = append(out, res)
 		}
 	}
 	return out
 }
 
-// Err returns nil when the report is OK, otherwise a *ValidationError carrying
-// the full report for gating and inspection.
+// Err returns nil when the report has no hard-gating failure, otherwise a
+// *ValidationError carrying the full report for gating and inspection.
 func (r Report) Err() error {
 	if r.OK() {
 		return nil

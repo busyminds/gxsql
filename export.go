@@ -3,6 +3,7 @@ package gxsql
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"unicode/utf8"
 )
@@ -84,12 +85,18 @@ type ExportedResult struct {
 	DisplayName string `json:"display_name"`
 	// Column is the validated column when applicable; omitted when empty.
 	Column string `json:"column,omitempty"`
+	// Severity is the policy severity name.
+	Severity string `json:"severity"`
+	// Description is optional policy metadata.
+	Description string `json:"description,omitempty"`
+	// Tags are normalized, sorted policy metadata.
+	Tags []string `json:"tags,omitempty"`
 	// PolicyVerdict is pass, fail, or unevaluated when no policy verdict was produced.
 	PolicyVerdict PolicyVerdict `json:"policy_verdict"`
 	// ExecutionOutcome distinguishes policy failure from execution/config failure.
 	ExecutionOutcome ExecutionOutcome `json:"execution_outcome"`
-	// Tolerated is true when a nonzero raw failure count passed within
-	// WithMaxFailedCount. Omitted unless true.
+	// Tolerated is true when a nonzero raw failure count passed within an
+	// allowance. Omitted unless true.
 	Tolerated bool `json:"tolerated,omitempty"`
 	// RowDenominator reports whether total and failed_percent are meaningful.
 	RowDenominator RowDenominator `json:"row_denominator"`
@@ -150,10 +157,10 @@ type ExportedFacts struct {
 	// ConfiguredMaxFailedCount is the inclusive WithMaxFailedCount bound when
 	// that decorator was applied.
 	ConfiguredMaxFailedCount *int `json:"configured_max_failed_count,omitempty"`
-	// ObservedTimePresent is the explicit freshness observation marker. Nil
-	// omits the field for non-freshness; pointer false emits explicit absence
-	// while ConfiguredTimeCutoff remains exported; true means ObservedTime is
-	// present.
+	// ConfiguredMaxFailedPercent is the inclusive MaxFailedPercent bound when
+	// that policy was applied.
+	ConfiguredMaxFailedPercent *float64 `json:"configured_max_failed_percent,omitempty"`
+	// ObservedTimePresent is the explicit freshness observation marker.
 	ObservedTimePresent *bool `json:"observed_time_present,omitempty"`
 	// KeyColumns names local composite-key components in declaration order.
 	KeyColumns []string `json:"key_columns,omitempty"`
@@ -341,6 +348,9 @@ func exportResult(res Result, target *TableRef, cfg exportConfig) (ExportedResul
 		Kind:             res.Kind,
 		DisplayName:      exportDisplayName(res),
 		Column:           res.Column,
+		Severity:         exportSeverity(res.Severity),
+		Description:      res.Description,
+		Tags:             append([]string(nil), res.Tags...),
 		PolicyVerdict:    policyVerdict(res),
 		ExecutionOutcome: executionOutcome(res),
 		Tolerated:        res.Tolerated,
@@ -417,6 +427,17 @@ func exportResult(res Result, target *TableRef, cfg exportConfig) (ExportedResul
 	}
 
 	return out, nil
+}
+
+func exportSeverity(severity Severity) string {
+	switch severity {
+	case SeverityWarning:
+		return "warning"
+	case SeverityInfo:
+		return "info"
+	default:
+		return "error"
+	}
 }
 
 func policyVerdict(res Result) PolicyVerdict {
@@ -565,6 +586,17 @@ func exportFacts(facts ResultFacts) (*ExportedFacts, error) {
 	}
 	if facts.ConfiguredMaxFailedCount != nil {
 		out.ConfiguredMaxFailedCount = facts.ConfiguredMaxFailedCount
+		has = true
+	}
+	if facts.ConfiguredMaxFailedPercent != nil {
+		percent := *facts.ConfiguredMaxFailedPercent
+		if math.IsNaN(percent) || math.IsInf(percent, 0) {
+			return nil, &CategorizedError{
+				Category: CategoryObserver,
+				Err:      fmt.Errorf("configured max failed percent must be finite"),
+			}
+		}
+		out.ConfiguredMaxFailedPercent = facts.ConfiguredMaxFailedPercent
 		has = true
 	}
 	if facts.ObservedTimePresent != nil {

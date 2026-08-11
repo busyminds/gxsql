@@ -200,42 +200,40 @@ FROM (
 exp := gxsql.CustomCount("accounts with multiple order lines", query)
 ```
 
-## Bounded Failure Tolerance
+## Policy Decoration and Tolerance
 
-`WithMaxFailedCount(max int, exp Expectation) Expectation` wraps one expectation
-with an inclusive non-negative maximum failed-row count. Equality passes. There
-is no percentage, pass-rate, `Mostly`, rounding, or compound policy.
+`WithPolicy(exp, Policy)` adds severity, optional description/tags, and at most
+one tolerance. `SeverityError` is the zero value; warning and info failures
+remain queryable without gating a completed report. Configuration and execution
+errors always gate.
 
-| API                                                        | Description                                                                                                                                              |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `WithMaxFailedCount(max int, exp Expectation) Expectation` | Decorates an eligible expectation with a maximum failed-row allowance. Immutable; works with `NewSuite` and with `WithID` inside or outside the wrapper. |
+| API                                                        | Description                                                                                                |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `WithPolicy(exp, Policy) Expectation`                      | Decorates an expectation with severity, metadata, and an optional tolerance. Immutable after construction. |
+| `MaxFailedPercent(p) Tolerance`                            | Inclusive unrounded failed-row percentage in `[0, 100]`; requires a row denominator.                       |
+| `WithMaxFailedCount(max int, exp Expectation) Expectation` | Existing inclusive maximum failed-row allowance; behavior and eligible shapes remain unchanged.            |
+| `Report.GatingFailures() []Result`                         | Non-advisory policy failures and all result errors.                                                        |
+| `Report.PolicyFailures() []Result`                         | Evaluated data-quality failures, excluding result errors.                                                  |
 
-Only per-row and uniqueness expectations qualify, including composite
-`Columns(...).Unique()` and `References()`. Wrapping a table-level, aggregate,
-distinct-count, row-count, custom-count, or structural column declaration—or a
-negative bound, nil inner expectation, or a second nested tolerance—fails
-`ValidateTable` preflight before SQL. Without `ContinueOnError()`, invalid
-tolerance returns the zero report and `*PreflightErrors`. With it, the matching
-declaration-order slot records the configuration error and later expectations
-still run.
+Per-row, uniqueness, and referential-integrity expectations qualify for either
+tolerance form, including composite `Columns(...).Unique()` and `References()`.
+Wrapping a table-level, aggregate, distinct-count, row-count, custom-count, or
+structural column declaration with `MaxFailedPercent`—or combining count and
+percent tolerance—fails preflight before SQL. Without `ContinueOnError()`,
+invalid policy returns the zero report and `*PreflightErrors`. With it, the
+matching declaration-order slot records the configuration error and later
+expectations still run.
 
-Tolerance changes only the policy verdict after the inner expectation evaluates
-once. Raw `Total`, `FailedCount`, `FailedPercent`, samples, and failed keys
-remain under existing cap and key options. Empty evaluated populations pass and
-are not tolerated. Scope remains the evaluated population for all raw counts.
-Execution and configuration errors are never tolerated.
+`MaxFailedPercent(p)` compares `FailedCount / Total * 100 <= p` before display
+rounding. Both tolerance forms preserve raw `Total`, `FailedCount`,
+`FailedPercent`, samples, keys, and configured facts. Empty evaluated
+populations pass and are not tolerated.
 
-```go
-suite := gxsql.NewSuite(
-    gxsql.WithMaxFailedCount(2, gxsql.String("email").NotEmpty()),
-    gxsql.WithID("users.email.unique",
-        gxsql.WithMaxFailedCount(1, gxsql.Column("email").Unique())),
-)
-```
-
-Gate with `report.OK()` or `report.Err()`. Tolerated results count as successful
-and are omitted from `report.Failures()`. Inspect `Report.Results` and
-`Result.Tolerated` for remediation.
+Descriptions are trimmed; blank descriptions are omitted. Tags are trimmed,
+sorted, copied, and rejected when blank or duplicated. Metadata never changes
+`WithID` or `Kind`. Use `Report.Results` and the focused report filters for
+advisory, raw unexpected, tolerated, policy-failure, and execution-failure
+outcomes.
 
 ## Test Helpers
 
@@ -243,10 +241,10 @@ The `github.com/busyminds/gxsql/gxsqltest` package adapts validation to Go
 tests. Its `TestingT` interface is the `Helper`, `Errorf`, and `Fatalf` subset
 shared by `*testing.T` and `*testing.B`.
 
-| API                                                       | Behavior                                                                                                         |
-| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `gxsqltest.Check(t, ctx, suite, db, table, opts...) bool` | Calls `t.Errorf` for execution or policy failure and continues. Returns true only when every expectation passes. |
-| `gxsqltest.Require(t, ctx, suite, db, table, opts...)`    | Calls `t.Fatalf` for execution or policy failure.                                                                |
+| API                                                       | Behavior                                                                                                                     |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `gxsqltest.Check(t, ctx, suite, db, table, opts...) bool` | Calls `t.Errorf` for execution or hard-gating policy failure and continues. Returns true when no hard-gating failure exists. |
+| `gxsqltest.Require(t, ctx, suite, db, table, opts...)`    | Calls `t.Fatalf` for execution or hard-gating policy failure.                                                                |
 
 Both helpers accept the same options as `ValidateTable`.
 

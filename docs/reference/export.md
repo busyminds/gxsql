@@ -29,20 +29,26 @@ an explicit zero. `counts.total` and `counts.failed_percent` are omitted because
 `RowDenominatorUnavailable`. Custom counts never export samples or failed keys.
 `WithKey`, sample caps, and `SummaryOnly()` do not change custom-count export.
 
-## Bounded Failure Tolerance
+## Policy Fields
 
-`WithMaxFailedCount` results remain discoverable in JSON without changing
-`ExportSchemaVersion`. When `Result.Tolerated` is true, `ExportedResult` emits
-`tolerated: true`; the field is omitted otherwise. `ExportedFacts` includes
-`configured_max_failed_count` whenever that decorator was applied. Existing
-`counts.total`, `counts.failed`, and `counts.failed_percent` carry the raw
-observations. Exported `policy_verdict` stays `pass` and `execution_outcome`
-stays `ok` for a tolerated policy pass; the tolerance flag, configured bound,
-and raw counts distinguish it from a clean pass.
+`WithPolicy(exp, Policy)` adds `severity`, optional `description`, and sorted
+`tags` to each exported result. The severity values are `error`, `warning`, and
+`info`; the zero value is `error`. These fields are exported without opt-in.
 
-Export remains privacy-safe by default. The tolerance flag, bound, and raw
-counts are exported; samples, failed keys, query diagnostics, and arguments keep
-their existing opt-in and redaction rules (`IncludeSamples`,
+`MaxFailedPercent` exports its inclusive configured bound as
+`facts.configured_max_failed_percent`. `WithMaxFailedCount` continues to export
+`facts.configured_max_failed_count`. `Tolerated` is emitted when any allowance
+turns a nonzero raw failure count into a policy pass. Raw
+`counts.total`/`failed`/`failed_percent` remain complete and preserve the
+measured signal.
+
+`policy_verdict` remains `pass` or `fail` for evaluated results, and
+`execution_outcome` remains `ok`, `policy_failure`, `execution_failure`, or
+`config_failure`. Warning and info policy failures remain in `results` but do
+not gate `Report.OK()` or `Report.Err()`; result errors always gate.
+
+Export remains privacy-safe by default. Samples, failed keys, query diagnostics,
+and arguments keep their existing opt-in and redaction rules (`IncludeSamples`,
 `IncludeFailedKeys`, `IncludeCapturedDiagnostics`, `IncludeCapturedArguments`,
 and redactors).
 
@@ -130,18 +136,20 @@ A redactor error or panic fails export closed.
 
 ## Exported Types
 
-| Type                     | JSON Role                                                                                                                                                                                                                                                  |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ExportedReport`         | Schema version, optional target/scope, and declaration-ordered results.                                                                                                                                                                                    |
-| `ExportedTarget`         | Optional schema and table name.                                                                                                                                                                                                                            |
-| `ExportedScope`          | Optional stable caller scope identity as `scope.id`; predicate and bound values are not included.                                                                                                                                                          |
-| `ExportedResult`         | Identity, verdicts, optional `tolerated`, counts, facts, caps, opted-in diagnostics, and categorized errors.                                                                                                                                               |
-| `ExportedCounts`         | Optional total, failed count, and failed percentage.                                                                                                                                                                                                       |
-| `ExportedFacts`          | Observations and configured thresholds, including optional `configured_max_failed_count`, temporal `configured_time_*` / `observed_time` fields, `key_columns`, `reference`, and structural `required_columns` / `missing_columns` / `unexpected_columns`. |
-| `ExportedReferenceFacts` | Structured local-to-parent mapping (`local_columns`, parent target, `parent_columns`) for reference results.                                                                                                                                               |
-| `ExportedCaps`           | Returned and truncated flags for opted-in samples and keys.                                                                                                                                                                                                |
-| `ExportedDiagnostics`    | Opted-in redacted SQL, optional arguments, and truncation flags.                                                                                                                                                                                           |
-| `ExportedError`          | Stable error category and export-safe message.                                                                                                                                                                                                             |
+| Type                      | JSON Role                                                                                                                                                                                                                                                                                                          |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ExportedReport`          | Schema version, optional target/scope, and declaration-ordered results.                                                                                                                                                                                                                                            |
+| `ExportedTarget`          | Optional schema and table name.                                                                                                                                                                                                                                                                                    |
+| `ExportedScope`           | Optional stable caller scope identity as `scope.id`; predicate and bound values are not included.                                                                                                                                                                                                                  |
+| `ExportedResult`          | Identity, verdicts, optional `tolerated`, counts, facts, caps, opted-in diagnostics, and categorized errors.                                                                                                                                                                                                       |
+| `ExportedCounts`          | Optional total, failed count, and failed percentage.                                                                                                                                                                                                                                                               |
+| `ExportedFacts`           | Observations and configured thresholds, including optional `configured_max_failed_count`, `configured_max_failed_percent`, temporal `configured_time_*` / `observed_time` fields, `key_columns`, `comparison`, `ratio`, `reference`, and structural `required_columns` / `missing_columns` / `unexpected_columns`. |
+| `ExportedComparisonFacts` | Same-row comparison operands and relationship.                                                                                                                                                                                                                                                                     |
+| `ExportedRatioFacts`      | Same-row ratio operands and integral bound.                                                                                                                                                                                                                                                                        |
+| `ExportedReferenceFacts`  | Structured local-to-parent mapping (`local_columns`, parent target, `parent_columns`) for reference results.                                                                                                                                                                                                       |
+| `ExportedCaps`            | Returned and truncated flags for opted-in samples and keys.                                                                                                                                                                                                                                                        |
+| `ExportedDiagnostics`     | Opted-in redacted SQL, optional arguments, and truncation flags.                                                                                                                                                                                                                                                   |
+| `ExportedError`           | Stable error category and export-safe message.                                                                                                                                                                                                                                                                     |
 
 `PolicyVerdict` is `pass`, `fail`, or `unevaluated`. `unevaluated` is used when
 the source `Result` has `Err`. `ExecutionOutcome` distinguishes a successful

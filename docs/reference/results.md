@@ -3,24 +3,33 @@
 ## Report and Result
 
 `Report` aggregates a validation run. It exposes `Results []Result` in suite
-order and `Target *TableRef`, which `ValidateTable` sets.
+order, `Target *TableRef`, and `ScopeID`, which `ValidateTable` sets when a
+scoped validation run is used.
 
-| API                          | Description                                                                                                  |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `Report.OK() bool`           | True when every result passed, including tolerated policy passes.                                            |
-| `Report.Failures() []Result` | Results with `Success == false`, including errors recorded by `ContinueOnError`. Omits tolerated results.    |
-| `Report.Err() error`         | Nil for a passing report (tolerated passes included); otherwise `*ValidationError` with the complete report. |
-| `Report.String() string`     | Human-readable report summary and result lines; tolerated passes stay visible.                               |
-| `Result.String() string`     | Human-readable line prefixed by a pass or failure marker; says `tolerated` when applicable.                  |
+| API                                | Description                                                                                   |
+| ---------------------------------- | --------------------------------------------------------------------------------------------- |
+| `Report.OK() bool`                 | True when no non-advisory policy failure or result error exists.                              |
+| `Report.Failures() []Result`       | Every result with `Success == false`, including advisory failures and errors.                 |
+| `Report.GatingFailures() []Result` | Non-advisory policy failures and all result errors.                                           |
+| `Report.PolicyFailures() []Result` | Evaluated data-quality failures, excluding result errors.                                     |
+| `Report.Warnings()`, `Infos()`     | All results with the matching severity, including passing results.                            |
+| `Report.Unexpected()`              | Evaluated results with raw failures, including tolerated outcomes.                            |
+| `Report.ToleratedResults()`        | Results whose nonzero raw failures passed an allowance.                                       |
+| `Report.ExecutionFailures()`       | Result slots with configuration or execution errors.                                          |
+| `Report.Err() error`               | Nil when no hard-gating result exists; otherwise `*ValidationError` with the complete report. |
+| `Report.String() string`           | Human-readable report summary and result lines; advisory and tolerated results stay visible.  |
+| `Result.String() string`           | Human-readable line prefixed by a pass or failure marker; says `tolerated` when applicable.   |
 
 `Result` is the outcome of one expectation. Its exported fields are:
 
 | Field                                                     | Meaning                                                                                                                             |
 | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `ID`, `Kind`                                              | Machine-facing identity.                                                                                                            |
+| `ID`, `Kind`                                              | Machine-facing identity; policy metadata never changes either field.                                                                |
 | `Name`, `Column`                                          | Human-facing check description and affected column. Do not parse `Name`. Blank `Column` for composite unique and reference results. |
+| `Severity`                                                | `SeverityError`, `SeverityWarning`, or `SeverityInfo`; zero value is error.                                                         |
+| `Description`, `Tags`                                     | Optional normalized policy metadata. Descriptions are trimmed; tags are sorted and copied.                                          |
 | `Success`, `Err`                                          | Policy outcome and a per-expectation failure recorded by `ContinueOnError`.                                                         |
-| `Tolerated`                                               | True when a nonzero raw failure count passed within `WithMaxFailedCount`.                                                           |
+| `Tolerated`                                               | True when a nonzero raw failure count passed within any configured allowance.                                                       |
 | `RowDenominator`, `Total`, `FailedCount`, `FailedPercent` | Population metrics; `FailedCount` uses the expectation-specific unit.                                                               |
 | `Facts`                                                   | Structured observed values and configured thresholds.                                                                               |
 | `SampleValues`, `FailedKeys`                              | Capped diagnostic data.                                                                                                             |
@@ -31,22 +40,16 @@ does not mean the table was empty. Custom-count results are the exception to the
 usual denominator interpretation: they use `KindCustom` and
 `RowDenominatorUnavailable`, but `FailedCount` is a complete non-negative count
 even though `Total` and `FailedPercent` are unavailable. `Column` is blank and
-custom counts never retain samples or failed keys; `WithKey`, sample caps, and
-`SummaryOnly()` do not change this shape.
-
-Structural column results (`KindRequiredColumns`, `KindExactColumns`) also use
-`RowDenominatorUnavailable` with blank `Column`. They never retain samples or
-failed keys. Missing and unexpected names are ordinary policy outcomes published
-in `Result.Facts`; they are not row diagnostics.
-
-`WithMaxFailedCount` applies only to per-row and uniqueness shapes
-(`RowDenominatorAvailable`), including composite uniqueness and referential
-integrity. It changes `Success` only. Raw observations stay complete under
-existing caps. Empty evaluated populations pass without division by zero or
-`NaN` and are not tolerated. Scope remains the evaluated population for all raw
-counts. Table-level, aggregate, distinct-count, row-count, custom-count, and
-structural column wrappers fail preflight. Execution and configuration errors
-keep `Success: false` and `Tolerated: false`.
+`WithMaxFailedCount` and `MaxFailedPercent` apply to denominator-available
+per-row, uniqueness, and referential-integrity shapes, including composite
+uniqueness and references. `MaxFailedPercent(p)` uses the inclusive unrounded
+comparison `FailedCount / Total * 100 <= p` for `p` in `[0, 100]`. Both forms
+change `Success` only and preserve raw observations. Empty evaluated populations
+pass without division by zero or `NaN` and are not tolerated. Scope remains the
+evaluated population for all raw counts. Table-level, aggregate, distinct-count,
+row-count, custom-count, and structural column wrappers fail preflight.
+Execution and configuration errors keep `Success: false` and `Tolerated: false`;
+non-advisory policy failures gate, while warning/info failures remain queryable.
 
 `RowKey` is `[]any` containing caller-supplied `WithKey` values in the same
 column order.
@@ -71,6 +74,9 @@ Parent values never appear in diagnostics.
 - `ConfiguredMaxFailedCount` holds the inclusive `WithMaxFailedCount` bound when
   that decorator was applied, including raw-zero, above-bound, and
   `ContinueOnError` execution-error outcomes.
+- `ConfiguredMaxFailedPercent` holds the inclusive `MaxFailedPercent` bound,
+  including raw-zero, above-bound, and `ContinueOnError` execution-error
+  outcomes.
 - `KeyColumns` names local composite-unique components in declaration order when
   set. Prefer this over parsing `Name`; `Result.Column` stays blank for those
   results.

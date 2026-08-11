@@ -5,12 +5,18 @@ expectation. Results preserve suite declaration order.
 
 ## Read a Report
 
-| Member              | Use                                                                            |
-| ------------------- | ------------------------------------------------------------------------------ |
-| `report.OK()`       | Test whether every result passed.                                              |
-| `report.Failures()` | Return only results whose `Success` is false.                                  |
-| `report.Err()`      | Return `nil` for a passing report, or `*ValidationError` with the full report. |
-| `report.String()`   | Produce a human-readable summary and per-result lines.                         |
+| Member                          | Use                                                                                  |
+| ------------------------------- | ------------------------------------------------------------------------------------ |
+| `report.OK()`                   | True when no non-advisory policy failure or result error exists.                     |
+| `report.Failures()`             | Return all results whose `Success` is false, including advisory failures and errors. |
+| `report.GatingFailures()`       | Return non-advisory policy failures and all result errors.                           |
+| `report.PolicyFailures()`       | Return evaluated data-quality failures, excluding result errors.                     |
+| `report.Warnings()` / `Infos()` | Return all results with the matching severity.                                       |
+| `report.Unexpected()`           | Return evaluated results with raw failures, including tolerated outcomes.            |
+| `report.ToleratedResults()`     | Return results whose nonzero raw failures passed an allowance.                       |
+| `report.ExecutionFailures()`    | Return result slots with configuration or execution errors.                          |
+| `report.Err()`                  | Return `nil` when no hard-gating result exists, or `*ValidationError` otherwise.     |
+| `report.String()`               | Produce a human-readable summary and per-result lines.                               |
 
 A failed policy does not make `ValidateTable` return a non-nil error. Use
 `report.Err()` when validation must gate an application action:
@@ -29,28 +35,32 @@ if err := report.Err(); err != nil {
 ## Raw Observations Versus Policy Verdict
 
 `Success` is the policy verdict. Raw observations stay intact under their normal
-cap settings even when a policy pass is tolerated. Those observations include
-`Total`, `FailedCount`, `FailedPercent`, samples, and failed keys.
+cap settings even when an allowance produces a policy pass. Those observations
+include `Total`, `FailedCount`, `FailedPercent`, samples, and failed keys.
 
-`WithMaxFailedCount(max, exp)` sets an inclusive non-negative maximum failed-row
-count. Equality passes. There is no percentage, pass-rate, `Mostly`, rounding,
-or compound policy. Tolerance changes only the verdict. A nonzero raw failure
-count at or below `max` yields `Success: true` and `Tolerated: true`. Above the
-bound, `Success` is false and `Tolerated` is false. A raw-zero or empty
-evaluated population passes and is not tolerated. Empty populations do not
-divide by zero or produce `NaN`. Scope remains the evaluated population for all
-raw counts.
+`WithPolicy(exp, Policy)` adds `SeverityError`, `SeverityWarning`, or
+`SeverityInfo`, optional description/tags, and at most one tolerance. The zero
+severity is error. Warning and info policy failures remain in `Report.Results`
+but do not gate `Report.OK()` or `Report.Err()`. Other severity values are
+treated as gating failures. Configuration and execution errors always gate.
 
-Tolerated results count as successful for `report.OK()` and `report.Err()`.
-`report.Failures()` omits them. They remain visible in `Result.Tolerated`,
-`Report.String()`, and exported JSON. For remediation, walk `Report.Results` and
-inspect `Result.Tolerated`. Do not rely on `Failures()` alone. Read the
-configured bound from `Result.Facts.ConfiguredMaxFailedCount`.
+`MaxFailedPercent(p)` uses the inclusive unrounded comparison
+`FailedCount / Total * 100 <= p` for `p` in `[0, 100]`. It applies to
+denominator-available per-row, uniqueness, and referential-integrity
+expectations. Empty evaluated populations pass and are not tolerated.
+`WithMaxFailedCount(max, exp)` remains the inclusive count form with the same
+raw-observation rules.
 
-Only per-row and uniqueness expectations qualify, including composite
-`Columns(...).Unique()` and `References()`. Wrapping a table-level, aggregate,
-distinct-count, row-count, custom-count, or structural column declaration fails
-preflight. Execution and configuration errors are never tolerated.
+Descriptions are trimmed and blank values are omitted. Tags are trimmed, sorted,
+copied, and rejected when blank or duplicated. Metadata never changes `ID`,
+`Kind`, or gating. Read configured allowances from
+`Result.Facts.ConfiguredMaxFailedCount` and
+`Result.Facts.ConfiguredMaxFailedPercent`.
+
+Use focused report filters to inspect advisory outcomes, raw unexpected rows,
+tolerated results, policy failures, and execution failures. Do not rely on
+`Failures()` to find tolerated results because tolerated results have
+`Success: true`.
 
 For composite uniqueness and referential integrity, remediate from local
 `FailedCount`, capped `SampleValues`, and opted-in `FailedKeys`. Read component
@@ -68,8 +78,6 @@ for _, result := range report.Results {
 }
 ```
 
-## Read a Result
-
 Per-row checks set `RowDenominator` to `RowDenominatorAvailable` and populate:
 
 - `Total`: table row count evaluated by the check.
@@ -77,9 +85,10 @@ Per-row checks set `RowDenominator` to `RowDenominatorAvailable` and populate:
   failures.
 - `SampleValues`: capped examples of offending values.
 - `FailedKeys`: optional caller-selected row identities.
-- `Tolerated`: true when a nonzero raw failure count passed within
-  `WithMaxFailedCount`; false for clean passes, above-bound failures, empty
+- `Tolerated`: true when a nonzero raw failure count passed within any
+  configured allowance; false for clean passes, above-bound failures, empty
   populations, and errors.
+- `Severity`, `Description`, and `Tags`: policy classification and metadata.
 
 Table-level checks—row count, distinct count, numeric aggregates, freshness,
 structural column contracts, and custom counts—use `RowDenominatorUnavailable`.

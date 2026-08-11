@@ -77,9 +77,9 @@ Parent values never appear in diagnostics.
 - `Reference` holds local-to-parent mapping facts for referential checks:
   `LocalColumns`, structured `Parent` (`TableRef`), and `ParentColumns`. Nil
   when the result is not a reference check.
-- `Comparison` holds same-row operand and relationship facts:
-  `LeftColumn`, `RightColumn`, and `Relationship`. Nil when the result is not
-  a same-row column comparison.
+- `Comparison` holds same-row operand and relationship facts: `LeftColumn`,
+  `RightColumn`, and `Relationship`. Nil when the result is not a same-row
+  column comparison.
 - `Ratio` holds same-row integer ratio facts: `LeftColumn`, `RightColumn`, and
   `Bound`. Nil when the result is not a ratio-equality check.
 - `ConfiguredTimeStart` and `ConfiguredTimeEnd` hold caller-supplied half-open

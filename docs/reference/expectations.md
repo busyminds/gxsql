@@ -27,9 +27,9 @@ table-level column-set contracts. Supply one or more separately validated
 identifiers. An empty list, duplicate names, or invalid identifiers fails
 `ValidateTable` preflight before SQL.
 
-| Builder                            | Policy                                                                                 |
-| ---------------------------------- | -------------------------------------------------------------------------------------- |
-| `RequiredColumns(names ...string)` | Every expected name exists on the target; additional discovered names are allowed.     |
+| Builder                            | Policy                                                                                       |
+| ---------------------------------- | -------------------------------------------------------------------------------------------- |
+| `RequiredColumns(names ...string)` | Every expected name exists on the target; additional discovered names are allowed.           |
 | `ExactColumns(names ...string)`    | The discovered column set matches `names` exactly: no missing names and no unexpected names. |
 
 Both builders compare unordered sets. Column order never changes the verdict.
@@ -271,17 +271,17 @@ as Go `time.Time`. Bounds are bound SQL parameters; gxsql never interpolates
 timestamps as text and never calls database current-time functions such as
 `NOW()` or `CURRENT_TIMESTAMP`.
 
-| Method                           | Policy                                                              |
-| -------------------------------- | ------------------------------------------------------------------- |
-| `InWindow(start, end time.Time)` | Half-open per-row window `start <= value < end`.                    |
-| `FreshSince(cutoff time.Time)`   | Table-level `MAX(column) >= cutoff` over the scoped population.     |
+| Method                           | Policy                                                          |
+| -------------------------------- | --------------------------------------------------------------- |
+| `InWindow(start, end time.Time)` | Half-open per-row window `start <= value < end`.                |
+| `FreshSince(cutoff time.Time)`   | Table-level `MAX(column) >= cutoff` over the scoped population. |
 
 Temporal checks use the database and driver timestamp behavior for the selected
 dialect. Use a combination that accepts bound Go `time.Time` values and
 configure its connection or session timezone consistently with the stored
 instants. Comparisons operate on timestamp values, not formatted strings.
-Fractional-second precision follows the database and driver; test exact
-boundary behavior at the precision your schema preserves.
+Fractional-second precision follows the database and driver; test exact boundary
+behavior at the precision your schema preserves.
 
 The built-in conformance matrix covers PostgreSQL, SQLite, DuckDB, and MySQL.
 Date-only values, time-only values, implicit timezone conversion, and other
@@ -317,9 +317,9 @@ of “future” beyond the caller-supplied cutoff. Preflight rejects a zero cuto
 
 Results use `KindTimestampFreshSince` (`timestamp_fresh_since`), set
 `RowDenominatorUnavailable` (no row total, percentage, samples, or failed keys),
-and publish `ConfiguredTimeCutoff` plus `ObservedTime` /
-`ObservedTimePresent`. Present is a `*bool`: nil when freshness does not apply,
-pointer false for explicit absence, and pointer true when `ObservedTime` is set.
+and publish `ConfiguredTimeCutoff` plus `ObservedTime` / `ObservedTimePresent`.
+Present is a `*bool`: nil when freshness does not apply, pointer false for
+explicit absence, and pointer true when `ObservedTime` is set.
 
 ```go
 cutoff := time.Date(2026, 7, 1, 23, 30, 0, 0, time.UTC)
@@ -379,12 +379,12 @@ membership checks, single-column `Unique()`, composite `Columns(...).Unique()`,
 `NotEqualColumn`, `LessThanColumn`, `LessOrEqualColumn`, `GreaterThanColumn`,
 `GreaterOrEqualColumn`), `Int(...).RatioEqual`, numeric per-row bound
 comparisons (`Between`, `GreaterThan`, `GreaterOrEqual`, `LessThan`,
-`LessOrEqual`), string checks (`NotEmpty`, `Empty`, `LenEqual`,
-`LenBetween`), and `Timestamp(...).InWindow`. Table-level `FreshSince`,
-`RequiredColumns`, and `ExactColumns` are not eligible. Wrapping a table-level,
-aggregate, distinct-count, row-count, custom-count, or structural column
-declaration—or a negative bound, nil inner expectation, or a second nested
-tolerance—fails `ValidateTable` preflight before SQL.
+`LessOrEqual`), string checks (`NotEmpty`, `Empty`, `LenEqual`, `LenBetween`),
+and `Timestamp(...).InWindow`. Table-level `FreshSince`, `RequiredColumns`, and
+`ExactColumns` are not eligible. Wrapping a table-level, aggregate,
+distinct-count, row-count, custom-count, or structural column declaration—or a
+negative bound, nil inner expectation, or a second nested tolerance—fails
+`ValidateTable` preflight before SQL.
 
 Tolerance changes only the policy verdict after the inner expectation evaluates
 once. Raw `Total`, `FailedCount`, `FailedPercent`, samples, and failed keys

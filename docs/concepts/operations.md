@@ -25,10 +25,9 @@ need lower query cost for failure counts.
 
 It combines contiguous compatible per-row failure counts into
 conditional-aggregate SQL statement(s). Compatible slots are built-in per-row
-checks that admit a failure predicate, including nullability, membership,
-string and numeric predicates, cross-column checks, and
-`Timestamp(...).InWindow(...)`. `WithID` and `WithMaxFailedCount` wrappers do
-not block combination.
+checks that admit a failure predicate, including nullability, membership, string
+and numeric predicates, cross-column checks, and `Timestamp(...).InWindow(...)`.
+`WithID` and `WithMaxFailedCount` wrappers do not block combination.
 
 Exact compatibility boundary:
 

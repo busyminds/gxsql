@@ -22,18 +22,18 @@ suite := gxsql.NewSuite(
 
 Built-in builders create the expectations that `gxsql` supports:
 
-| Builder                             | Examples                                                                 |
-| ----------------------------------- | ------------------------------------------------------------------------ |
-| `RowCount()`                        | `Equal`, `Between`, `GreaterOrEqual`                                     |
-| `RequiredColumns` / `ExactColumns`  | unordered column-set presence or exact-set contracts                     |
-| `Column(name)`                      | `IsNull`, `NotNull`, `In`, `NotIn`, `Unique`, `DistinctCount`            |
+| Builder                             | Examples                                                                  |
+| ----------------------------------- | ------------------------------------------------------------------------- |
+| `RowCount()`                        | `Equal`, `Between`, `GreaterOrEqual`                                      |
+| `RequiredColumns` / `ExactColumns`  | unordered column-set presence or exact-set contracts                      |
+| `Column(name)`                      | `IsNull`, `NotNull`, `In`, `NotIn`, `Unique`, `DistinctCount`             |
 | `Column(left)` same-row comparisons | `EqualColumn`, `NotEqualColumn`, `LessThanColumn`, `GreaterOrEqualColumn` |
-| `Columns(names...)`                 | composite `Unique`, `References`                                         |
-| `Int(name)` / `Float(name)`         | range and comparison checks, plus aggregate checks                       |
-| `Int(name).RatioEqual`              | integer algebraic `value == right * bound` (not SQL `/`)                 |
-| `String(name)`                      | `Empty`, `NotEmpty`, `LenEqual`, `LenBetween`                            |
-| `Timestamp(name)`                   | `InWindow`, `FreshSince`                                                 |
-| `TrustedCountQuery` + `CustomCount` | Trusted SQL count returning one non-negative failure count               |
+| `Columns(names...)`                 | composite `Unique`, `References`                                          |
+| `Int(name)` / `Float(name)`         | range and comparison checks, plus aggregate checks                        |
+| `Int(name).RatioEqual`              | integer algebraic `value == right * bound` (not SQL `/`)                  |
+| `String(name)`                      | `Empty`, `NotEmpty`, `LenEqual`, `LenBetween`                             |
+| `Timestamp(name)`                   | `InWindow`, `FreshSince`                                                  |
+| `TrustedCountQuery` + `CustomCount` | Trusted SQL count returning one non-negative failure count                |
 
 Do not implement `Expectation` outside `gxsql`. It is a sealed interface.
 Construct expectations with these builders. The
@@ -117,8 +117,9 @@ report, err := structure.ValidateTable(ctx, db, gxsql.Table("ingest_events"),
 )
 ```
 
-See the [expectations reference](../reference/expectations.md#structural-columns)
-for fact ordering and error details.
+See the
+[expectations reference](../reference/expectations.md#structural-columns) for
+fact ordering and error details.
 
 ## Scoped Validation
 

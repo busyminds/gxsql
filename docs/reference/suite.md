@@ -29,16 +29,16 @@ per-expectation failure in the report.
 `Option` is an opaque function that configures one validation run. Per-run
 options override suite-level caps.
 
-| Option                         | Effect                                                                                                  |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| `WithDialect(d Dialect)`       | Selects the SQL renderer. Defaults to `Postgres()`.                                                     |
-| `WithSampleCap(n int)`         | Overrides the maximum retained sample values; `0` disables sample collection.                           |
-| `WithFailedKeysCap(n int)`     | Overrides the maximum retained failed keys; `0` is unlimited.                                           |
-| `WithKey(columns ...string)`   | Retains supplied row-key columns and disables summary-only mode.                                        |
-| `SummaryOnly()`                | Does not load failed-row identities.                                                                    |
-| `ContinueOnError()`            | Records preflight and execution errors on results and continues.                                        |
-| `CaptureQueryDiagnostics()`    | Records SQL and arguments for optional export only.                                                     |
-| `WithSharedScalarEvaluation()` | Combines contiguous compatible built-in per-row failure counts into conditional-aggregate statement(s). Disabled by default. |
+| Option                         | Effect                                                                                                                                                            |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WithDialect(d Dialect)`       | Selects the SQL renderer. Defaults to `Postgres()`.                                                                                                               |
+| `WithSampleCap(n int)`         | Overrides the maximum retained sample values; `0` disables sample collection.                                                                                     |
+| `WithFailedKeysCap(n int)`     | Overrides the maximum retained failed keys; `0` is unlimited.                                                                                                     |
+| `WithKey(columns ...string)`   | Retains supplied row-key columns and disables summary-only mode.                                                                                                  |
+| `SummaryOnly()`                | Does not load failed-row identities.                                                                                                                              |
+| `ContinueOnError()`            | Records preflight and execution errors on results and continues.                                                                                                  |
+| `CaptureQueryDiagnostics()`    | Records SQL and arguments for optional export only.                                                                                                               |
+| `WithSharedScalarEvaluation()` | Combines contiguous compatible built-in per-row failure counts into conditional-aggregate statement(s). Disabled by default.                                      |
 | `WithScope(scope Scope)`       | Limits every expectation to rows that match the scope predicate; validates the scope when the run starts. Incompatible with `RequiredColumns` and `ExactColumns`. |
 
 When the run supplies neither `WithKey` nor `SummaryOnly`, results contain
@@ -212,12 +212,12 @@ is no percentage, pass-rate, `Mostly`, rounding, or compound policy.
 
 Only per-row and uniqueness expectations qualify, including composite
 `Columns(...).Unique()` and `References()`. Wrapping a table-level, aggregate,
-distinct-count, row-count, custom-count, or structural column
-declaration—or a negative bound, nil inner expectation, or a second nested
-tolerance—fails `ValidateTable` preflight before SQL. Without
-`ContinueOnError()`, invalid tolerance returns the zero report and
-`*PreflightErrors`. With it, the matching declaration-order slot records the
-configuration error and later expectations still run.
+distinct-count, row-count, custom-count, or structural column declaration—or a
+negative bound, nil inner expectation, or a second nested tolerance—fails
+`ValidateTable` preflight before SQL. Without `ContinueOnError()`, invalid
+tolerance returns the zero report and `*PreflightErrors`. With it, the matching
+declaration-order slot records the configuration error and later expectations
+still run.
 
 Tolerance changes only the policy verdict after the inner expectation evaluates
 once. Raw `Total`, `FailedCount`, `FailedPercent`, samples, and failed keys

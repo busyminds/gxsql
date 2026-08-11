@@ -112,10 +112,10 @@ Use the builders for the data type and assertion you need. The
 ## Gate Table Shape First
 
 Before content checks, confirm the target still exposes the expected columns.
-`RequiredColumns` and `ExactColumns` compare unordered physical column-name
-sets byte-for-byte against `Rows.Columns()`. They do not validate types,
-nullability, or column order. Run them in a separate unscoped suite; `WithScope`
-is rejected at preflight:
+`RequiredColumns` and `ExactColumns` compare unordered physical column-name sets
+byte-for-byte against `Rows.Columns()`. They do not validate types, nullability,
+or column order. Run them in a separate unscoped suite; `WithScope` is rejected
+at preflight:
 
 ```go
 structure := gxsql.NewSuite(

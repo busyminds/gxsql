@@ -117,11 +117,11 @@ Suite-level `Suite.WithSampleCap` / `WithFailedKeysCap` set defaults;
 `ValidateTable` options override for one run. When keys are capped,
 `FailedCount` and `FailedPercent` remain complete.
 
-**Resource note:** per-row checks share one full-table population `COUNT(*)`
-per validation run. Without `WithSharedScalarEvaluation()`, each check then
-issues one failure-count query. Prefer `SummaryOnly()` on large tables with
-widespread failures; use `WithFailedKeysCap(0)` only when unbounded key
-retention is acceptable. **Operational safeguards:**
+**Resource note:** per-row checks share one full-table population `COUNT(*)` per
+validation run. Without `WithSharedScalarEvaluation()`, each check then issues
+one failure-count query. Prefer `SummaryOnly()` on large tables with widespread
+failures; use `WithFailedKeysCap(0)` only when unbounded key retention is
+acceptable. **Operational safeguards:**
 
 - Set a deadline on every `ValidateTable` context. Production validation
   connections should use a read-only role scoped to validation views.

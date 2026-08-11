@@ -135,13 +135,12 @@ Some expectations pass because no applicable values exist:
 | Empty `In` or `NotIn` list                            | Configuration error before SQL.                                  |
 
 `Timestamp(...).FreshSince(cutoff)` is not vacuous. It requires an observed
-maximum non-`NULL` value in the scoped population and
-`observed >= cutoff`. An empty scope fails. A non-empty all-`NULL` scope also
-fails because no accepted watermark exists. Use `NotNull` when completeness is
-required.
+maximum non-`NULL` value in the scoped population and `observed >= cutoff`. An
+empty scope fails. A non-empty all-`NULL` scope also fails because no accepted
+watermark exists. Use `NotNull` when completeness is required.
 
-If an empty table or all-null column must fail for other checks, add an
-explicit row-count or non-null expectation.
+If an empty table or all-null column must fail for other checks, add an explicit
+row-count or non-null expectation.
 
 ## Next
 

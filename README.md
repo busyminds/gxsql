@@ -10,9 +10,9 @@ database tables through `database/sql`, renders each expectation as SQL, and
 runs those checks in the database instead of loading whole tables into
 application memory. Validation is collect-all: every expectation runs in
 declaration order, and one report captures all passes and policy failures.
-Configuration and execution errors are separate. By default they stop
-evaluation and return an error. Use `gxsql.ContinueOnError()` when later
-expectations must still run after per-expectation database errors.
+Configuration and execution errors are separate. By default they stop evaluation
+and return an error. Use `gxsql.ContinueOnError()` when later expectations must
+still run after per-expectation database errors.
 
 ## Install
 
@@ -68,7 +68,8 @@ The most common entry points are below and are expanded in the rest of this
 README:
 
 1. `ValidateTable` quick start with explicit dialect selection.
-2. Report gating with `report.Err()` / `report.Failures()` after a completed run.
+2. Report gating with `report.Err()` / `report.Failures()` after a completed
+   run.
 3. `gxsqltest.Check` and `gxsqltest.Require` for `testing.T`.
 4. `ExportReport` for machine-readable JSON export.
 5. `TrustedCountQuery` / `CustomCount` for portable join and aggregate counts.
@@ -134,8 +135,8 @@ func main() {
 
 ## Scoped Validation
 
-Use `TrustedScope` with `WithScope` to limit every expectation to rows that match
-a caller-defined predicate. The predicate is trusted Go-code input, not a
+Use `TrustedScope` with `WithScope` to limit every expectation to rows that
+match a caller-defined predicate. The predicate is trusted Go-code input, not a
 sandbox for untrusted SQL. Do not pass user-authored predicate text. Keep the
 predicate text fixed in Go, use `?` placeholders, and pass each dynamic value as
 a separate argument. The dialect renderer and `database/sql` bind those values;
@@ -375,7 +376,7 @@ GXSQL_MYSQL_DSN='user:password@tcp(localhost:3306)/gxsql?parseTime=true' \
 | Concept             | Description                                                                                                                                                                                                                                                            |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Suite**           | An ordered set of expectations from `gxsql.NewSuite(...)`. Results appear in the same declaration order.                                                                                                                                                               |
-| **Expectation**     | One data-quality assertion over a table, built with `RowCount`, `RequiredColumns`, `ExactColumns`, `Column`, `Int`, `Float`, `String`, `Timestamp`, or `CustomCount`.                                                                                                              |
+| **Expectation**     | One data-quality assertion over a table, built with `RowCount`, `RequiredColumns`, `ExactColumns`, `Column`, `Int`, `Float`, `String`, `Timestamp`, or `CustomCount`.                                                                                                  |
 | **TableRef**        | Names the table under test: `gxsql.Table("users")` or `gxsql.SchemaTable("public", "users")`. Identifiers must match `^[A-Za-z_][A-Za-z0-9_]*$`.                                                                                                                       |
 | **Dialect**         | Renders identifiers, placeholders, and string-length expressions. Built-in: `gxsql.Postgres()`, `gxsql.SQLite()`, `gxsql.DuckDB()`, and `gxsql.MySQL()`. `ValidateTable` defaults to PostgreSQL when no dialect is supplied; pass `gxsql.WithDialect(...)` explicitly. |
 | **Report / Result** | A `Report` holds one `Result` per expectation. Use `report.OK()`, `report.Failures()`, `report.Err()`, and `report.String()` to gate and inspect outcomes.                                                                                                             |
@@ -526,13 +527,12 @@ Only per-row and uniqueness expectations qualify, including composite uniqueness
 and referential integrity. Wrapping a table-level, aggregate, distinct-count,
 row-count, custom-count, or structural column declaration (`RequiredColumns` /
 `ExactColumns`) fails preflight. Execution and configuration errors are never
-tolerated. Export stays privacy-safe by default:
-JSON exposes the tolerance flag, configured bound, and raw counts; samples,
-keys, query diagnostics, and arguments keep their existing opt-in and redaction
-rules. See the [results](docs/concepts/results.md),
-[suite](docs/reference/suite.md), [reports](docs/reference/results.md), and
-[export](docs/reference/export.md) references for eligibility, display, and
-privacy-safe JSON fields.
+tolerated. Export stays privacy-safe by default: JSON exposes the tolerance
+flag, configured bound, and raw counts; samples, keys, query diagnostics, and
+arguments keep their existing opt-in and redaction rules. See the
+[results](docs/concepts/results.md), [suite](docs/reference/suite.md),
+[reports](docs/reference/results.md), and [export](docs/reference/export.md)
+references for eligibility, display, and privacy-safe JSON fields.
 
 ## Testing with gxsqltest
 

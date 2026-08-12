@@ -82,8 +82,9 @@ report, err := suite.ValidateTable(ctx, db, gxsql.Table("users"),
 ```
 
 Policy failures are collect-all. A failing expectation does not stop later
-expectations. `ValidateTable` returns `(report, nil)`. Use `report.OK()` or
-`report.Err()` to decide whether the data passed.
+expectations. `ValidateTable` returns `(report, nil)` for completed validation.
+Use `report.OK()` or `report.Err()` for hard gating; warning and info policy
+failures remain queryable without gating.
 
 By default, results retain counts and capped sample values, but not full failed
 row identities. Add `WithKey("id")` to retain caller-selected keys. Use

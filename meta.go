@@ -44,15 +44,20 @@ func expectationID(exp Expectation) string {
 				return ""
 			}
 			exp = w.inner
+		case *policyExpectation:
+			if w == nil {
+				return ""
+			}
+			exp = w.inner
 		default:
 			return ""
 		}
 	}
 }
 
-// unwrapExpectation peels WithID and tolerance wrappers to the underlying
-// expectation. Denominator detection still depends on the core declaration,
-// not merely on the presence of a wrapper.
+// unwrapExpectation peels ID, policy, and tolerance wrappers to the
+// underlying expectation. Denominator detection still depends on the core
+// declaration, not merely on the presence of a wrapper.
 func unwrapExpectation(exp Expectation) Expectation {
 	for {
 		switch w := exp.(type) {
@@ -62,6 +67,11 @@ func unwrapExpectation(exp Expectation) Expectation {
 			}
 			exp = w.inner
 		case *maxFailedCountExpectation:
+			if w == nil {
+				return exp
+			}
+			exp = w.inner
+		case *policyExpectation:
 			if w == nil {
 				return exp
 			}
@@ -90,8 +100,8 @@ type rejectsScope interface {
 }
 
 // isStructuralExpectation reports whether exp is a structural column contract
-// (RequiredColumns / ExactColumns), including when wrapped by WithID or
-// WithMaxFailedCount.
+// (RequiredColumns / ExactColumns), including when wrapped by WithID, WithPolicy,
+// or WithMaxFailedCount.
 func isStructuralExpectation(exp Expectation) bool {
 	_, ok := unwrapExpectation(exp).(rejectsScope)
 	return ok
@@ -111,7 +121,7 @@ func configErrorResult(exp Expectation, err error) Result {
 			name = exp.Name()
 		}
 	}
-	return Result{
+	res := Result{
 		ID:             expectationID(exp),
 		Kind:           kind,
 		Name:           name,
@@ -119,6 +129,7 @@ func configErrorResult(exp Expectation, err error) Result {
 		RowDenominator: RowDenominatorUnavailable,
 		Err:            err,
 	}
+	return applyPolicyMetadata(res, exp)
 }
 
 type preflightState struct {

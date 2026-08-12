@@ -22,6 +22,7 @@ type sharedScalarPlan struct {
 	column    string
 	facts     ResultFacts
 	maxFailed *int
+	policy    *Policy
 	inner     perRowExpectation
 }
 
@@ -34,6 +35,7 @@ type sharedScalarBatch struct {
 
 func sharedScalarPlanFor(exp Expectation, opts evalOptions) (sharedScalarPlan, bool, error) {
 	var maxFailed *int
+	var policy *Policy
 	cur := exp
 	for {
 		switch w := cur.(type) {
@@ -48,6 +50,17 @@ func sharedScalarPlanFor(exp Expectation, opts evalOptions) (sharedScalarPlan, b
 			}
 			m := w.max
 			maxFailed = &m
+			cur = w.inner
+		case *policyExpectation:
+			if w == nil || w.inner == nil {
+				return sharedScalarPlan{}, false, nil
+			}
+			p := w.policy
+			normalized, err := normalizePolicy(p)
+			if err != nil {
+				return sharedScalarPlan{}, false, err
+			}
+			policy = &normalized
 			cur = w.inner
 		default:
 			goto built
@@ -73,6 +86,7 @@ built:
 		column:    inner.column,
 		facts:     inner.facts,
 		maxFailed: maxFailed,
+		policy:    policy,
 		inner:     inner,
 	}, true, nil
 }
@@ -123,14 +137,14 @@ func evalSharedScalarCounts(
 ) ([]Result, error) {
 	results := make([]Result, len(plans))
 	for i, plan := range plans {
-		results[i] = Result{
+		results[i] = applySharedPlanPolicy(Result{
 			ID:             plan.id,
 			Kind:           plan.kind,
 			Name:           plan.name,
 			Column:         plan.column,
 			RowDenominator: RowDenominatorUnavailable,
 			Facts:          plan.facts,
-		}
+		}, plan)
 	}
 	if len(plans) == 0 {
 		return results, nil
@@ -269,7 +283,7 @@ func evalSharedScalarCountChunk(
 				if sampleErr != nil {
 					res.Err = sampleErr
 					res.Success = false
-					results[i] = res
+					results[i] = applySharedPlanPolicy(res, plan)
 					if !opts.continueOnError {
 						return sampleErr
 					}
@@ -282,7 +296,7 @@ func evalSharedScalarCountChunk(
 				if keyErr != nil {
 					res.Err = keyErr
 					res.Success = false
-					results[i] = res
+					results[i] = applySharedPlanPolicy(res, plan)
 					if !opts.continueOnError {
 						return keyErr
 					}
@@ -291,13 +305,20 @@ func evalSharedScalarCountChunk(
 				res.FailedKeys = keys
 			}
 		}
-		// Apply tolerance after diagnostics so error results stay untolerated.
-		if plan.maxFailed != nil {
-			res = applyMaxFailedCount(res, *plan.maxFailed)
-		}
-		results[i] = res
+		// Apply policy after diagnostics so error results stay untolerated.
+		results[i] = applySharedPlanPolicy(res, plan)
 	}
 	return nil
+}
+
+func applySharedPlanPolicy(res Result, plan sharedScalarPlan) Result {
+	if plan.policy != nil {
+		res = applyPolicy(res, *plan.policy)
+	}
+	if plan.maxFailed != nil {
+		res = applyMaxFailedCount(res, *plan.maxFailed)
+	}
+	return res
 }
 
 func dialectUsesQuestionMark(d Dialect) bool {

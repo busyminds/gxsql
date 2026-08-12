@@ -206,7 +206,10 @@ func (e *maxFailedCountExpectation) preflight() error {
 	if err := rejectNestedTolerance(e.inner); err != nil {
 		return err
 	}
-	core := unwrapIDExpectations(e.inner)
+	if containsRateTolerance(e.inner) {
+		return newConfigError(fmt.Errorf("multiple tolerance forms are not supported"))
+	}
+	core := unwrapExpectation(e.inner)
 	if core == nil {
 		return newConfigError(fmt.Errorf("nil expectation"))
 	}
@@ -227,11 +230,16 @@ func (e *maxFailedCountExpectation) evaluateSQL(
 }
 
 // rejectNestedTolerance reports a configuration error when another tolerance
-// wrapper appears at any nesting depth beneath WithID layers.
+// wrapper appears at any nesting depth beneath ID or policy layers.
 func rejectNestedTolerance(exp Expectation) error {
 	for {
 		switch w := exp.(type) {
 		case *idExpectation:
+			if w == nil {
+				return nil
+			}
+			exp = w.inner
+		case *policyExpectation:
 			if w == nil {
 				return nil
 			}
@@ -241,16 +249,5 @@ func rejectNestedTolerance(exp Expectation) error {
 		default:
 			return nil
 		}
-	}
-}
-
-// unwrapIDExpectations peels WithID wrappers without removing tolerance wrappers.
-func unwrapIDExpectations(exp Expectation) Expectation {
-	for {
-		w, ok := exp.(*idExpectation)
-		if !ok || w == nil {
-			return exp
-		}
-		exp = w.inner
 	}
 }

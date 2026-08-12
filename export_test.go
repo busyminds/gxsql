@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -820,5 +821,28 @@ func TestExportDiagnosticQueryCapAfterRedaction(t *testing.T) {
 	}
 	if utf8.RuneCountInString(diag.Query) != MaxExportedQueryTextRunes {
 		t.Fatalf("query runes = %d, want %d", utf8.RuneCountInString(diag.Query), MaxExportedQueryTextRunes)
+	}
+}
+
+func TestExportReportRejectsNonFiniteConfiguredMaxFailedPercent(t *testing.T) {
+	for _, percent := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		t.Run(fmt.Sprintf("%v", percent), func(t *testing.T) {
+			pct := percent
+			rep := Report{Results: []Result{{
+				Kind:           KindBetween,
+				Name:           "age between [0,120]",
+				Success:        false,
+				RowDenominator: RowDenominatorUnavailable,
+				Err:            newConfigError(errors.New("maximum failed percent must be between 0 and 100")),
+				Facts:          ResultFacts{ConfiguredMaxFailedPercent: &pct},
+			}}}
+			_, err := ExportReport(rep)
+			if err == nil {
+				t.Fatal("expected ExportReport error for non-finite configured percent")
+			}
+			if !errors.Is(err, ErrCategoryObserver) {
+				t.Fatalf("got %v, want observer category", err)
+			}
+		})
 	}
 }

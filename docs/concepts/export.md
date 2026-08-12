@@ -62,6 +62,12 @@ Configured thresholds appear in `facts.configured_*`. Default `display_name`
 redacts bound literals. Consumers must use structured facts rather than parse
 display text.
 
+`WithPolicy` exports `severity` as `error`, `warning`, or `info`, plus
+normalized `description` and sorted `tags` when configured.
+`facts.configured_max_failed_percent` carries the inclusive `MaxFailedPercent`
+threshold. These fields are present without diagnostic opt-in; raw counts remain
+complete and `tolerated` marks nonzero raw failures that passed an allowance.
+
 ## Opt In to Diagnostics Deliberately
 
 By default, export excludes sample values, failed keys, SQL text, and bound

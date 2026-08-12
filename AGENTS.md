@@ -76,10 +76,12 @@ These are separate channels:
 | Database, scan, rendering, or context error (default)                                                         | non-nil               | not returned (zero report)                          |
 | Execution error with `ContinueOnError()`                                                                      | `nil`                 | `Result.Err` set on affected slots                  |
 
-- **`report.Err()`** — returns `nil` when every expectation passed; otherwise
-  `*ValidationError` wrapping the full report. Use this for data-quality gating.
+- **`report.Err()`** — returns `nil` when there are no error-severity policy
+  failures or result errors; otherwise `*ValidationError` wrapping the full
+  report. Use this for hard data-quality gating.
 - **`ValidateTable`'s returned `error`** — configuration or execution failure,
-  not a data-quality verdict.
+  not a data-quality verdict. Warning and info policy failures remain in the
+  report without gating.
 
 Preflight collects all expectation configuration issues before SQL. Without
 `ContinueOnError`, any preflight failure returns `*PreflightErrors` and runs no

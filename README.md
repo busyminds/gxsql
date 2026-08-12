@@ -73,7 +73,8 @@ README:
 3. `gxsqltest.Check` and `gxsqltest.Require` for `testing.T`.
 4. `ExportReport` for machine-readable JSON export.
 5. `TrustedCountQuery` / `CustomCount` for portable join and aggregate counts.
-6. `WithMaxFailedCount` for a known failed-row allowance.
+6. `WithPolicy` and `WithMaxFailedCount` for severity, metadata, and failed-row
+   allowances.
 7. `Timestamp(...).InWindow(...)` and `Timestamp(...).FreshSince(...)` for
    caller-supplied temporal windows and freshness cutoffs.
 8. `RequiredColumns(...)` and `ExactColumns(...)` for portable structural
@@ -481,58 +482,52 @@ individual `Result.Err` values while later expectations still run. Inspect
 `report.Err()` and per-result errors — a nil top-level error is not success in
 that mode.
 
-## Bounded Failure Tolerance
+## Policy Decoration and Tolerance
 
-Use `WithMaxFailedCount` when a known number of bad rows may remain visible
-without failing the run. Wrap one eligible per-row or uniqueness expectation
-with an inclusive non-negative maximum failed-row count. Equality passes. There
-is no percentage, pass-rate, `Mostly`, rounding, or compound policy.
+Use `WithPolicy(exp, Policy)` to add severity, metadata, and an optional
+`MaxFailedPercent` allowance:
 
 ```go
 suite := gxsql.NewSuite(
-    gxsql.WithMaxFailedCount(2, gxsql.String("email").NotEmpty()),
+    gxsql.WithPolicy(
+        gxsql.String("email").NotEmpty(),
+        gxsql.Policy{
+            Severity:    gxsql.SeverityWarning,
+            Description: "Customer email must be present",
+            Tags:        []string{"customer", "pii"},
+            Tolerance:   gxsql.MaxFailedPercent(0.5),
+        },
+    ),
 )
-
-report, err := suite.ValidateTable(ctx, db, gxsql.Table("users"),
-    gxsql.WithDialect(gxsql.Postgres()),
-    gxsql.WithKey("id"),
-)
-if err != nil {
-    log.Fatalf("gxsql execution error: %v", err)
-}
-if err := report.Err(); err != nil {
-    log.Fatalf("data quality check failed: %v", err)
-}
-for _, result := range report.Results {
-    if result.Tolerated {
-        // raw FailedCount, samples, and keys remain for remediation
-        fmt.Println(result.String())
-    }
-}
 ```
 
-In that example, two failed rows pass the inclusive bound (`FailedCount <= 2`)
-with `Success: true` and `Tolerated: true`. A third failed row fails the policy.
+`MaxFailedPercent(p)` is inclusive, compares the unrounded
+`FailedCount / Total * 100` ratio, and accepts `p` in `[0, 100]`. It applies to
+denominator-available per-row, uniqueness, and referential-integrity
+expectations. `WithMaxFailedCount` remains the inclusive count form with its
+existing eligibility and behavior. A policy accepts at most one tolerance form.
+
 Tolerance changes only the policy verdict. Raw `Total`, `FailedCount`,
-`FailedPercent`, samples, and failed keys stay intact under the normal cap
-settings. Empty evaluated populations pass without division by zero or `NaN` and
-are not tolerated. Scope remains the evaluated population for all raw counts.
+`FailedPercent`, samples, and failed keys remain complete under normal caps.
+Empty evaluated populations pass without division by zero or `NaN` and are not
+tolerated. Configuration and execution errors always gate and are never
+tolerated.
 
-`report.OK()` and `report.Err()` treat tolerated results as successful;
-`report.Failures()` omits them. They remain explicit in `Result.Tolerated`,
-`Report.String()`, and exported JSON. For remediation, walk `Report.Results` and
-inspect `Result.Tolerated`—do not rely on `Failures()` alone.
+`SeverityError` is the zero severity. Warning and info policy failures remain
+queryable in `Report.Results` but do not make `report.OK()` false or
+`report.Err()` non-nil. Other severity values are treated as gating failures.
+Use `GatingFailures`, `PolicyFailures`, `Warnings`, `Infos`, `Unexpected`,
+`ToleratedResults`, and `ExecutionFailures` to select outcomes. `Failures()`
+continues to return every non-success result.
 
-Only per-row and uniqueness expectations qualify, including composite uniqueness
-and referential integrity. Wrapping a table-level, aggregate, distinct-count,
-row-count, custom-count, or structural column declaration (`RequiredColumns` /
-`ExactColumns`) fails preflight. Execution and configuration errors are never
-tolerated. Export stays privacy-safe by default: JSON exposes the tolerance
-flag, configured bound, and raw counts; samples, keys, query diagnostics, and
-arguments keep their existing opt-in and redaction rules. See the
-[results](docs/concepts/results.md), [suite](docs/reference/suite.md),
-[reports](docs/reference/results.md), and [export](docs/reference/export.md)
-references for eligibility, display, and privacy-safe JSON fields.
+Descriptions are trimmed and blank values are omitted. Tags are trimmed, sorted,
+copied, and rejected when blank or duplicated. Metadata never changes
+`Result.ID` or `Result.Kind`. Export includes policy fields and configured
+thresholds without changing privacy defaults: samples, failed keys, and captured
+arguments are omitted by default; when callers opt them in, they contain
+normalized values unless the corresponding sample, key, or args redactor is
+supplied. Captured SQL diagnostics redact the validated target identifier by
+default; use the query redactor when broader SQL redaction is required.
 
 ## Testing with gxsqltest
 
@@ -557,11 +552,11 @@ func TestUsers(t *testing.T) {
 }
 ```
 
-- `Check` reports an execution/configuration error or a policy failure with
-  `t.Errorf`, continues the test, and returns `true` only when validation
-  executed and every expectation passed.
-- `Require` calls `t.Fatalf` on an execution/configuration error or a policy
-  failure and stops the test.
+- `Check` reports an execution/configuration error or a hard-gating policy
+  failure with `t.Errorf`, continues the test, and returns `true` when no
+  hard-gating failure exists.
+- `Require` calls `t.Fatalf` on an execution/configuration error or a
+  hard-gating policy failure and stops the test.
 
 ## Operational Notes
 
@@ -627,11 +622,14 @@ any `Err` yields `unevaluated` (execution/config failure, not a data-quality
 verdict). `execution_outcome` is unchanged. Configured thresholds export in
 `facts.configured_*` keys; default `display_name` redacts bound literals.
 
-Opt in with `IncludeSamples`, `IncludeFailedKeys`, `IncludeCapturedDiagnostics`
-(redacted table-free SQL), and `IncludeCapturedArguments` (also enables
-normalized capped args; requires `CaptureQueryDiagnostics()` at validate time).
-Redactor failures fail closed with no partial JSON. v1 is **encode-only** — no
-public decoder is promised.
+Opt in with `IncludeSamples`, `IncludeFailedKeys`, `IncludeCapturedDiagnostics`,
+and `IncludeCapturedArguments` (requires `CaptureQueryDiagnostics()` at validate
+time). Opted-in samples, failed keys, and arguments contain normalized values
+unless `WithSampleRedactor`, `WithKeyRedactor`, or `WithArgsRedactor` is
+supplied. Captured SQL redacts the validated target identifier by default; use
+`WithQueryRedactor` when broader SQL redaction is required. Redactor failures
+fail closed with no partial JSON. v1 is **encode-only** — no public decoder is
+promised.
 
 See [stable IDs and report export](docs/reference/export.md#exportreport) for
 export field policy, value encodings, and privacy defaults.

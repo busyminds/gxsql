@@ -46,3 +46,18 @@ func TestReportErrValidationError(t *testing.T) {
 		t.Fatalf("error text = %q", err.Error())
 	}
 }
+
+func TestReportGatingFailuresUnknownSeverity(t *testing.T) {
+	res := Result{Name: "unknown-severity", Success: false, Severity: Severity(99)}
+	rep := Report{Results: []Result{res}}
+	if rep.OK() {
+		t.Fatal("expected not OK")
+	}
+	if err := rep.Err(); err == nil {
+		t.Fatal("expected validation error")
+	}
+	gating := rep.GatingFailures()
+	if len(gating) != 1 || gating[0].Name != "unknown-severity" {
+		t.Fatalf("GatingFailures() = %#v", gating)
+	}
+}

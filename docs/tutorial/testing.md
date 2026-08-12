@@ -25,15 +25,16 @@ func TestUsers(t *testing.T) {
 
 ## Choose an Assertion Helper
 
-| Helper              | Failure behavior                                                                 | Return value                                                    |
-| ------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `gxsqltest.Check`   | Calls `t.Errorf` for an execution/config error or a policy failure and continues | `true` only if validation executed and every expectation passed |
-| `gxsqltest.Require` | Calls `t.Fatalf` for an execution/config error or a policy failure and stops     | None                                                            |
+| Helper              | Failure behavior                                                                             | Return value                                      |
+| ------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `gxsqltest.Check`   | Calls `t.Errorf` for an execution/config error or a hard-gating policy failure and continues | `true` when validation has no hard-gating failure |
+| `gxsqltest.Require` | Calls `t.Fatalf` for an execution/config error or a hard-gating policy failure and stops     | None                                              |
 
 Both helpers report the two `ValidateTable` outcomes:
 
 - a non-nil returned `error` as a configuration or execution failure
-- a completed report with failed expectations as a data-quality (policy) failure
+- a completed report with hard-gating policy failures; warning and info failures
+  remain queryable without failing the helper
 
 Use `Check` when later assertions remain useful after a quality gate fails. Use
 `Require` when a failed gate makes the rest of the test meaningless.

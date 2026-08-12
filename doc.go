@@ -140,33 +140,40 @@
 // and arguments, including driver-error text. [CaptureQueryDiagnostics] is an
 // opt-in export-only path subject to existing redactors.
 //
-// Bounded failure tolerance uses [WithMaxFailedCount] around an eligible
-// per-row or uniqueness expectation, including composite uniqueness and
-// referential integrity. max is
-// an inclusive non-negative failed-row bound; equality passes. Tolerance
-// changes only the policy verdict—raw Total, FailedCount, FailedPercent,
-// samples, and failed keys stay under existing caps. Gate with [Report.Err];
-// tolerated results count as successful and are omitted from
-// [Report.Failures], so inspect [Report.Results] and [Result.Tolerated] for
-// remediation. Table-level, aggregate, distinct-count, row-count,
-// custom-count, and structural column wrappers fail preflight. Execution and configuration errors
-// are never tolerated:
+// Policy decoration uses [WithPolicy] around a sealed expectation:
 //
 //	suite := gxsql.NewSuite(
-//		gxsql.WithMaxFailedCount(2, gxsql.String("email").NotEmpty()),
+//		gxsql.WithPolicy(
+//			gxsql.String("email").NotEmpty(),
+//			gxsql.Policy{
+//				Severity:    gxsql.SeverityWarning,
+//				Description: "Customer email must be present",
+//				Tags:        []string{"customer", "pii"},
+//				Tolerance:   gxsql.MaxFailedPercent(0.5),
+//			},
+//		),
 //	)
-//	report, err := suite.ValidateTable(ctx, db, gxsql.Table("users"),
-//		gxsql.WithDialect(gxsql.Postgres()),
-//	)
-//	if err != nil {
-//		// Configuration or execution error; no complete report is available.
-//	}
-//	if err := report.Err(); err != nil {
-//		// Above-bound or other policy failures.
-//	}
 //
-// Failed policies are collected in declaration order. Use [WithKey] to retain
-// failed-row identities, [WithID] to give expectations stable machine identity,
-// and [ExportReport] for the versioned JSON DTO. For Go tests, use the
-// gxsqltest subpackage's Check or Require helper.
+// [MaxFailedPercent] is an inclusive unrounded failed-row percentage in the
+// range [0, 100]. It applies to per-row, uniqueness, and referential-integrity
+// expectations with [RowDenominatorAvailable]. Empty populations pass without a
+// fabricated percentage and are never tolerated. [WithMaxFailedCount] remains
+// the inclusive count form and keeps its existing eligible shapes and behavior.
+// Tolerance changes only the policy verdict; raw totals, failed counts,
+// percentages, samples, keys, and structured facts remain complete under their
+// existing caps. A nonzero raw failure within an allowance sets [Result.Tolerated].
+//
+// [SeverityError] is the zero severity. Warning and info policy failures remain
+// in [Report.Results] but do not gate [Report.OK] or [Report.Err]. Other
+// severity values are treated as gating failures. Configuration and execution
+// errors always gate and are never tolerated. Descriptions are trimmed; blank
+// descriptions are omitted. Tags are trimmed, sorted, copied, and rejected when
+// blank or duplicated. Metadata never changes [Result.ID], [Result.Kind], or
+// gating.
+//
+// Use [Report.GatingFailures], [Report.PolicyFailures], [Report.Warnings],
+// [Report.Infos], [Report.Unexpected], [Report.ToleratedResults], and
+// [Report.ExecutionFailures] to query the distinct outcome classes. Default
+// [ExportReport] includes policy fields and configured thresholds while still
+// omitting samples, keys, SQL, and arguments.
 package gxsql

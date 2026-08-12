@@ -368,36 +368,40 @@ aggregate examples.
 
 ## Bounded Failure Tolerance
 
-`WithMaxFailedCount(max int, exp Expectation) Expectation` wraps one eligible
-builder result with an inclusive non-negative maximum failed-row count. Equality
-passes. There is no percentage, pass-rate, `Mostly`, rounding, or compound
-policy.
+`WithPolicy(exp, Policy)` decorates an expectation with severity, optional
+description and tags, and at most one rate tolerance. `SeverityError` is the
+zero value. `SeverityWarning` and `SeverityInfo` keep policy failures queryable
+without gating a completed report. Configuration and execution errors always
+gate and are never tolerated.
 
-Eligible shapes are per-row and uniqueness expectations: `Column` null and
-membership checks, single-column `Unique()`, composite `Columns(...).Unique()`,
-`Column`/`Columns` `References()`, same-row column comparisons (`EqualColumn`,
-`NotEqualColumn`, `LessThanColumn`, `LessOrEqualColumn`, `GreaterThanColumn`,
-`GreaterOrEqualColumn`), `Int(...).RatioEqual`, numeric per-row bound
-comparisons (`Between`, `GreaterThan`, `GreaterOrEqual`, `LessThan`,
-`LessOrEqual`), string checks (`NotEmpty`, `Empty`, `LenEqual`, `LenBetween`),
-and `Timestamp(...).InWindow`. Table-level `FreshSince`, `RequiredColumns`, and
-`ExactColumns` are not eligible. Wrapping a table-level, aggregate,
-distinct-count, row-count, custom-count, or structural column declaration—or a
-negative bound, nil inner expectation, or a second nested tolerance—fails
-`ValidateTable` preflight before SQL.
+`MaxFailedPercent(p)` is the canonical rate tolerance. `p` is an inclusive
+percentage in `[0, 100]`. A denominator-available result passes when
+`FailedCount / Total * 100 <= p`, before display rounding. Raw-zero and empty
+evaluated populations pass and are not tolerated. Per-row, uniqueness, and
+referential-integrity expectations qualify. Table-level, aggregate,
+distinct-count, row-count, custom-count, and structural column declarations fail
+preflight. A second tolerance form in one decorated expectation also fails
+preflight.
+
+`WithMaxFailedCount(max int, exp Expectation)` remains the inclusive
+non-negative maximum failed-row count form. It applies to the same eligible
+per-row, uniqueness, and referential-integrity shapes, including composite
+uniqueness, same-row comparisons, ratios, numeric bounds, string checks, and
+timestamp windows. Existing count-tolerance behavior is unchanged.
 
 Tolerance changes only the policy verdict after the inner expectation evaluates
 once. Raw `Total`, `FailedCount`, `FailedPercent`, samples, and failed keys
-remain under existing cap and key options. Empty evaluated populations pass and
-are not tolerated. Scope remains the evaluated population for all raw counts.
-Execution and configuration errors are never tolerated.
+remain under existing caps and key options. Scope remains the evaluated
+population for all raw counts.
 
-Gate with `report.OK()` or `report.Err()`. Tolerated results count as successful
-and are omitted from `report.Failures()`; inspect `Report.Results` and
-`Result.Tolerated` for remediation. The wrapper is immutable and may nest with
-`WithID` in either order. See [suite and SQL integration](suite.md) and
-[reports, errors, rendering, and limits](results.md) for display text, facts,
-and nesting details.
+Descriptions are trimmed; blank descriptions are omitted. Tags are trimmed,
+sorted lexicographically, and copied immutably. Blank or duplicate tags fail
+preflight. Metadata never changes `WithID`, `Kind`, or gating. The decorator may
+nest with `WithID` and the count wrapper in either order when only one tolerance
+form is present.
+
+Use `Report.Results` and the focused report filters to inspect warning, info,
+raw unexpected, tolerated, policy-failure, and execution-failure outcomes.
 
 ## Machine Identity
 

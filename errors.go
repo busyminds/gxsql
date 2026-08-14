@@ -176,6 +176,10 @@ var (
 	errScopePredicateRequired      = errors.New("scope predicate is required")
 	errScopeValuesWithoutPredicate = errors.New("scope values require a predicate")
 
+	errEligibilityIdentityRequired       = errors.New("eligibility identity is required")
+	errEligibilityPredicateRequired      = errors.New("eligibility predicate is required")
+	errEligibilityValuesWithoutPredicate = errors.New("eligibility values require a predicate")
+
 	errTrustedCountTargetMarkerRequired         = errors.New("trusted count template requires exactly one {{target}} marker")
 	errTrustedCountScopeMarkerRequired          = errors.New("trusted count template requires exactly one {{scope}} marker")
 	errTrustedCountDuplicateTargetMarker        = errors.New("trusted count template has duplicate {{target}} marker")
@@ -275,6 +279,10 @@ func customCountPrivacyError(ctx context.Context, err error) error {
 
 func scopeArityError(slots, values int) error {
 	return fmt.Errorf("scope predicate has %d placeholders but %d values", slots, values)
+}
+
+func eligibilityArityError(slots, values int) error {
+	return fmt.Errorf("eligibility predicate has %d placeholders but %d values", slots, values)
 }
 
 func trustedCountArityError(slots, values int) error {

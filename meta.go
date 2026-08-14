@@ -49,14 +49,19 @@ func expectationID(exp Expectation) string {
 				return ""
 			}
 			exp = w.inner
+		case *eligibilityExpectation:
+			if w == nil {
+				return ""
+			}
+			exp = w.inner
 		default:
 			return ""
 		}
 	}
 }
 
-// unwrapExpectation peels ID, policy, and tolerance wrappers to the
-// underlying expectation. Denominator detection still depends on the core
+// unwrapExpectation peels ID, policy, tolerance, and eligibility wrappers to
+// the underlying expectation. Denominator detection still depends on the core
 // declaration, not merely on the presence of a wrapper.
 func unwrapExpectation(exp Expectation) Expectation {
 	for {
@@ -72,6 +77,11 @@ func unwrapExpectation(exp Expectation) Expectation {
 			}
 			exp = w.inner
 		case *policyExpectation:
+			if w == nil {
+				return exp
+			}
+			exp = w.inner
+		case *eligibilityExpectation:
 			if w == nil {
 				return exp
 			}
@@ -93,15 +103,16 @@ func usesRowDenominator(exp Expectation) bool {
 }
 
 // rejectsScope marks expectations that cannot run under WithScope. Structural
-// column contracts implement this so suite preflight can peel WithID and
-// WithMaxFailedCount wrappers before rejecting the combination.
+// column contracts implement this so suite preflight can peel WithID,
+// WithMaxFailedCount, WithPolicy, and When wrappers before rejecting the
+// combination.
 type rejectsScope interface {
 	rejectsScope()
 }
 
 // isStructuralExpectation reports whether exp is a structural column contract
 // (RequiredColumns / ExactColumns), including when wrapped by WithID, WithPolicy,
-// or WithMaxFailedCount.
+// WithMaxFailedCount, or When.
 func isStructuralExpectation(exp Expectation) bool {
 	_, ok := unwrapExpectation(exp).(rejectsScope)
 	return ok

@@ -79,6 +79,8 @@ README:
    caller-supplied temporal windows and freshness cutoffs.
 8. `RequiredColumns(...)` and `ExactColumns(...)` for portable structural
    column-set gates before content validation.
+9. `When` / `TrustedEligibility` for rule-level eligibility distinct from suite
+   scope, plus ordinary Go policy-pack composition with `WithID`.
 
 ## Quick Start
 
@@ -208,6 +210,77 @@ those scope fields. Ordinary samples and failed keys still need the usual report
 redaction. For production validation, use a read-only database role that is
 restricted to validation tables or views, and set a context deadline on every
 `ValidateTable` call.
+
+## Rule Eligibility Versus Suite Scope
+
+Suite `TrustedScope` / `WithScope` selects the shared population for a run.
+`TrustedEligibility` with `When` narrows which rows inside that population are
+subject to one expectation. Keep the concepts separate: eligibility does not
+rewrite `Report.ScopeID`, and it is not a second suite scope.
+
+```go
+shippedAtPresent := gxsql.When(
+    gxsql.TrustedEligibility("status-shipped", "status = ?", "shipped"),
+    gxsql.Column("shipped_at").NotNull(),
+)
+
+eligReport, err := gxsql.NewSuite(shippedAtPresent).ValidateTable(ctx, db, gxsql.Table("orders"),
+    gxsql.WithDialect(gxsql.Postgres()),
+    gxsql.WithScope(gxsql.TrustedScope("tenant-acme", "tenant_id = ?", tenantID)),
+)
+if err != nil {
+    log.Fatal(err)
+}
+if err := eligReport.Err(); err != nil {
+    log.Fatal(err)
+}
+```
+
+When both are present, SQL applies suite scope and eligibility as independent
+conjuncts with bindings in suite-scope, eligibility, then expectation order.
+Eligible-row count is the denominator for percentages and policy tolerance.
+Ineligible rows neither pass nor fail the wrapped rule. Zero eligible rows pass
+vacuously with no fabricated percentage and `Tolerated == false`.
+
+`When` wraps exactly one expectation. Nested eligibility fails preflight.
+Supported shapes are ordinary per-row, uniqueness, composite uniqueness, and
+referential integrity. Table-level, aggregate, distinct-count, custom-count, and
+structural expectations reject eligibility at preflight. Default errors, display
+output, and `ExportReport` omit eligibility predicate text and bound arguments.
+
+## Policy Packs
+
+A policy pack is an ordinary Go function that returns a fresh `[]Expectation`.
+Concatenate packs and local rules in declaration order, then pass the flattened
+list to `NewSuite`. There is no pack registry.
+
+```go
+func OrderIntegrityPack(prefix string) []gxsql.Expectation {
+    return []gxsql.Expectation{
+        gxsql.WithID(prefix+".id.present", gxsql.String("id").NotEmpty()),
+        gxsql.WithID(prefix+".id.unique", gxsql.Column("id").Unique()),
+        gxsql.WithID(prefix+".shipped_at.present", gxsql.When(
+            gxsql.TrustedEligibility("status-shipped", "status = ?", "shipped"),
+            gxsql.Column("shipped_at").NotNull(),
+        )),
+    }
+}
+
+suite := gxsql.NewSuite(append(
+    OrderIntegrityPack("acme.orders"),
+    gxsql.RowCount().GreaterOrEqual(1),
+)...)
+```
+
+Each pack call must return independent values; mutating a returned slice must
+not affect a later call. Flattened order is pack order, then declaration order
+within each pack, then caller-appended expectations. A composed suite must match
+the identical flat list written by hand. Prefer reverse-domain or pack-prefix
+stable IDs such as `acme.orders.id.present`. Blank and duplicate IDs fail
+preflight before SQL; with `ContinueOnError()` they occupy declaration-order
+slots. Library `Kind` values are not caller IDs. Reuse completed packs and
+suites concurrently only after configuration is finished and nothing mutates
+during `ValidateTable`.
 
 ## Structural Column Contracts
 
@@ -381,6 +454,8 @@ GXSQL_MYSQL_DSN='user:password@tcp(localhost:3306)/gxsql?parseTime=true' \
 | **TableRef**        | Names the table under test: `gxsql.Table("users")` or `gxsql.SchemaTable("public", "users")`. Identifiers must match `^[A-Za-z_][A-Za-z0-9_]*$`.                                                                                                                       |
 | **Dialect**         | Renders identifiers, placeholders, and string-length expressions. Built-in: `gxsql.Postgres()`, `gxsql.SQLite()`, `gxsql.DuckDB()`, and `gxsql.MySQL()`. `ValidateTable` defaults to PostgreSQL when no dialect is supplied; pass `gxsql.WithDialect(...)` explicitly. |
 | **Report / Result** | A `Report` holds one `Result` per expectation. Use `report.OK()`, `report.Failures()`, `report.Err()`, and `report.String()` to gate and inspect outcomes.                                                                                                             |
+| **Eligibility**     | `TrustedEligibility` + `When` narrow which scoped rows one expectation evaluates. Distinct from suite `WithScope`; does not rewrite `Report.ScopeID`.                                                                                                                   |
+| **Policy pack**     | An ordinary Go function returning a fresh `[]Expectation`. Concatenate packs with local rules; declaration order and `WithID` conventions stay caller-owned.                                                                                                           |
 
 Policy failures do **not** make `ValidateTable` return an error. The returned
 `error` means configuration or SQL execution failed (invalid identifiers,
@@ -602,9 +677,15 @@ systems when columns may hold PII or secrets.
 Attach stable result IDs with `gxsql.WithID(id, expectation)` for CI/ETL joins.
 IDs are optional for ad-hoc runs: when omitted, `Result.ID` stays empty and
 export JSON omits the `id` field. Blank or duplicate IDs fail preflight before
-SQL. Every built-in expectation exposes a library-defined `Kind` on `Result`.
-Display `Name` text may change with observed values; `ID` and `Kind` stay stable
-across equivalent runs.
+SQL, including duplicates that appear only after packs are concatenated. With
+`ContinueOnError()`, duplicate-ID failures occupy declaration-order slots
+without ambiguous exported identities for executed siblings. Prefer
+reverse-domain or pack-prefix paths such as `acme.orders.id.present`. Never
+derive machine IDs from descriptions or tags. Every built-in expectation exposes
+a library-defined `Kind` on `Result`; `Kind` values are not caller IDs. Display
+`Name` text may change with observed values; `ID` and `Kind` stay stable across
+equivalent runs. Default `ExportReport` continues to omit samples, keys, SQL,
+arguments, and eligibility or scope predicate text.
 
 Export encoding-only JSON for CI and audits:
 

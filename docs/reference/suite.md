@@ -14,7 +14,7 @@ suite := gxsql.NewSuite(
 
 | API                                                               | Description                                                           |
 | ----------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `NewSuite(exps ...Expectation) *Suite`                            | Creates an ordered suite with the default sample and failed-key caps. |
+| `NewSuite(exps ...Expectation) *Suite`                            | Creates an ordered suite with the default sample and failed-key caps. Accepts a flattened pack-plus-local list. |
 | `(*Suite).WithSampleCap(n int) *Suite`                            | Sets the suite default sample cap; `0` disables sample collection.    |
 | `(*Suite).WithFailedKeysCap(n int) *Suite`                        | Sets the suite default failed-key cap; `0` is unlimited.              |
 | `(*Suite).ValidateTable(ctx, db, table, opts...) (Report, error)` | Runs every expectation and returns its aggregated report.             |
@@ -143,6 +143,101 @@ report, err := suite.ValidateTable(ctx, readOnlyDB, gxsql.Table("events"),
 
 Check both `err` and `report.Err()` according to the run and policy failure
 rules described above.
+
+## Rule Eligibility
+
+| API | Description |
+| --- | ----------- |
+| `TrustedEligibility(id, predicate string, args ...any) Eligibility` | Builds an immutable trusted eligibility predicate with bound values. |
+| `When(eligibility Eligibility, exp Expectation) Expectation` | Wraps one expectation so only eligible rows inside the suite scope are evaluated. |
+| `Eligibility` | Immutable carrier for identity, predicate, and arguments; construct only with `TrustedEligibility`. |
+
+`TrustedEligibility` predicates are trusted Go-code input, not a sandbox for
+untrusted SQL. Keep the predicate text fixed in application code. Pass dynamic
+values through `?` placeholders. Never pass user-authored predicate text.
+Placeholder arity must match the supplied values.
+
+`When` narrows one expectation. It does not replace `WithScope` and does not
+change `Report.ScopeID`. When a run also supplies `WithScope`, SQL applies suite
+scope and eligibility as independent conjuncts. Bound values follow suite-scope,
+eligibility, then expectation order.
+
+```go
+shippedAtPresent := gxsql.When(
+    gxsql.TrustedEligibility("status-shipped", "status = ?", "shipped"),
+    gxsql.Column("shipped_at").NotNull(),
+)
+
+report, err := gxsql.NewSuite(shippedAtPresent).ValidateTable(
+    ctx, readOnlyDB, gxsql.Table("orders"),
+    gxsql.WithDialect(gxsql.Postgres()),
+    gxsql.WithScope(gxsql.TrustedScope("tenant-acme", "tenant_id = ?", tenantID)),
+)
+```
+
+Eligible results use the eligible-row count as `Total` and as the denominator for
+percentages and policy tolerance. Samples and failed keys come only from
+eligible failing rows under existing caps. Ineligible rows neither pass nor fail
+the wrapped rule. Zero eligible rows pass vacuously with `Total == 0`,
+`FailedCount == 0`, no fabricated percentage, and `Tolerated == false`.
+
+Supported shapes: ordinary per-row, uniqueness, composite uniqueness, and
+referential integrity. Table-level, aggregate, distinct-count, custom-count, and
+structural expectations reject eligibility at preflight. Nested `When` wrappers
+are configuration errors. Nil or invalid eligibility configuration fails
+preflight before SQL. Without `ContinueOnError()`, those failures return
+`(Report{}, *PreflightErrors)`. With it, the affected declaration-order slot
+records `Err` and later expectations still run.
+
+Default validation errors, display output, and `ExportReport` omit eligibility
+predicate text and bound arguments. Captured SQL and arguments still require
+explicit diagnostic capture and export options.
+
+## Policy Pack Composition
+
+A policy pack is an ordinary Go function that returns a fresh `[]Expectation`.
+Callers concatenate packs and local rules, then pass the flattened list to
+`NewSuite`. There is no pack registry or ID-prefix helper in this release.
+
+```go
+func OrderIntegrityPack(prefix string) []gxsql.Expectation {
+    return []gxsql.Expectation{
+        gxsql.WithID(prefix+".id.present", gxsql.String("id").NotEmpty()),
+        gxsql.WithID(prefix+".id.unique", gxsql.Column("id").Unique()),
+        gxsql.WithID(prefix+".shipped_at.present", gxsql.When(
+            gxsql.TrustedEligibility("status-shipped", "status = ?", "shipped"),
+            gxsql.Column("shipped_at").NotNull(),
+        )),
+    }
+}
+
+suite := gxsql.NewSuite(append(
+    OrderIntegrityPack("acme.orders"),
+    gxsql.RowCount().GreaterOrEqual(1),
+)...)
+```
+
+Rules:
+
+1. Each pack call returns independent values. Mutating a returned slice must not
+   affect a later call’s return value.
+2. Pack functions take only explicit parameters. Do not share mutable package-
+   level expectation values that validation can observe.
+3. Flattened declaration order is pack order, then order within each pack, then
+   caller-appended expectations. `Report.Results[i]` matches that flattened list.
+4. A composed suite must match the identical hand-flattened list field-for-field,
+   including policy fields and eligibility wrappers.
+
+Use `WithID` with caller-owned conventions such as reverse-domain or pack-prefix
+paths (`acme.orders.id.present`). Collision detection compares the final
+caller-visible stable ID string. Blank and duplicate IDs fail preflight before
+SQL under default validation. With `ContinueOnError()`, duplicate-ID failures
+occupy declaration-order slots and must not produce ambiguous exported
+identities for executed siblings. Missing IDs remain allowed. Library `Kind`
+values are not caller IDs.
+
+Reuse completed packs and suites concurrently only when configuration is
+finished and nothing mutates during `ValidateTable`.
 
 ## Custom Count Checks
 
@@ -283,4 +378,6 @@ outside `^[A-Za-z_][A-Za-z0-9_]*$` when rendering.
 `Expectation` appears in public signatures but is sealed. Its unexported
 `evaluateSQL` method and unexported option type prevent implementations outside
 package `gxsql`. Use the builders in the
-[expectations reference](expectations.md).
+[expectations reference](expectations.md). Decorate builders with `WithID`,
+`WithPolicy`, `WithMaxFailedCount`, and `When` as needed; do not implement
+`Expectation` outside the package.

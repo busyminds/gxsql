@@ -62,6 +62,10 @@ func sharedScalarPlanFor(exp Expectation, opts evalOptions) (sharedScalarPlan, b
 			}
 			policy = &normalized
 			cur = w.inner
+		case *eligibilityExpectation:
+			// Eligible rules use a per-rule effective population and total;
+			// keep them on the sequential evaluation path.
+			return sharedScalarPlan{}, false, nil
 		default:
 			goto built
 		}

@@ -391,8 +391,9 @@ timestamp windows. Existing count-tolerance behavior is unchanged.
 
 Tolerance changes only the policy verdict after the inner expectation evaluates
 once. Raw `Total`, `FailedCount`, `FailedPercent`, samples, and failed keys
-remain under existing caps and key options. Scope remains the evaluated
-population for all raw counts.
+remain under existing caps and key options. Suite scope remains the outer
+population; when rule eligibility is applied, only eligible rows inside that
+scope form the evaluated population for raw counts, percentages, and tolerance.
 
 Descriptions are trimmed; blank descriptions are omitted. Tags are trimmed,
 sorted lexicographically, and copied immutably. Blank or duplicate tags fail
@@ -402,6 +403,29 @@ form is present.
 
 Use `Report.Results` and the focused report filters to inspect warning, info,
 raw unexpected, tolerated, policy-failure, and execution-failure outcomes.
+
+## Rule Eligibility
+
+`TrustedEligibility(id, predicate string, args ...any) Eligibility` builds an
+immutable trusted eligibility predicate. Predicate text is trusted Go-code SQL
+with `?` placeholders and separately bound values—not a sandbox for
+user-authored SQL.
+
+`When(eligibility Eligibility, exp Expectation) Expectation` applies that
+predicate to one expectation. Eligibility narrows which rows inside the suite
+scope are subject to the rule; it does not replace `WithScope`. See
+[suite and SQL integration](suite.md) for scope composition and pack examples.
+
+Supported shapes: ordinary per-row (row-denominator), uniqueness, composite
+uniqueness, and referential integrity. Table-level, aggregate, distinct-count,
+custom-count, and structural expectations reject eligibility at `ValidateTable`
+preflight. Nested `When` wrappers are configuration errors.
+
+Eligible rows define `Total` and the denominator for percentages and tolerance.
+Ineligible rows neither pass nor fail. Zero eligible rows use the existing
+vacuous-pass behavior. `Report.ScopeID` remains the suite scope identity.
+Default validation errors, display output, and exports omit eligibility
+predicate text and bound arguments.
 
 ## Machine Identity
 

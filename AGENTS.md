@@ -54,7 +54,8 @@ implement them unless explicitly in scope.
 
 `Expectation` is **sealed** — build expectations only via `RowCount`,
 `RequiredColumns`, `ExactColumns`, `Column`, `Int`, `Float`, `String`,
-`Timestamp`, and `CustomCount` builders. Do not implement `Expectation` outside
+`Timestamp`, and `CustomCount` builders. Narrow one rule with
+`When(TrustedEligibility(...), exp)`. Do not implement `Expectation` outside
 package `gxsql`.
 
 ## Validation Model
@@ -64,6 +65,17 @@ package `gxsql`.
 `NewSuite(exps...)` preserves declaration order. `ValidateTable` runs every
 expectation in that order. **Assertion failures never stop later expectations.**
 `Report.Results[i]` always corresponds to `expectations[i]`.
+
+### Suite Scope vs Rule Eligibility
+
+- **`WithScope(TrustedScope(...))`** — suite population for the whole
+  `ValidateTable` call; sets `Report.ScopeID`.
+- **`When(TrustedEligibility(...), exp)`** — per-rule eligibility inside that
+  population; does not rewrite `Report.ScopeID`. Eligible for per-row,
+  uniqueness, composite uniqueness, and referential checks only.
+- Ordinary policy packs are Go functions that return a fresh `[]Expectation`;
+  concatenate packs and local rules, then pass the flattened list to
+  `NewSuite`.
 
 ### Policy Failures vs. Returned Errors
 
@@ -119,8 +131,10 @@ Suite-level `Suite.WithSampleCap` / `WithFailedKeysCap` set defaults;
 `ValidateTable` options override for one run. When keys are capped,
 `FailedCount` and `FailedPercent` remain complete.
 
-**Resource note:** per-row checks share one full-table population `COUNT(*)` per
-validation run. Without `WithSharedScalarEvaluation()`, each check then issues
+**Resource note:** Ordinary per-row checks may reuse one suite population
+`COUNT(*)` per validation run. `When`-wrapped checks evaluate eligible
+populations with their own totals and cannot use shared-scalar evaluation.
+Without `WithSharedScalarEvaluation()`, each ordinary per-row check then issues
 one failure-count query. Prefer `SummaryOnly()` on large tables with widespread
 failures; use `WithFailedKeysCap(0)` only when unbounded key retention is
 acceptable. **Operational safeguards:**

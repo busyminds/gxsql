@@ -35,12 +35,14 @@ Built-in builders create the expectations that `gxsql` supports:
 | `Timestamp(name)`                   | `InWindow`, `FreshSince`                                                  |
 | `TrustedCountQuery` + `CustomCount` | Trusted SQL count returning one non-negative failure count                |
 
-Do not implement `Expectation` outside `gxsql`. It is a sealed interface.
-Construct expectations with these builders. The
+Decorate builders with `WithID`, `WithPolicy`, `WithMaxFailedCount`, and
+`When` / `TrustedEligibility` when you need stable IDs, policy metadata, or
+rule-level eligibility. Do not implement `Expectation` outside `gxsql`. It is a
+sealed interface. Construct expectations with these builders. The
 [expectations reference](../reference/expectations.md) describes all methods.
 
-Expectations run in declaration order. A completed run contains one `Result` per
-expectation in the same order.
+Expectations run in declaration order, including after packs are concatenated. A
+completed run contains one `Result` per expectation in the same order.
 
 ## Tables and Dialects
 
@@ -188,6 +190,117 @@ In production, pass a context with a deadline to every `ValidateTable` call. Use
 a read-only database role. Prefer a role that is restricted to the validation
 tables or views.
 
+## Suite Scope Versus Rule Eligibility
+
+Suite scope and rule eligibility answer different questions:
+
+| Concern | API | Role |
+| ------- | --- | ---- |
+| Shared population for one validation call | `TrustedScope` / `WithScope` | Select the tenant, batch, or window every expectation sees |
+| Conditional rows for one expectation | `TrustedEligibility` / `When` | Narrow which scoped rows are subject to that rule |
+
+Do not replace suite scope with eligibility, and do not treat eligibility as a
+second `Report.ScopeID`. Scope still defines the outer population. Eligibility
+evaluates inside that population.
+
+Use suite scope for partitions and tenants:
+
+```go
+tenantID := authenticatedTenantID()
+scope := gxsql.TrustedScope("tenant-acme", "tenant_id = ?", tenantID)
+report, err := suite.ValidateTable(ctx, db, gxsql.Table("orders"),
+    gxsql.WithDialect(gxsql.Postgres()),
+    gxsql.WithScope(scope),
+)
+```
+
+Use rule eligibility for cross-field conditions such as “when status is shipped,
+require `shipped_at`”:
+
+```go
+shippedAtPresent := gxsql.When(
+    gxsql.TrustedEligibility("status-shipped", "status = ?", "shipped"),
+    gxsql.Column("shipped_at").NotNull(),
+)
+
+suite := gxsql.NewSuite(shippedAtPresent)
+report, err := suite.ValidateTable(ctx, db, gxsql.Table("orders"),
+    gxsql.WithDialect(gxsql.Postgres()),
+    gxsql.WithScope(gxsql.TrustedScope("tenant-acme", "tenant_id = ?", tenantID)),
+)
+```
+
+When both are present, SQL applies suite scope and eligibility as independent
+conjuncts. Bound values follow suite-scope, eligibility, then expectation order.
+`Report.ScopeID` and exported `scope.id` remain the suite scope identity only.
+
+For an eligible rule:
+
+- `Total` is the eligible population inside the effective suite scope
+- `FailedCount` / `FailedPercent`, samples, and failed keys use that eligible
+  population only
+- policy severity, metadata, and tolerance decorate the wrapped expectation and
+  apply to eligible rows only
+- Stable `ID` / `Kind` remain the wrapped values
+
+Ineligible rows neither pass nor fail the wrapped rule. Zero eligible rows pass
+vacuously: `Total` and `FailedCount` are zero, no percentage is fabricated, and
+`Tolerated` stays false.
+
+`When` wraps exactly one expectation. Nested eligibility fails preflight.
+Supported shapes are ordinary per-row, uniqueness, composite uniqueness, and
+referential-integrity expectations. Table-level, aggregate, distinct-count,
+custom-count, and structural expectations reject eligibility at preflight.
+Eligibility predicates are trusted Go-code input, not a sandbox for untrusted
+SQL. Default errors, display output, and `ExportReport` omit eligibility
+predicate text and bound arguments.
+
+## Policy Packs
+
+A policy pack is an ordinary Go function that returns a fresh `[]Expectation`.
+There is no registry, YAML product, or mutable package-level expectation store.
+Callers concatenate packs and local rules, then pass the flattened list to
+`NewSuite`.
+
+```go
+func OrderIntegrityPack(prefix string) []gxsql.Expectation {
+    return []gxsql.Expectation{
+        gxsql.WithID(prefix+".id.present", gxsql.String("id").NotEmpty()),
+        gxsql.WithID(prefix+".id.unique", gxsql.Column("id").Unique()),
+        gxsql.WithID(prefix+".shipped_at.present", gxsql.When(
+            gxsql.TrustedEligibility("status-shipped", "status = ?", "shipped"),
+            gxsql.Column("shipped_at").NotNull(),
+        )),
+    }
+}
+
+suite := gxsql.NewSuite(append(
+    OrderIntegrityPack("acme.orders"),
+    gxsql.RowCount().GreaterOrEqual(1),
+)...)
+```
+
+Contract:
+
+1. Each pack call returns independent expectation values. Mutating a returned
+   slice must not affect a later call.
+2. Pack functions take only explicit parameters such as ID prefixes or
+   thresholds. Validation must not observe hidden mutable package state.
+3. Flattened result order is pack order, then declaration order within each
+   pack, then any caller-appended expectations.
+4. A composed suite must produce the same ordered report as the identical flat
+   list written by hand, including policy fields and eligibility wrappers.
+
+Recommend stable IDs with reverse-domain or pack-prefix paths
+(for example `acme.orders.id.present`). Do not derive machine IDs from
+descriptions or tags. Blank and duplicate caller IDs fail preflight before SQL;
+with `ContinueOnError()` they occupy declaration-order slots. Missing IDs remain
+allowed (`Result.ID` empty). Library `Kind` values are not caller IDs and do not
+participate in duplicate-ID rejection.
+
+Reuse completed packs and suites concurrently only after configuration is
+finished and nothing mutates during `ValidateTable`.
+
 ## Custom Count Checks
 
 `TrustedCountQuery` and `CustomCount` add one constrained custom shape: a
@@ -279,6 +392,10 @@ columns. Preflight errors include:
 - custom-placeholder arity mismatch
 - empty, duplicate, or invalid `RequiredColumns` / `ExactColumns` names
 - `WithScope` combined with `RequiredColumns` or `ExactColumns`
+- nil or invalid `TrustedEligibility` configuration
+- nested `When` wrappers
+- `When` around table-level, aggregate, distinct-count, custom-count, or
+  structural expectations
 
 Invalid custom-count declarations never execute SQL. Structural column
 expectations never ignore an attached scope.

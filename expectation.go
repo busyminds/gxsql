@@ -64,7 +64,8 @@ type argBinder struct {
 }
 
 // newScopedArgBinder returns a binder whose placeholders begin after scope
-// values. Expectation values bind from the next slot; scope values are
+// values (including eligibility when composeEffectiveScope has folded it in).
+// Expectation values bind from the next slot; scope and eligibility values are
 // prepended separately at composition time.
 func newScopedArgBinder(d Dialect, scope *trustedScope) *argBinder {
 	scopePrefix := 0
@@ -230,7 +231,8 @@ func (e *maxFailedCountExpectation) evaluateSQL(
 }
 
 // rejectNestedTolerance reports a configuration error when another tolerance
-// wrapper appears at any nesting depth beneath ID or policy layers.
+// wrapper appears at any nesting depth beneath ID, policy, or eligibility
+// layers.
 func rejectNestedTolerance(exp Expectation) error {
 	for {
 		switch w := exp.(type) {
@@ -240,6 +242,11 @@ func rejectNestedTolerance(exp Expectation) error {
 			}
 			exp = w.inner
 		case *policyExpectation:
+			if w == nil {
+				return nil
+			}
+			exp = w.inner
+		case *eligibilityExpectation:
 			if w == nil {
 				return nil
 			}

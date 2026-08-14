@@ -190,6 +190,11 @@ func containsPolicy(exp Expectation) bool {
 			exp = w.inner
 		case *policyExpectation:
 			return true
+		case *eligibilityExpectation:
+			if w == nil {
+				return false
+			}
+			exp = w.inner
 		default:
 			return false
 		}
@@ -211,6 +216,11 @@ func containsMaxFailedCount(exp Expectation) bool {
 			exp = w.inner
 		case *maxFailedCountExpectation:
 			return true
+		case *eligibilityExpectation:
+			if w == nil {
+				return false
+			}
+			exp = w.inner
 		default:
 			return false
 		}
@@ -238,6 +248,11 @@ func containsRateTolerance(exp Expectation) bool {
 				return true
 			}
 			exp = w.inner
+		case *eligibilityExpectation:
+			if w == nil {
+				return false
+			}
+			exp = w.inner
 		default:
 			return false
 		}
@@ -262,6 +277,11 @@ func policyForExpectation(exp Expectation) (Policy, bool) {
 				return Policy{}, false
 			}
 			return w.policy, true
+		case *eligibilityExpectation:
+			if w == nil {
+				return Policy{}, false
+			}
+			exp = w.inner
 		default:
 			return Policy{}, false
 		}
@@ -310,6 +330,11 @@ func maxFailedCountForExpectation(exp Expectation) (int, bool) {
 			}
 			return w.max, true
 		case *policyExpectation:
+			if w == nil {
+				return 0, false
+			}
+			exp = w.inner
+		case *eligibilityExpectation:
 			if w == nil {
 				return 0, false
 			}

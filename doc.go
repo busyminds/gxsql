@@ -125,6 +125,64 @@
 // redaction requirements. In production, use a read-only database role and a
 // context deadline for each validation.
 //
+// Suite scope and rule eligibility are distinct. [TrustedScope] / [WithScope]
+// select the shared population for a validation call. [TrustedEligibility] with
+// [When] narrows which rows inside that population are subject to one
+// expectation. Eligibility does not rewrite [Report.ScopeID]. When both are
+// present, SQL applies suite scope and eligibility as independent conjuncts with
+// bindings in suite-scope, eligibility, then expectation order. Ineligible rows
+// neither pass nor fail the wrapped rule and do not appear in its samples or
+// keys. Eligible-row count is the denominator for percentages and policy
+// tolerance. Zero eligible rows pass vacuously: [Result.Total] and
+// [Result.FailedCount] are zero, no percentage is fabricated, and
+// [Result.Tolerated] stays false.
+//
+//	shipped := gxsql.When(
+//		gxsql.TrustedEligibility("status-shipped", "status = ?", "shipped"),
+//		gxsql.Column("shipped_at").NotNull(),
+//	)
+//	report, err := gxsql.NewSuite(shipped).ValidateTable(ctx, db, gxsql.Table("orders"),
+//		gxsql.WithDialect(gxsql.Postgres()),
+//		gxsql.WithScope(gxsql.TrustedScope("tenant-acme", "tenant_id = ?", tenantID)),
+//	)
+//
+// [When] wraps exactly one expectation. Nested eligibility fails preflight.
+// Supported shapes are ordinary per-row, uniqueness, composite uniqueness, and
+// referential-integrity expectations. Table-level, aggregate, distinct-count,
+// custom-count, and structural expectations reject eligibility at preflight.
+// Eligibility predicates are trusted Go-code input like scope predicates.
+// Default errors, display output, and [ExportReport] omit eligibility predicate
+// text and bound arguments.
+//
+// A policy pack is an ordinary Go function that returns a fresh []Expectation.
+// Callers concatenate packs and local rules in declaration order and pass the
+// flattened list to [NewSuite]. Each pack call must return independent values;
+// mutating a returned slice must not affect a later call. Flattened order is
+// pack order, then declaration order within each pack, then any caller-appended
+// expectations. A composed suite must match the identical flat list written by
+// hand, including policy fields and eligibility wrappers. Use [WithID] with
+// caller-owned conventions such as reverse-domain or pack-prefix paths
+// (for example "acme.orders.id.present"). Blank and duplicate IDs fail
+// preflight before SQL; with [ContinueOnError] they occupy declaration-order
+// slots. Library [Result.Kind] values are not caller IDs. Completed packs and
+// suites may be reused concurrently when configuration is finished and nothing
+// mutates during [Suite.ValidateTable].
+//
+//	func OrderIntegrityPack(prefix string) []gxsql.Expectation {
+//		return []gxsql.Expectation{
+//			gxsql.WithID(prefix+".id.present", gxsql.String("id").NotEmpty()),
+//			gxsql.WithID(prefix+".id.unique", gxsql.Column("id").Unique()),
+//			gxsql.WithID(prefix+".shipped_at.present", gxsql.When(
+//				gxsql.TrustedEligibility("status-shipped", "status = ?", "shipped"),
+//				gxsql.Column("shipped_at").NotNull(),
+//			)),
+//		}
+//	}
+//	suite := gxsql.NewSuite(append(
+//		OrderIntegrityPack("acme.orders"),
+//		gxsql.RowCount().GreaterOrEqual(1),
+//	)...)
+//
 // Custom count checks use [TrustedCountQuery] and [CustomCount]. The SQL
 // template is trusted Go-code input reviewed by the application, not a
 // sandbox for untrusted text; callers must never insert user-authored SQL into

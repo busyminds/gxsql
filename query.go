@@ -26,11 +26,26 @@ func finishRowsRead(ctx context.Context, rows *sql.Rows) error {
 func discoverTableColumns(
 	ctx context.Context, db DB, table TableRef, opts evalOptions,
 ) (columns []string, query string, err error) {
+	var start time.Time
+	attempted := false
+	defer func() {
+		if attempted {
+			if observerErr := opts.observer.observe(
+				start, opts.checkID, opts.checkKind,
+				QueryCategoryStructuralDiscovery, err,
+			); observerErr != nil {
+				columns = nil
+				err = observerErr
+			}
+		}
+	}()
 	tbl, err := renderTable(opts.dialect, table)
 	if err != nil {
 		return nil, "", categorizeRenderError(err)
 	}
 	query = "SELECT * FROM " + tbl + " WHERE 1 = 0"
+	start = time.Now()
+	attempted = true
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, query, categorizeExecutionError(ctx, err)
@@ -99,9 +114,34 @@ func countQuery(table, where string) (string, []any) {
 	return query, nil
 }
 
-func queryCount(ctx context.Context, db DB, table, where string, args []any) (int, error) {
+func queryScalarIntObserved(
+	ctx context.Context,
+	db DB,
+	opts evalOptions,
+	category QueryCategory,
+	query string,
+	args ...any,
+) (int, error) {
+	start := time.Now()
+	count, err := queryScalarInt(ctx, db, query, args...)
+	if observerErr := opts.observer.observe(
+		start, opts.checkID, opts.checkKind, category, err,
+	); observerErr != nil {
+		return 0, observerErr
+	}
+	return count, err
+}
+
+func queryCount(
+	ctx context.Context,
+	db DB,
+	opts evalOptions,
+	category QueryCategory,
+	table, where string,
+	args []any,
+) (int, error) {
 	query, _ := countQuery(table, where)
-	return queryScalarInt(ctx, db, query, args...)
+	return queryScalarIntObserved(ctx, db, opts, category, query, args...)
 }
 
 // loadScopedTotal issues the shared scoped COUNT(*) for the evaluated population.
@@ -114,7 +154,9 @@ func loadScopedTotal(ctx context.Context, db DB, table TableRef, opts evalOption
 	if err != nil {
 		return 0, categorizeRenderError(err)
 	}
-	total, err := queryCount(ctx, db, tbl, totalPred.where, totalPred.args)
+	total, err := queryCount(
+		ctx, db, opts, QueryCategoryTotalCount, tbl, totalPred.where, totalPred.args,
+	)
 	if err != nil {
 		return 0, categorizeExecutionError(ctx, err)
 	}
@@ -168,7 +210,9 @@ func evalPerRow(
 		return res, err
 	}
 
-	failed, err := queryCount(ctx, db, tbl, failPred.where, failPred.args)
+	failed, err := queryCount(
+		ctx, db, opts, QueryCategoryFailureCount, tbl, failPred.where, failPred.args,
+	)
 	if err != nil {
 		res := Result{Kind: kind, Name: displayName, Column: column, RowDenominator: RowDenominatorUnavailable}
 		captureDiagnostics(&res, opts, failQuery, failArgs)
@@ -221,7 +265,19 @@ func queryColumnSamplesAs(
 	pred rowPredicate,
 	opts evalOptions,
 	limit int,
-) ([]any, error) {
+) (out []any, err error) {
+	var start time.Time
+	attempted := false
+	defer func() {
+		if attempted {
+			if observerErr := opts.observer.observe(
+				start, opts.checkID, opts.checkKind, QueryCategorySample, err,
+			); observerErr != nil {
+				out = nil
+				err = observerErr
+			}
+		}
+	}()
 	quotedColumn, err := quoteIdent(opts.dialect, column)
 	if err != nil {
 		return nil, categorizeRenderError(err)
@@ -248,12 +304,13 @@ func queryColumnSamplesAs(
 	query += " LIMIT " + opts.dialect.Placeholder(len(pred.args)+1)
 
 	args := append(append([]any(nil), pred.args...), limit)
+	start = time.Now()
+	attempted = true
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, categorizeExecutionError(ctx, err)
 	}
 
-	var out []any
 	for rows.Next() {
 		var v any
 		if err := rows.Scan(&v); err != nil {
@@ -286,7 +343,19 @@ func queryFailedKeysAs(
 	table, tableAlias string,
 	opts evalOptions,
 	pred rowPredicate,
-) ([]RowKey, error) {
+) (keys []RowKey, err error) {
+	var start time.Time
+	attempted := false
+	defer func() {
+		if attempted {
+			if observerErr := opts.observer.observe(
+				start, opts.checkID, opts.checkKind, QueryCategoryFailedKeys, err,
+			); observerErr != nil {
+				keys = nil
+				err = observerErr
+			}
+		}
+	}()
 	quoted, err := quoteColumns(opts.dialect, opts.keyColumns)
 	if err != nil {
 		return nil, categorizeRenderError(err)
@@ -307,12 +376,13 @@ func queryFailedKeysAs(
 		args = append(args, opts.failedKeysCap)
 	}
 
+	start = time.Now()
+	attempted = true
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, categorizeExecutionError(ctx, err)
 	}
 
-	var keys []RowKey
 	for rows.Next() {
 		vals := make([]any, len(quoted))
 		ptrs := make([]any, len(quoted))
@@ -361,7 +431,9 @@ func evalTableCount(
 	tableQuery, _ := countQuery(tbl, scopePred.where)
 	tableArgs := append([]any(nil), scopePred.args...)
 
-	count, err := queryCount(ctx, db, tbl, scopePred.where, scopePred.args)
+	count, err := queryCount(
+		ctx, db, opts, QueryCategoryTotalCount, tbl, scopePred.where, scopePred.args,
+	)
 	if err != nil {
 		res := Result{Kind: kind, Name: label, RowDenominator: RowDenominatorUnavailable}
 		captureDiagnostics(&res, opts, tableQuery, tableArgs)
@@ -398,7 +470,9 @@ func evalDistinctCount(
 	}
 
 	args := append([]any(nil), scopePred.args...)
-	count, err := queryScalarInt(ctx, db, query, args...)
+	count, err := queryScalarIntObserved(
+		ctx, db, opts, QueryCategoryDistinctCount, query, args...,
+	)
 	if err != nil {
 		res := Result{Kind: kind, Name: label, Column: column, RowDenominator: RowDenominatorUnavailable}
 		captureDiagnostics(&res, opts, query, args)
@@ -447,7 +521,20 @@ func queryAggregateFloatWithArgs(
 	table TableRef,
 	opts evalOptions,
 	column, agg string,
-) (float64, bool, string, []any, error) {
+) (observed float64, ok bool, query string, args []any, err error) {
+	var start time.Time
+	attempted := false
+	defer func() {
+		if attempted {
+			if observerErr := opts.observer.observe(
+				start, opts.checkID, opts.checkKind, QueryCategoryAggregate, err,
+			); observerErr != nil {
+				observed = 0
+				ok = false
+				err = observerErr
+			}
+		}
+	}()
 	tbl, err := renderTable(opts.dialect, table)
 	if err != nil {
 		return 0, false, "", nil, categorizeRenderError(err)
@@ -462,11 +549,13 @@ func queryAggregateFloatWithArgs(
 		return 0, false, "", nil, categorizeRenderError(err)
 	}
 
-	query := fmt.Sprintf("SELECT %s(%s) FROM %s", agg, col, tbl)
+	query = fmt.Sprintf("SELECT %s(%s) FROM %s", agg, col, tbl)
 	if scopePred.where != "" {
 		query += " WHERE " + scopePred.where
 	}
-	args := append([]any(nil), scopePred.args...)
+	args = append([]any(nil), scopePred.args...)
+	start = time.Now()
+	attempted = true
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return 0, false, query, args, categorizeExecutionError(ctx, err)
@@ -498,15 +587,26 @@ func queryAggregateFloatWithArgs(
 
 // queryAggregateTimeWithArgs runs SELECT <agg>(column) over the scoped table and
 // scans a nullable timestamp. ok is false when the aggregate is SQL NULL
-// (empty population or all-NULL values). The returned query and args are the
-// aggregate statement only; callers capture them under CaptureQueryDiagnostics.
 func queryAggregateTimeWithArgs(
 	ctx context.Context,
 	db DB,
 	table TableRef,
 	opts evalOptions,
 	column, agg string,
-) (time.Time, bool, string, []any, error) {
+) (observed time.Time, ok bool, query string, args []any, err error) {
+	var start time.Time
+	attempted := false
+	defer func() {
+		if attempted {
+			if observerErr := opts.observer.observe(
+				start, opts.checkID, opts.checkKind, QueryCategoryAggregate, err,
+			); observerErr != nil {
+				observed = time.Time{}
+				ok = false
+				err = observerErr
+			}
+		}
+	}()
 	tbl, err := renderTable(opts.dialect, table)
 	if err != nil {
 		return time.Time{}, false, "", nil, categorizeRenderError(err)
@@ -521,11 +621,13 @@ func queryAggregateTimeWithArgs(
 		return time.Time{}, false, "", nil, categorizeRenderError(err)
 	}
 
-	query := fmt.Sprintf("SELECT %s(%s) FROM %s", agg, col, tbl)
+	query = fmt.Sprintf("SELECT %s(%s) FROM %s", agg, col, tbl)
 	if scopePred.where != "" {
 		query += " WHERE " + scopePred.where
 	}
-	args := append([]any(nil), scopePred.args...)
+	args = append([]any(nil), scopePred.args...)
+	start = time.Now()
+	attempted = true
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return time.Time{}, false, query, args, categorizeExecutionError(ctx, err)
@@ -549,7 +651,7 @@ func queryAggregateTimeWithArgs(
 	if err := finishRowsRead(ctx, rows); err != nil {
 		return time.Time{}, false, query, args, err
 	}
-	observed, ok, err := coerceScannedTime(raw)
+	observed, ok, err = coerceScannedTime(raw)
 	if err != nil {
 		return time.Time{}, false, query, args, categorizeScanError(ctx, err)
 	}
@@ -705,7 +807,20 @@ func evalCustomCount(
 		return res, err
 	}
 
+	start := time.Now()
 	count, err := queryCustomCountScalar(ctx, db, query, args...)
+	if observerErr := opts.observer.observe(
+		start, opts.checkID, opts.checkKind, QueryCategoryCustomCount, err,
+	); observerErr != nil {
+		res := Result{
+			Kind:           KindCustom,
+			Name:           displayName,
+			RowDenominator: RowDenominatorUnavailable,
+			shape:          resultShapeCustomCount,
+		}
+		captureDiagnostics(&res, opts, query, args)
+		return res, observerErr
+	}
 	if err != nil {
 		res := Result{
 			Kind:           KindCustom,

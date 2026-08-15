@@ -1,0 +1,25 @@
+{
+  "fixture": "gxsql_bench_users",
+  "seed": "execute the engine-specific SQL file in an empty database",
+  "rows": 8,
+  "columns": ["row_id", "id", "name", "value"],
+  "failure_distribution": {
+    "empty_name_rows": 1,
+    "duplicate_id_rows": 2,
+    "distinct_value_count": 4,
+    "repeated_value_groups": 4
+  },
+  "indexes": ["primary key(row_id)", "value index(value)"],
+  "engines": {
+    "postgresql": {
+      "fixture": "postgres.sql",
+      "engine_version": "record at benchmark time"
+    },
+    "sqlite": {
+      "fixture": "sqlite.sql",
+      "engine_version": "record at benchmark time"
+    }
+  },
+  "runtime_metadata": ["go version", "goos", "goarch", "cpu", "engine version"],
+  "generated_databases_committed": false
+}

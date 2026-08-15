@@ -17,6 +17,33 @@ one query each. Structural column contracts run one read-only zero-row discovery
 query (`SELECT * FROM <quoted target> WHERE 1 = 0`) and read `Rows.Columns()`;
 they do not scan row values or write schema.
 
+## Observe Query Cost Safely
+
+Attach `WithObserver(gxsql.ObserverFunc(...))` when a caller needs statement
+counts and timings:
+
+```go
+observer := gxsql.ObserverFunc(func(event gxsql.QueryEvent) {
+	log.Printf("id=%s kind=%s category=%s duration=%s status=%s",
+		event.ID, event.Kind, event.Category, event.Duration, event.Status)
+})
+
+report, err := suite.ValidateTable(ctx, db, table,
+	gxsql.WithDialect(gxsql.Postgres()),
+	gxsql.WithObserver(observer),
+)
+```
+
+The callback runs synchronously once for each attempted statement. Events
+contain check identity when supplied with `WithID`, expectation kind, typed
+query category, monotonic elapsed duration, and typed status. They do not
+contain SQL text, bound arguments, scope predicates, samples, or failed keys.
+The observer does not run extra queries to populate event fields.
+
+If the observer panics, `ValidateTable` returns a typed observer error and no
+partial report. Keep the callback short and do not make validation decisions
+from duration values without recording engine and fixture metadata.
+
 ## Use Shared Scalar Evaluation
 
 `WithSharedScalarEvaluation()` is an opt-in run option. It is off by default.
@@ -50,6 +77,29 @@ those slots.
 See the [suite reference](../reference/suite.md) for the option catalog and SQL
 integration details.
 
+## Transaction and Snapshot Ownership
+
+`gxsql` accepts `*sql.Tx` because it satisfies the narrow `DB` interface. The
+caller begins, configures, commits, rolls back, and closes the transaction:
+
+```go
+tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+if err != nil {
+	return err
+}
+defer tx.Rollback()
+
+report, err := suite.ValidateTable(ctx, tx, table,
+	gxsql.WithDialect(gxsql.Postgres()),
+)
+```
+
+Use an isolation level supported by the target engine when a consistent
+multi-statement view is required. A pooled `*sql.DB` without a caller-owned
+transaction may use different connections between statements. Do not describe
+that mode as snapshot-consistent.
+
+
 ## Limit Retained Data
 
 | Control                | Default                    | Effect                                                     |
@@ -62,6 +112,24 @@ integration details.
 Use `WithKey` when failure rates are low or an operator needs specific rows for
 remediation. Prefer summary-only results for widespread failures on large
 tables. Unbounded failed-key retention can consume unbounded process memory.
+
+## Record a Baseline
+
+The deterministic fixture definitions in `testdata/bench/` describe the
+PostgreSQL and SQLite schema, eight-row distribution, indexes, seed procedure,
+and required runtime metadata. Do not commit generated database files. Record
+engine version, Go version, operating system, architecture, and CPU with each
+comparison.
+
+Run the standard benchmarks from the module root:
+
+```bash
+go test -run '^$' -bench . -benchmem -count 5 ./...
+```
+
+Benchmark output is comparison evidence, not a performance guarantee. Query
+category counts and observer timings are the baseline; engine cost estimates
+are outside this contract.
 
 ## Avoid Oversized Membership Lists
 

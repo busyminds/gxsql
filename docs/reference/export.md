@@ -50,7 +50,10 @@ not gate `Report.OK()` or `Report.Err()`; result errors always gate.
 Export remains privacy-safe by default. Samples, failed keys, query diagnostics,
 and arguments keep their existing opt-in and redaction rules (`IncludeSamples`,
 `IncludeFailedKeys`, `IncludeCapturedDiagnostics`, `IncludeCapturedArguments`,
-and redactors).
+and redactors). Pattern expectation display names redact configured fragments and
+patterns (`has prefix (...)`, `like (...)`, `regex (...)`, and related forms);
+bound pattern arguments are not exported unless captured diagnostics are opted
+in.
 
 ## Scoped Reports and Privacy
 

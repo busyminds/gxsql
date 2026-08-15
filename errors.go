@@ -293,3 +293,48 @@ func trustedCountArityError(slots, values int) error {
 func unsupportedScopePredicateError(msg string) error {
 	return &CategorizedError{Category: CategoryUnsupported, Err: fmt.Errorf("gxsql: %s", msg)}
 }
+
+// UnsupportedCapabilityError identifies a capability the active dialect does
+// not advertise. It is returned (wrapped as [CategoryUnsupported]) when an
+// expectation such as [StringColumn.Regex] requires a dialect extension that is
+// missing. Use errors.As to inspect Kind, Dialect, and Capability.
+type UnsupportedCapabilityError struct {
+	// Kind is the expectation kind that required the capability.
+	Kind ExpectationKind
+	// Dialect is a stable label for the active dialect (for example "sqlite").
+	Dialect string
+	// Capability is the missing capability name (for example "regex").
+	Capability string
+}
+
+// Error describes the missing capability without a gxsql: prefix; callers
+// typically observe this through [CategorizedError].
+func (e *UnsupportedCapabilityError) Error() string {
+	if e == nil {
+		return "unsupported capability"
+	}
+	kind := string(e.Kind)
+	if kind == "" {
+		kind = "expectation"
+	}
+	dialect := e.Dialect
+	if dialect == "" {
+		dialect = "<unknown>"
+	}
+	capability := e.Capability
+	if capability == "" {
+		capability = "<unknown>"
+	}
+	return fmt.Sprintf("%s unsupported on dialect %s (missing capability %q)", kind, dialect, capability)
+}
+
+func unsupportedCapabilityError(kind ExpectationKind, d Dialect, capability string) error {
+	return &CategorizedError{
+		Category: CategoryUnsupported,
+		Err: &UnsupportedCapabilityError{
+			Kind:       kind,
+			Dialect:    dialectLabel(d),
+			Capability: capability,
+		},
+	}
+}

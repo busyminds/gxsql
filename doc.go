@@ -55,6 +55,20 @@
 // caps, [WithScope], [WithMaxFailedCount], declaration order, and privacy-safe
 // [ExportReport] defaults.
 //
+// Portable string pattern checks use [StringColumn.HasPrefix],
+// [StringColumn.HasSuffix], [StringColumn.Contains], [StringColumn.Like], and
+// [StringColumn.NotLike]. Prefix, suffix, and contains bind literal fragments
+// with LIKE wildcards and backslash escaped plus a dialect-safe ESCAPE clause;
+// Like and NotLike bind caller-owned patterns. [StringColumn.Regex] is available
+// only when the dialect implements [RegexDialect] with complete
+// [RegexCapability] metadata (operator/function, flags or none, match mode,
+// null behavior, Unicode limits). Built-ins: Postgres, DuckDB, and MySQL.
+// Missing or incomplete capability fails closed at suite preflight with
+// [UnsupportedCapabilityError] naming the missing field and never rewrites to
+// LIKE or issues SQL. SQL NULL fails; empty scoped populations pass vacuously.
+// Pattern literals are omitted from [ResultFacts] and export display names
+// redact them (no configured_bound serialization by default).
+//
 // Temporal checks use caller-supplied [time.Time] values only. Construct them
 // with [Timestamp]. [TimestampColumn.InWindow] is a half-open per-row window
 // (start <= value < end): SQL NULL fails, an empty scoped population passes

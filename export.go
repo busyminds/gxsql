@@ -714,6 +714,18 @@ func exportDisplayBase(res Result) string {
 		return col + " length"
 	case KindLenBetween:
 		return col + " length between"
+	case KindHasPrefix:
+		return exportPatternDisplay(col, "has prefix")
+	case KindHasSuffix:
+		return exportPatternDisplay(col, "has suffix")
+	case KindContains:
+		return exportPatternDisplay(col, "contains")
+	case KindLike:
+		return exportPatternDisplay(col, "like")
+	case KindNotLike:
+		return exportPatternDisplay(col, "not like")
+	case KindRegex:
+		return exportPatternDisplay(col, "regex")
 	case KindRowCountEqual:
 		return "row count"
 	case KindRowCountBetween:
@@ -755,6 +767,13 @@ func exportDisplayBase(res Result) string {
 		}
 		return name
 	}
+}
+
+func exportPatternDisplay(column, operation string) string {
+	if column == "" {
+		return "pattern " + operation + " (...)"
+	}
+	return column + " " + operation + " (...)"
 }
 
 func exportComparisonDisplay(res Result, relationship string) string {

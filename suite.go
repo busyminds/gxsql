@@ -209,6 +209,18 @@ func (s *Suite) ValidateTable(
 			})
 		}
 	}
+	if regexErr := regexCapabilityError(cfg.dialect); regexErr != nil {
+		for i, exp := range s.expectations {
+			if !requiresRegexDialect(exp) || pf.hasIssueAt(i) {
+				continue
+			}
+			pf.issues = append(pf.issues, PreflightIssue{
+				Index: i,
+				ID:    expectationID(exp),
+				Err:   regexErr,
+			})
+		}
+	}
 	if cfg.hasScope {
 		for i, exp := range s.expectations {
 			if !isStructuralExpectation(exp) || pf.hasIssueAt(i) {

@@ -27,6 +27,9 @@ var (
 	tableAliasRe  = regexp.MustCompile(`(?is)^(.+?)\s+AS\s+(.+)$`)
 	crossColumnRe = regexp.MustCompile(`(?is)^(.+?)\s*(<=|>=|<>|=|<|>)\s*(.+)$`)
 	ratioEqualRe  = regexp.MustCompile(`(?is)^(.+?)\s*<>\s*(.+?)\s*\*\s*(\$\d+|\?)$`)
+	likeAtomRe    = regexp.MustCompile(`(?is)^(.+?)\s+(NOT\s+LIKE|LIKE)\s+(\$\d+|\?|.+?)(?:\s+ESCAPE\s+'((?:\\'|[^'])*)')?\s*$`)
+	regexAtomRe   = regexp.MustCompile(`(?is)^(.+?)\s*(~|REGEXP)\s*(\$\d+|\?|.+)$`)
+	notParenRe    = regexp.MustCompile(`(?is)^NOT\s*\((.+)\)$`)
 )
 
 func executeHarnessQuery(query string, args []any, tables map[string][]map[string]any, schemas map[string][]string) ([]string, [][]driver.Value, error) {
@@ -508,6 +511,10 @@ func evalWhereAtom(atom string, args []any, row map[string]any, tableRef string,
 		return rowMatchesWhere(inner, args, row, tableRef, allRows, tables)
 	}
 
+	if m := notParenRe.FindStringSubmatch(atom); m != nil {
+		return !rowMatchesWhere(strings.TrimSpace(m[1]), args, row, tableRef, allRows, tables)
+	}
+
 	if m := notExistsRe.FindStringSubmatch(atom); m != nil {
 		return evalNotExists(strings.TrimSpace(m[1]), strings.TrimSpace(m[2]), row, tables)
 	}
@@ -519,6 +526,32 @@ func evalWhereAtom(atom string, args []any, row map[string]any, tableRef string,
 	if before, ok := strings.CutSuffix(atom, " IS NOT NULL"); ok {
 		col := unquoteIdent(stripQualification(before))
 		return row[col] != nil
+	}
+
+	if m := likeAtomRe.FindStringSubmatch(atom); m != nil {
+		col := unquoteIdent(stripQualification(m[1]))
+		if row[col] == nil {
+			return false
+		}
+		negate := strings.EqualFold(strings.Join(strings.Fields(m[2]), " "), "NOT LIKE")
+		pattern := fmt.Sprint(resolveBound(strings.TrimSpace(m[3]), args))
+		matched := matchSQLLike(fmt.Sprint(row[col]), pattern, decodeLikeEscape(m[4]))
+		if negate {
+			return !matched
+		}
+		return matched
+	}
+
+	if m := regexAtomRe.FindStringSubmatch(atom); m != nil {
+		col := unquoteIdent(stripQualification(m[1]))
+		if row[col] == nil {
+			return false
+		}
+		re, err := regexp.Compile(fmt.Sprint(resolveBound(strings.TrimSpace(m[3]), args)))
+		if err != nil {
+			return false
+		}
+		return re.MatchString(fmt.Sprint(row[col]))
 	}
 
 	if m := regexp.MustCompile(`^(.+?) = ''$`).FindStringSubmatch(atom); m != nil {
@@ -919,5 +952,56 @@ func correlatedValue(ref string, parentRow, localRow map[string]any) any {
 			return v
 		}
 		return localRow[col]
+	}
+}
+
+// decodeLikeEscape normalizes ESCAPE clause text from rendered LIKE SQL.
+func decodeLikeEscape(raw string) string {
+	if raw == "" {
+		return `\`
+	}
+	// MySQL renders ESCAPE '\\' so the SQL text carries two backslashes for one escape char.
+	return strings.ReplaceAll(raw, `\\`, `\`)
+}
+
+func matchSQLLike(value, pattern, escape string) bool {
+	esc := '\\'
+	if escape != "" {
+		esc = []rune(escape)[0]
+	}
+	return matchSQLLikeRunes([]rune(value), []rune(pattern), esc)
+}
+
+func matchSQLLikeRunes(value, pattern []rune, esc rune) bool {
+	if len(pattern) == 0 {
+		return len(value) == 0
+	}
+	if pattern[0] == esc {
+		if len(pattern) == 1 {
+			return len(value) == 1 && value[0] == esc
+		}
+		if len(value) == 0 || value[0] != pattern[1] {
+			return false
+		}
+		return matchSQLLikeRunes(value[1:], pattern[2:], esc)
+	}
+	switch pattern[0] {
+	case '%':
+		for i := 0; i <= len(value); i++ {
+			if matchSQLLikeRunes(value[i:], pattern[1:], esc) {
+				return true
+			}
+		}
+		return false
+	case '_':
+		if len(value) == 0 {
+			return false
+		}
+		return matchSQLLikeRunes(value[1:], pattern[1:], esc)
+	default:
+		if len(value) == 0 || value[0] != pattern[0] {
+			return false
+		}
+		return matchSQLLikeRunes(value[1:], pattern[1:], esc)
 	}
 }

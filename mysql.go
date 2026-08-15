@@ -3,7 +3,8 @@ package gxsql
 type mysqlDialect struct{}
 
 // MySQL returns the MySQL [Dialect]. Identifiers are backtick-quoted after
-// validation; placeholders are ?; string length uses CHAR_LENGTH. Pair with
+// validation; placeholders are ?; string length uses CHAR_LENGTH. It
+// advertises [RegexDialect] with the REGEXP substring operator. Pair with
 // [WithDialect] when validating MySQL tables.
 func MySQL() Dialect { return mysqlDialect{} }
 

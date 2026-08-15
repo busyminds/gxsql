@@ -331,7 +331,8 @@ suite := gxsql.NewSuite(
 ## String Columns
 
 `String(name string) StringColumn` starts string-specific checks. SQL `NULL`
-fails each string policy.
+fails each string policy. Empty tables and empty scoped populations pass
+vacuously.
 
 | Method                   | Policy                                                  |
 | ------------------------ | ------------------------------------------------------- |
@@ -339,9 +340,82 @@ fails each string policy.
 | `Empty()`                | Every string is empty.                                  |
 | `LenEqual(n int)`        | Every database string length equals `n`.                |
 | `LenBetween(lo, hi int)` | Every database string length is in the inclusive range. |
+| `HasPrefix(prefix)`      | Value starts with the literal fragment `prefix`.        |
+| `HasSuffix(suffix)`      | Value ends with the literal fragment `suffix`.          |
+| `Contains(substr)`       | Value contains the literal fragment `substr`.           |
+| `Like(pattern)`          | Value matches the caller-owned SQL `LIKE` pattern.      |
+| `NotLike(pattern)`       | Value does not match the caller-owned SQL `LIKE` pattern. |
+| `Regex(pattern)`         | Value matches under a dialect-advertised regex capability. |
 
 Length uses the dialect's SQL length expression—`CHAR_LENGTH` or `LENGTH`—not Go
 rune counting.
+
+### Portable LIKE-Family Patterns
+
+`HasPrefix`, `HasSuffix`, and `Contains` treat the argument as a **literal
+fragment**. Before rendering SQL `LIKE`, gxsql escapes backslash, `%`, and `_` and
+adds a dialect-safe `ESCAPE` clause so caller data never becomes wildcards by
+default. The fragment is then wrapped with `%` as needed (`prefix%`, `%suffix`,
+or `%substr%`) and bound as a placeholder.
+
+`Like` and `NotLike` treat the argument as a **raw SQL LIKE pattern**. Callers
+own wildcards; gxsql binds the pattern without automatic escaping and without an
+`ESCAPE` clause. Use these when you intentionally need `%` / `_` metacharacters.
+
+All five builders validate identifiers, bind values as placeholders, honor
+`WithScope`, publish distinct kinds (`has_prefix`, `has_suffix`, `contains`,
+`like`, `not_like`), set `Result.Column`, and remain eligible for
+`WithMaxFailedCount`. Case folding follows the engine and collation; gxsql does
+not claim portable case-insensitive matching.
+
+```go
+gxsql.String("code").HasPrefix("ACME-")
+gxsql.String("path").Contains("/inbox/")
+gxsql.String("email").Like("%@example.com")
+gxsql.String("sku").NotLike("%-TMP")
+```
+
+gxsql does not ship email, URL, phone, or other format-catalog builders. Express
+formats with `Like`, capability-gated `Regex`, or `CustomCount` recipes.
+
+### Capability-Gated Regex
+
+`Regex(pattern)` runs only when the selected dialect implements
+`RegexDialect` and advertises a complete `RegexCapability` (name, operator or
+function, flags, match mode, null behavior, and Unicode limits). Built-in
+support:
+
+| Dialect    | Advertised? | Operator | Match mode |
+| ---------- | ----------- | -------- | ---------- |
+| `Postgres` | yes         | `~`      | substring  |
+| `DuckDB`   | yes         | `~`      | substring  |
+| `MySQL`    | yes         | `REGEXP` | substring  |
+| `SQLite`   | no          | —        | —          |
+
+Unsupported dialects fail closed at suite preflight with
+`CategoryUnsupported` and an `UnsupportedCapabilityError` naming kind
+`regex`, the dialect label, and capability `regex`. No SQL runs, and gxsql never
+rewrites regex to `LIKE`. Under `ContinueOnError`, the same static capability
+failure occupies the declaration-order slot as `Result.Err` before later rules
+execute.
+
+Advertised engines still differ in flags, Unicode, and regex dialect. gxsql
+documents per-dialect metadata and does not claim cross-engine regex parity.
+Anchor patterns yourself when you need a whole-string match under substring
+operators.
+
+```go
+gxsql.String("ref").Regex(`^[A-Z]{3}-[0-9]+$`)
+```
+
+### Pattern Export Privacy
+
+Pattern literals appear in in-memory `Result.Name` for local debugging. Default
+`ExportReport` display names redact them to forms such as `code has prefix
+(...)`, `path contains (...)`, `email like (...)`, and `ref regex (...)`. Bound
+pattern arguments stay out of default export; capture them only with
+`CaptureQueryDiagnostics` plus opt-in diagnostic export. Samples and failed keys
+keep their existing opt-in rules.
 
 ## Custom Counts
 
@@ -386,8 +460,8 @@ preflight.
 `WithMaxFailedCount(max int, exp Expectation)` remains the inclusive
 non-negative maximum failed-row count form. It applies to the same eligible
 per-row, uniqueness, and referential-integrity shapes, including composite
-uniqueness, same-row comparisons, ratios, numeric bounds, string checks, and
-timestamp windows. Existing count-tolerance behavior is unchanged.
+uniqueness, same-row comparisons, ratios, numeric bounds, string and pattern
+checks, and timestamp windows. Existing count-tolerance behavior is unchanged.
 
 Tolerance changes only the policy verdict after the inner expectation evaluates
 once. Raw `Total`, `FailedCount`, `FailedPercent`, samples, and failed keys

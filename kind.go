@@ -107,6 +107,9 @@ const (
 	// KindExactColumns marks an expectation from ExactColumns.
 	KindExactColumns ExpectationKind = "exact_columns"
 
+	// KindReconcileCountsEqual marks an expectation from ReconcileCounts().Equal.
+	KindReconcileCountsEqual ExpectationKind = "reconcile_counts_equal"
+
 	// KindCustom is the explicit kind for expectations without built-in metadata.
 	KindCustom ExpectationKind = "custom"
 )

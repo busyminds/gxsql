@@ -301,6 +301,52 @@ func TestExportUnqualifiedReferenceParentTargetShape(t *testing.T) {
 	}
 }
 
+func TestExportReferenceParentFilterIdentityOmitsPredicateAndArgs(t *testing.T) {
+	rep := Report{Results: []Result{{
+		Kind: KindReference,
+		Facts: ResultFacts{
+			Reference: &ReferenceFacts{
+				LocalColumns:   []string{"customer_id"},
+				Parent:         Table("customers"),
+				ParentColumns:  []string{"id"},
+				ParentFilterID: "customers-active",
+			},
+		},
+		diagnostics: &resultDiagnostics{
+			query: `SELECT 1 FROM "orders" WHERE NOT EXISTS (SELECT 1 FROM "customers" AS "__gx_parent" WHERE status = $1)`,
+			args:  []any{"active-secret"},
+		},
+	}}}
+
+	dto, err := ExportReport(rep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := dto.Results[0].Facts.Reference
+	if ref == nil || ref.ParentFilterID != "customers-active" {
+		t.Fatalf("ParentFilterID = %#v", ref)
+	}
+	data, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if !strings.Contains(s, `"parent_filter_id":"customers-active"`) {
+		t.Fatalf("export missing parent_filter_id: %s", s)
+	}
+	for _, forbidden := range []string{
+		"active-secret",
+		"status =",
+		`"predicate"`,
+		`"args"`,
+		"diagnostics",
+	} {
+		if strings.Contains(s, forbidden) {
+			t.Fatalf("default export leaked %q in %s", forbidden, s)
+		}
+	}
+}
+
 func stringSlicesEqual(got, want []string) bool {
 	if len(got) != len(want) {
 		return false

@@ -21,7 +21,7 @@ type DB interface {
 
 // Expectation is the sealed unit of SQL validation over a table. Construct
 // expectations with the RowCount, RequiredColumns, ExactColumns, column,
-// aggregate, temporal, and CustomCount builders; its unexported methods prevent
+// aggregate, temporal, CustomCount, and ReconcileCounts builders; its unexported methods prevent
 // implementations outside package gxsql. The [Name] method supplies display
 // text, while [Suite.ValidateTable] reports a library-defined [Result.Kind].
 // Attach a stable result ID with [WithID].

@@ -80,7 +80,8 @@ func assertScopedQueries(t *testing.T, db *recordingDB, scopeColumn string, time
 // Config supplies an engine fixture to Run. Table and EmptyTable must expose
 // the baseline columns plus paid_cents, invoice_cents, start_at, end_at,
 // actual_units, and planned_units. ParentTable is the schema-qualified
-// customers parent used by relational key integrity checks.
+// customers parent used by relational key integrity checks and must expose a
+// status column for parent-filter include/exclude coverage.
 type Config struct {
 	DB          gxsql.DB
 	Dialect     gxsql.Dialect

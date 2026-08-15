@@ -75,3 +75,58 @@ func TestGenericKindCustomStringUnchanged(t *testing.T) {
 		t.Fatalf("generic KindCustom missing row denominator render: %q", got)
 	}
 }
+
+func TestResultStringReconcileCountsUnequal(t *testing.T) {
+	res := Result{
+		Kind:           KindReconcileCountsEqual,
+		Name:           "reconcile counts equal orders: left=2 right=1",
+		Success:        false,
+		RowDenominator: RowDenominatorUnavailable,
+		FailedCount:    1,
+		Facts: ResultFacts{Reconcile: &ReconcileFacts{
+			Left:               Table("users"),
+			Right:              Table("orders"),
+			ObservedLeftCount:  intFact(2),
+			ObservedRightCount: intFact(1),
+			Relationship:       reconcileRelationshipEqual,
+		}},
+		shape: resultShapeReconcileCounts,
+	}
+
+	got := res.String()
+	want := "✗ reconcile counts equal orders: left=2 right=1  1 failed"
+	if got != want {
+		t.Fatalf("String() = %q, want %q", got, want)
+	}
+	if !strings.Contains(got, "1 failed") {
+		t.Fatalf("String() = %q missing failure count", got)
+	}
+	for _, banned := range []string{"1/0", "%", "e.g.", " @ "} {
+		if strings.Contains(got, banned) {
+			t.Fatalf("String() = %q contains banned %q", got, banned)
+		}
+	}
+}
+
+func TestResultStringReconcileCountsEqual(t *testing.T) {
+	res := Result{
+		Kind:           KindReconcileCountsEqual,
+		Name:           "reconcile counts equal orders: left=2 right=2",
+		Success:        true,
+		RowDenominator: RowDenominatorUnavailable,
+		FailedCount:    0,
+		Facts: ResultFacts{Reconcile: &ReconcileFacts{
+			Left:               Table("users"),
+			Right:              Table("orders"),
+			ObservedLeftCount:  intFact(2),
+			ObservedRightCount: intFact(2),
+			Relationship:       reconcileRelationshipEqual,
+		}},
+		shape: resultShapeReconcileCounts,
+	}
+	got := res.String()
+	want := "✓ reconcile counts equal orders: left=2 right=2"
+	if got != want {
+		t.Fatalf("String() = %q, want %q", got, want)
+	}
+}

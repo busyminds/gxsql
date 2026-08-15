@@ -181,6 +181,14 @@ var (
 	errEligibilityPredicateRequired      = errors.New("eligibility predicate is required")
 	errEligibilityValuesWithoutPredicate = errors.New("eligibility values require a predicate")
 
+	errParentFilterIdentityRequired       = errors.New("parent filter identity is required")
+	errParentFilterPredicateRequired      = errors.New("parent filter predicate is required")
+	errParentFilterValuesWithoutPredicate = errors.New("parent filter values require a predicate")
+
+	errSecondaryFilterIdentityRequired       = errors.New("secondary filter identity is required")
+	errSecondaryFilterPredicateRequired      = errors.New("secondary filter predicate is required")
+	errSecondaryFilterValuesWithoutPredicate = errors.New("secondary filter values require a predicate")
+
 	errTrustedCountTargetMarkerRequired         = errors.New("trusted count template requires exactly one {{target}} marker")
 	errTrustedCountScopeMarkerRequired          = errors.New("trusted count template requires exactly one {{scope}} marker")
 	errTrustedCountDuplicateTargetMarker        = errors.New("trusted count template has duplicate {{target}} marker")

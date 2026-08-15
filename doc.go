@@ -11,7 +11,10 @@
 //		gxsql.Columns("tenant_id", "order_id").Unique(),
 //		gxsql.Columns("tenant_id", "customer_id").References(
 //			gxsql.SchemaTable("public", "customers"), "tenant_id", "id",
+//		).WithParentFilter(
+//			gxsql.TrustedParentFilter("customers-active", "status = ?", "active"),
 //		),
+//		gxsql.ReconcileCounts(gxsql.Table("orders_served")).Equal(),
 //		gxsql.Column("end_date").GreaterOrEqualColumn("start_date"),
 //		gxsql.Column("paid_cents").LessOrEqualColumn("invoice_cents"),
 //		gxsql.Int("actual_units").RatioEqual("planned_units", 2),
@@ -34,9 +37,14 @@
 // Composite uniqueness ([Columns].Unique) ignores tuples with any NULL
 // component and counts every duplicate participating row. Referential checks
 // ([Columns].References / [Column].References) pass any-NULL local tuples,
-// count orphaned complete local rows, apply [WithScope] only to the local
-// table, and leave parent lookup unscoped. Results leave [Result.Column]
-// blank and publish [ResultFacts.KeyColumns] or [ResultFacts.Reference].
+// count orphaned complete local rows, and apply [WithScope] only to the local
+// table. Parent lookup never reuses suite scope; narrow parents with
+// [TrustedParentFilter] and WithParentFilter on the value returned by
+// [ColumnsBuilder.References] or [ColumnBuilder.References]. [ParentFilter] is
+// distinct from [Scope] and [SecondaryFilter]. Filter identity is published as
+// [ReferenceFacts.ParentFilterID]; predicate text and args are never published
+// by default. Results leave [Result.Column] blank and publish
+// [ResultFacts.KeyColumns] or [ResultFacts.Reference].
 // Same-row relationships use fixed [ColumnBuilder] methods
 // ([ColumnBuilder.EqualColumn], [ColumnBuilder.NotEqualColumn],
 // [ColumnBuilder.LessThanColumn], [ColumnBuilder.LessOrEqualColumn],
@@ -162,11 +170,12 @@
 //
 // [When] wraps exactly one expectation. Nested eligibility fails preflight.
 // Supported shapes are ordinary per-row, uniqueness, composite uniqueness, and
-// referential-integrity expectations. Table-level, aggregate, distinct-count,
-// custom-count, and structural expectations reject eligibility at preflight.
-// Eligibility predicates are trusted Go-code input like scope predicates.
-// Default errors, display output, and [ExportReport] omit eligibility predicate
-// text and bound arguments.
+// referential-integrity expectations, including parent-filtered references.
+// Table-level, aggregate, distinct-count, custom-count, reconcile-count, and
+// structural expectations reject eligibility at preflight. Eligibility
+// predicates are trusted Go-code input like scope predicates. Default errors,
+// display output, and [ExportReport] omit eligibility predicate text and bound
+// arguments.
 //
 // A policy pack is an ordinary Go function that returns a fresh []Expectation.
 // Callers concatenate packs and local rules in declaration order and pass the
@@ -196,6 +205,22 @@
 //		OrderIntegrityPack("acme.orders"),
 //		gxsql.RowCount().GreaterOrEqual(1),
 //	)...)
+//
+// Suite-bound dual COUNT(*) equality uses [ReconcileCounts], optional
+// [ReconcileCountsBuilder.WithSecondaryFilter] with [TrustedSecondaryFilter],
+// and [ReconcileCountsBuilder.Equal]. The ValidateTable target is always the
+// left side; secondary is explicit. [WithScope] applies only to the left
+// COUNT(*). Equality yields FailedCount 0; inequality yields FailedCount 1.
+// Results use [KindReconcileCountsEqual], set [RowDenominatorUnavailable],
+// publish [ResultFacts.Reconcile] with optional [ReconcileFacts.LeftScopeID] and
+// [ReconcileFacts.SecondaryFilterID], and never retain samples or failed keys.
+// Predicate text and bound arguments stay out of default facts, display output,
+// and [ExportReport]. [WithMaxFailedCount] and [MaxFailedPercent] are not
+// eligible for reconcile expectations.
+//
+// Prefer [ReconcileCounts] for dual COUNT(*) equality. Remain on [CustomCount]
+// for joins, GROUP BY / HAVING, non-COUNT(*) aggregates, non-equality
+// relationships, and other exotic cross-table recipes.
 //
 // Custom count checks use [TrustedCountQuery] and [CustomCount]. The SQL
 // template is trusted Go-code input reviewed by the application, not a
@@ -228,9 +253,11 @@
 //
 // [MaxFailedPercent] is an inclusive unrounded failed-row percentage in the
 // range [0, 100]. It applies to per-row, uniqueness, and referential-integrity
-// expectations with [RowDenominatorAvailable]. Empty populations pass without a
-// fabricated percentage and are never tolerated. [WithMaxFailedCount] remains
-// the inclusive count form and keeps its existing eligible shapes and behavior.
+// expectations with [RowDenominatorAvailable], including parent-filtered
+// references. Empty populations pass without a fabricated percentage and are
+// never tolerated. [WithMaxFailedCount] remains the inclusive count form and
+// keeps its existing eligible shapes and behavior. Custom-count and
+// reconcile-count expectations remain ineligible for either tolerance form.
 // Tolerance changes only the policy verdict; raw totals, failed counts,
 // percentages, samples, keys, and structured facts remain complete under their
 // existing caps. A nonzero raw failure within an allowance sets [Result.Tolerated].

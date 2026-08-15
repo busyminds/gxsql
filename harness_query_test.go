@@ -516,7 +516,7 @@ func evalWhereAtom(atom string, args []any, row map[string]any, tableRef string,
 	}
 
 	if m := notExistsRe.FindStringSubmatch(atom); m != nil {
-		return evalNotExists(strings.TrimSpace(m[1]), strings.TrimSpace(m[2]), row, tables)
+		return evalNotExists(strings.TrimSpace(m[1]), strings.TrimSpace(m[2]), args, row, tables)
 	}
 
 	if before, ok := strings.CutSuffix(atom, " IS NULL"); ok {
@@ -900,36 +900,71 @@ func stripQualification(ref string) string {
 	return ref
 }
 
-func evalNotExists(from, where string, localRow map[string]any, tables map[string][]map[string]any) bool {
+func evalNotExists(from, where string, args []any, localRow map[string]any, tables map[string][]map[string]any) bool {
 	parentRows, err := resolveTable(from, tables)
 	if err != nil {
 		return false
 	}
 	for _, parentRow := range parentRows {
-		if correlatedRowMatch(where, parentRow, localRow) {
+		if correlatedRowMatch(where, args, parentRow, localRow, tables) {
 			return false
 		}
 	}
 	return true
 }
 
-func correlatedRowMatch(where string, parentRow, localRow map[string]any) bool {
+func correlatedRowMatch(where string, args []any, parentRow, localRow map[string]any, tables map[string][]map[string]any) bool {
 	where = collapseSpaces(where)
 	for _, part := range splitTopLevel(where, " AND ") {
 		part = strings.TrimSpace(part)
-		m := regexp.MustCompile(`^(.+?)\s*=\s*(.+)$`).FindStringSubmatch(part)
-		if m == nil {
-			return false
+		if isJoin, matched := tryCorrelatedEquality(part, parentRow, localRow); isJoin {
+			if !matched {
+				return false
+			}
+			continue
 		}
-		left := strings.TrimSpace(m[1])
-		right := strings.TrimSpace(m[2])
-		lv := correlatedValue(left, parentRow, localRow)
-		rv := correlatedValue(right, parentRow, localRow)
-		if lv == nil || rv == nil || !valuesEqual(lv, rv) {
+		// Parent-side filter atoms (bounds, status checks, etc.) evaluate
+		// against the parent row using the outer argument list.
+		if !evalWhereAtom(part, args, parentRow, "", nil, tables) {
 			return false
 		}
 	}
 	return true
+}
+
+func tryCorrelatedEquality(part string, parentRow, localRow map[string]any) (isJoin bool, matched bool) {
+	m := regexp.MustCompile(`^(.+?)\s*=\s*(.+)$`).FindStringSubmatch(part)
+	if m == nil {
+		return false, false
+	}
+	left := strings.TrimSpace(m[1])
+	right := strings.TrimSpace(m[2])
+	if isBoundToken(right) || isBoundToken(left) {
+		return false, false
+	}
+	lv := correlatedValue(left, parentRow, localRow)
+	rv := correlatedValue(right, parentRow, localRow)
+	if lv == nil || rv == nil || !valuesEqual(lv, rv) {
+		return true, false
+	}
+	return true, true
+}
+
+func isBoundToken(token string) bool {
+	token = strings.TrimSpace(token)
+	if token == "?" || strings.HasPrefix(token, "$") {
+		return true
+	}
+	if strings.HasPrefix(token, "'") && strings.HasSuffix(token, "'") {
+		return true
+	}
+	if _, err := strconv.ParseInt(token, 10, 64); err == nil {
+		return true
+	}
+	if _, err := strconv.ParseFloat(token, 64); err == nil {
+		return true
+	}
+	return false
 }
 
 func correlatedValue(ref string, parentRow, localRow map[string]any) any {

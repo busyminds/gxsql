@@ -185,6 +185,88 @@ func TestMySQLConformance(t *testing.T) {
 	})
 }
 
+func TestSQLiteReconcileConformance(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:gxsql_reconcile?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+	setupSQLiteReconcile(t, db)
+
+	conformance.RunReconcile(t, conformance.ReconcileConfig{
+		DB:         db,
+		Dialect:    gxsql.SQLite(),
+		Left:       gxsql.Table("reconcile_left"),
+		Right:      gxsql.Table("reconcile_right"),
+		EmptyLeft:  gxsql.Table("empty_reconcile_left"),
+		EmptyRight: gxsql.Table("empty_reconcile_right"),
+	})
+}
+
+func TestDuckDBReconcileConformance(t *testing.T) {
+	db, err := sql.Open("duckdb", "")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+	setupDuckDBReconcile(t, db)
+
+	conformance.RunReconcile(t, conformance.ReconcileConfig{
+		DB:         db,
+		Dialect:    gxsql.DuckDB(),
+		Left:       gxsql.Table("reconcile_left"),
+		Right:      gxsql.Table("reconcile_right"),
+		EmptyLeft:  gxsql.Table("empty_reconcile_left"),
+		EmptyRight: gxsql.Table("empty_reconcile_right"),
+	})
+}
+
+func TestPostgresReconcileConformance(t *testing.T) {
+	dsn := os.Getenv("GXSQL_POSTGRES_DSN")
+	if dsn == "" {
+		t.Fatal("GXSQL_POSTGRES_DSN is not set")
+	}
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	setupPostgresReconcile(t, db)
+
+	conformance.RunReconcile(t, conformance.ReconcileConfig{
+		DB:         db,
+		Dialect:    gxsql.Postgres(),
+		Left:       gxsql.SchemaTable("public", "reconcile_left"),
+		Right:      gxsql.SchemaTable("public", "reconcile_right"),
+		EmptyLeft:  gxsql.SchemaTable("public", "empty_reconcile_left"),
+		EmptyRight: gxsql.SchemaTable("public", "empty_reconcile_right"),
+	})
+}
+
+func TestMySQLReconcileConformance(t *testing.T) {
+	dsn := os.Getenv("GXSQL_MYSQL_DSN")
+	if dsn == "" {
+		t.Fatal("GXSQL_MYSQL_DSN is not set")
+	}
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	setupMySQLReconcile(t, db)
+
+	conformance.RunReconcile(t, conformance.ReconcileConfig{
+		DB:         db,
+		Dialect:    gxsql.MySQL(),
+		Left:       gxsql.SchemaTable("gxsql", "reconcile_left"),
+		Right:      gxsql.SchemaTable("gxsql", "reconcile_right"),
+		EmptyLeft:  gxsql.SchemaTable("gxsql", "empty_reconcile_left"),
+		EmptyRight: gxsql.SchemaTable("gxsql", "empty_reconcile_right"),
+	})
+}
+
 func transactionFactory(db *sql.DB) func(context.Context) (gxsql.DB, func() error, error) {
 	return func(ctx context.Context) (gxsql.DB, func() error, error) {
 		tx, err := db.BeginTx(ctx, nil)
@@ -198,7 +280,7 @@ func transactionFactory(db *sql.DB) func(context.Context) (gxsql.DB, func() erro
 func setupSQLite(t *testing.T, db *sql.DB) {
 	t.Helper()
 	for _, query := range []string{
-		`CREATE TABLE customers (tenant_id TEXT NOT NULL, id INTEGER NOT NULL, PRIMARY KEY (tenant_id, id))`,
+		`CREATE TABLE customers (tenant_id TEXT NOT NULL, id INTEGER NOT NULL, status TEXT NOT NULL, PRIMARY KEY (tenant_id, id))`,
 		`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER, score REAL, nullable TEXT, payload BLOB, tenant_id TEXT, batch_id INTEGER, event_at TIMESTAMP, order_id TEXT, customer_id INTEGER, paid_cents INTEGER, invoice_cents INTEGER, start_at TIMESTAMP, end_at TIMESTAMP, actual_units INTEGER, planned_units INTEGER)`,
 		`CREATE TABLE empty_users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER, score REAL, nullable TEXT, payload BLOB, tenant_id TEXT, batch_id INTEGER, event_at TIMESTAMP, order_id TEXT, customer_id INTEGER, paid_cents INTEGER, invoice_cents INTEGER, start_at TIMESTAMP, end_at TIMESTAMP, actual_units INTEGER, planned_units INTEGER)`,
 		`CREATE TABLE cross_column_rows (id INTEGER PRIMARY KEY, paid_cents INTEGER, invoice_cents INTEGER, start_at TIMESTAMP, end_at TIMESTAMP, actual_units INTEGER, planned_units INTEGER, label TEXT, amount INTEGER)`,
@@ -235,7 +317,7 @@ func setupDuckDB(t *testing.T, db *sql.DB) {
 		}
 	}
 	for _, query := range []string{
-		`CREATE TABLE customers (tenant_id VARCHAR NOT NULL, id BIGINT NOT NULL, PRIMARY KEY (tenant_id, id))`,
+		`CREATE TABLE customers (tenant_id VARCHAR NOT NULL, id BIGINT NOT NULL, status VARCHAR NOT NULL, PRIMARY KEY (tenant_id, id))`,
 		`CREATE TABLE users (id BIGINT PRIMARY KEY, name VARCHAR, age INTEGER, score DOUBLE, nullable VARCHAR, payload BLOB, tenant_id VARCHAR, batch_id BIGINT, event_at TIMESTAMPTZ, order_id VARCHAR, customer_id BIGINT, paid_cents BIGINT, invoice_cents BIGINT, start_at TIMESTAMP, end_at TIMESTAMP, actual_units BIGINT, planned_units BIGINT)`,
 		`CREATE TABLE empty_users (id BIGINT PRIMARY KEY, name VARCHAR, age INTEGER, score DOUBLE, nullable VARCHAR, payload BLOB, tenant_id VARCHAR, batch_id BIGINT, event_at TIMESTAMPTZ, order_id VARCHAR, customer_id BIGINT, paid_cents BIGINT, invoice_cents BIGINT, start_at TIMESTAMP, end_at TIMESTAMP, actual_units BIGINT, planned_units BIGINT)`,
 		`CREATE TABLE cross_column_rows (id BIGINT PRIMARY KEY, paid_cents BIGINT, invoice_cents BIGINT, start_at TIMESTAMP, end_at TIMESTAMP, actual_units BIGINT, planned_units BIGINT, label VARCHAR, amount BIGINT)`,
@@ -263,7 +345,7 @@ func setupPostgres(t *testing.T, db *sql.DB) {
 		t.Fatalf("PostgreSQL timezone: %v", err)
 	}
 	for _, query := range []string{
-		`CREATE TABLE public.customers (tenant_id TEXT NOT NULL, id BIGINT NOT NULL, PRIMARY KEY (tenant_id, id))`,
+		`CREATE TABLE public.customers (tenant_id TEXT NOT NULL, id BIGINT NOT NULL, status TEXT NOT NULL, PRIMARY KEY (tenant_id, id))`,
 		`CREATE TABLE public.users (id BIGINT PRIMARY KEY, name TEXT, age INTEGER, score DOUBLE PRECISION, nullable TEXT, payload BYTEA, tenant_id TEXT, batch_id BIGINT, event_at TIMESTAMP WITH TIME ZONE, order_id TEXT, customer_id BIGINT, paid_cents BIGINT, invoice_cents BIGINT, start_at TIMESTAMP WITH TIME ZONE, end_at TIMESTAMP WITH TIME ZONE, actual_units BIGINT, planned_units BIGINT)`,
 		`CREATE TABLE public.empty_users (id BIGINT PRIMARY KEY, name TEXT, age INTEGER, score DOUBLE PRECISION, nullable TEXT, payload BYTEA, tenant_id TEXT, batch_id BIGINT, event_at TIMESTAMP WITH TIME ZONE, order_id TEXT, customer_id BIGINT, paid_cents BIGINT, invoice_cents BIGINT, start_at TIMESTAMP WITH TIME ZONE, end_at TIMESTAMP WITH TIME ZONE, actual_units BIGINT, planned_units BIGINT)`,
 		`CREATE TABLE public.cross_column_rows (id BIGINT PRIMARY KEY, paid_cents BIGINT, invoice_cents BIGINT, start_at TIMESTAMP WITH TIME ZONE, end_at TIMESTAMP WITH TIME ZONE, actual_units BIGINT, planned_units BIGINT, label TEXT, amount BIGINT)`,
@@ -298,7 +380,7 @@ func setupMySQL(t *testing.T, db *sql.DB) {
 		`DROP TABLE IF EXISTS structural_case`,
 		`DROP TABLE IF EXISTS utf8_char_length`,
 		`SET time_zone = '+00:00'`,
-		`CREATE TABLE customers (tenant_id VARCHAR(255) NOT NULL, id BIGINT NOT NULL, PRIMARY KEY (tenant_id, id)) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
+		`CREATE TABLE customers (tenant_id VARCHAR(255) NOT NULL, id BIGINT NOT NULL, status VARCHAR(32) NOT NULL, PRIMARY KEY (tenant_id, id)) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
 		`CREATE TABLE users (id BIGINT PRIMARY KEY, name VARCHAR(255), age INTEGER, score DOUBLE, nullable TEXT, payload BLOB, tenant_id VARCHAR(255), batch_id BIGINT, event_at DATETIME(6), order_id VARCHAR(255), customer_id BIGINT, paid_cents BIGINT, invoice_cents BIGINT, start_at DATETIME(6), end_at DATETIME(6), actual_units BIGINT, planned_units BIGINT) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
 		`CREATE TABLE empty_users (id BIGINT PRIMARY KEY, name VARCHAR(255), age INTEGER, score DOUBLE, nullable TEXT, payload BLOB, tenant_id VARCHAR(255), batch_id BIGINT, event_at DATETIME(6), order_id VARCHAR(255), customer_id BIGINT, paid_cents BIGINT, invoice_cents BIGINT, start_at DATETIME(6), end_at DATETIME(6), actual_units BIGINT, planned_units BIGINT) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
 		`CREATE TABLE cross_column_rows (id BIGINT PRIMARY KEY, paid_cents BIGINT, invoice_cents BIGINT, start_at DATETIME(6), end_at DATETIME(6), actual_units BIGINT, planned_units BIGINT, label VARCHAR(255), amount BIGINT) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
@@ -456,7 +538,7 @@ func insertCustomCountFixtures(t *testing.T, db *sql.DB, placeholder, accountsTa
 
 func insertParentFixtures(t *testing.T, db *sql.DB, placeholder, table string) {
 	t.Helper()
-	argsPlaceholders := make([]string, 2)
+	argsPlaceholders := make([]string, 3)
 	for i := range argsPlaceholders {
 		if placeholder == "?" {
 			argsPlaceholders[i] = placeholder
@@ -464,18 +546,19 @@ func insertParentFixtures(t *testing.T, db *sql.DB, placeholder, table string) {
 		}
 		argsPlaceholders[i] = fmt.Sprintf("%s%d", placeholder, i+1)
 	}
-	query := fmt.Sprintf("INSERT INTO %s (tenant_id, id) VALUES (%s, %s)",
-		table, argsPlaceholders[0], argsPlaceholders[1])
+	query := fmt.Sprintf("INSERT INTO %s (tenant_id, id, status) VALUES (%s, %s, %s)",
+		table, argsPlaceholders[0], argsPlaceholders[1], argsPlaceholders[2])
 	parents := []struct {
 		tenantID string
 		id       int64
+		status   string
 	}{
-		{"tenant-a", 10},
-		{"tenant-b", 30},
-		{"tenant-c", 1},
+		{"tenant-a", 10, "active"},
+		{"tenant-b", 30, "inactive"},
+		{"tenant-c", 1, "active"},
 	}
 	for _, parent := range parents {
-		if _, err := db.Exec(query, parent.tenantID, parent.id); err != nil {
+		if _, err := db.Exec(query, parent.tenantID, parent.id, parent.status); err != nil {
 			t.Fatalf("insert parent %s/%d: %v", parent.tenantID, parent.id, err)
 		}
 	}
@@ -623,6 +706,137 @@ func insertTemporalFixtures(t *testing.T, db *sql.DB, placeholder, table string)
 	for _, fixture := range fixtures {
 		if _, err := db.Exec(query, fixture.id, fixture.tenantID, fixture.eventAt, fixture.ingestedAt); err != nil {
 			t.Fatalf("insert temporal fixture %d: %v", fixture.id, err)
+		}
+	}
+}
+
+func setupSQLiteReconcile(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, query := range []string{
+		`CREATE TABLE reconcile_left (id INTEGER PRIMARY KEY, tenant_id TEXT NOT NULL)`,
+		`CREATE TABLE reconcile_right (id INTEGER PRIMARY KEY, tenant_id TEXT NOT NULL, status TEXT NOT NULL)`,
+		`CREATE TABLE empty_reconcile_left (id INTEGER PRIMARY KEY, tenant_id TEXT NOT NULL)`,
+		`CREATE TABLE empty_reconcile_right (id INTEGER PRIMARY KEY, tenant_id TEXT NOT NULL, status TEXT NOT NULL)`,
+	} {
+		if _, err := db.Exec(query); err != nil {
+			t.Fatalf("SQLite reconcile schema: %v", err)
+		}
+	}
+	insertReconcileFixtures(t, db, "?", "reconcile_left", "reconcile_right")
+}
+
+func setupDuckDBReconcile(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, query := range []string{
+		`DROP TABLE IF EXISTS reconcile_left`,
+		`DROP TABLE IF EXISTS reconcile_right`,
+		`DROP TABLE IF EXISTS empty_reconcile_left`,
+		`DROP TABLE IF EXISTS empty_reconcile_right`,
+		`CREATE TABLE reconcile_left (id BIGINT PRIMARY KEY, tenant_id VARCHAR NOT NULL)`,
+		`CREATE TABLE reconcile_right (id BIGINT PRIMARY KEY, tenant_id VARCHAR NOT NULL, status VARCHAR NOT NULL)`,
+		`CREATE TABLE empty_reconcile_left (id BIGINT PRIMARY KEY, tenant_id VARCHAR NOT NULL)`,
+		`CREATE TABLE empty_reconcile_right (id BIGINT PRIMARY KEY, tenant_id VARCHAR NOT NULL, status VARCHAR NOT NULL)`,
+	} {
+		if _, err := db.Exec(query); err != nil {
+			t.Fatalf("DuckDB reconcile schema: %v", err)
+		}
+	}
+	insertReconcileFixtures(t, db, "$", "reconcile_left", "reconcile_right")
+}
+
+func setupPostgresReconcile(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if _, err := db.Exec(`DROP TABLE IF EXISTS public.reconcile_left, public.reconcile_right, public.empty_reconcile_left, public.empty_reconcile_right`); err != nil {
+		t.Fatalf("PostgreSQL reconcile cleanup: %v", err)
+	}
+	for _, query := range []string{
+		`CREATE TABLE public.reconcile_left (id BIGINT PRIMARY KEY, tenant_id TEXT NOT NULL)`,
+		`CREATE TABLE public.reconcile_right (id BIGINT PRIMARY KEY, tenant_id TEXT NOT NULL, status TEXT NOT NULL)`,
+		`CREATE TABLE public.empty_reconcile_left (id BIGINT PRIMARY KEY, tenant_id TEXT NOT NULL)`,
+		`CREATE TABLE public.empty_reconcile_right (id BIGINT PRIMARY KEY, tenant_id TEXT NOT NULL, status TEXT NOT NULL)`,
+	} {
+		if _, err := db.Exec(query); err != nil {
+			t.Fatalf("PostgreSQL reconcile schema: %v", err)
+		}
+	}
+	insertReconcileFixtures(t, db, "$", "public.reconcile_left", "public.reconcile_right")
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DROP TABLE IF EXISTS public.reconcile_left, public.reconcile_right, public.empty_reconcile_left, public.empty_reconcile_right`)
+	})
+}
+
+func setupMySQLReconcile(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, query := range []string{
+		`DROP TABLE IF EXISTS reconcile_left`,
+		`DROP TABLE IF EXISTS reconcile_right`,
+		`DROP TABLE IF EXISTS empty_reconcile_left`,
+		`DROP TABLE IF EXISTS empty_reconcile_right`,
+		`CREATE TABLE reconcile_left (id BIGINT PRIMARY KEY, tenant_id VARCHAR(255) NOT NULL) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
+		`CREATE TABLE reconcile_right (id BIGINT PRIMARY KEY, tenant_id VARCHAR(255) NOT NULL, status VARCHAR(32) NOT NULL) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
+		`CREATE TABLE empty_reconcile_left (id BIGINT PRIMARY KEY, tenant_id VARCHAR(255) NOT NULL) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
+		`CREATE TABLE empty_reconcile_right (id BIGINT PRIMARY KEY, tenant_id VARCHAR(255) NOT NULL, status VARCHAR(32) NOT NULL) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
+	} {
+		if _, err := db.Exec(query); err != nil {
+			t.Fatalf("MySQL reconcile schema: %v", err)
+		}
+	}
+	insertReconcileFixtures(t, db, "?", "reconcile_left", "reconcile_right")
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DROP TABLE IF EXISTS reconcile_left`)
+		_, _ = db.Exec(`DROP TABLE IF EXISTS reconcile_right`)
+		_, _ = db.Exec(`DROP TABLE IF EXISTS empty_reconcile_left`)
+		_, _ = db.Exec(`DROP TABLE IF EXISTS empty_reconcile_right`)
+	})
+}
+
+func insertReconcileFixtures(t *testing.T, db *sql.DB, placeholder, leftTable, rightTable string) {
+	t.Helper()
+	placeholderAt := func(start, count int) []string {
+		out := make([]string, count)
+		for i := range out {
+			if placeholder == "?" {
+				out[i] = "?"
+				continue
+			}
+			out[i] = fmt.Sprintf("%s%d", placeholder, start+i)
+		}
+		return out
+	}
+
+	leftRows := []struct {
+		id       int64
+		tenantID string
+	}{
+		{1, "t1"},
+		{2, "t1"},
+		{3, "t2"},
+	}
+	for _, row := range leftRows {
+		ph := placeholderAt(1, 2)
+		query := fmt.Sprintf("INSERT INTO %s (id, tenant_id) VALUES (%s, %s)", leftTable, ph[0], ph[1])
+		if _, err := db.Exec(query, row.id, row.tenantID); err != nil {
+			t.Fatalf("insert reconcile_left %d: %v", row.id, err)
+		}
+	}
+
+	rightRows := []struct {
+		id       int64
+		tenantID string
+		status   string
+	}{
+		{10, "t1", "ready"},
+		{11, "t1", "ready"},
+		{12, "t2", "held"},
+	}
+	for _, row := range rightRows {
+		ph := placeholderAt(1, 3)
+		query := fmt.Sprintf(
+			"INSERT INTO %s (id, tenant_id, status) VALUES (%s, %s, %s)",
+			rightTable, ph[0], ph[1], ph[2],
+		)
+		if _, err := db.Exec(query, row.id, row.tenantID, row.status); err != nil {
+			t.Fatalf("insert reconcile_right %d: %v", row.id, err)
 		}
 	}
 }

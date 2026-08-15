@@ -12,17 +12,29 @@ const (
 )
 
 type referenceExpectation struct {
-	localColumns  []string
-	parent        TableRef
-	parentColumns []string
+	localColumns    []string
+	parent          TableRef
+	parentColumns   []string
+	parentFilter    ParentFilter
+	hasParentFilter bool
+}
+
+// WithParentFilter returns a copy that applies filter only to the parent side of
+// the referential NOT EXISTS lookup. Suite [WithScope] remains local-only.
+// Filter identity is published on [ReferenceFacts.ParentFilterID]; predicate
+// text and args are never exported by default.
+func (e referenceExpectation) WithParentFilter(filter ParentFilter) referenceExpectation {
+	e.parentFilter = ParentFilter{
+		identity:  filter.identity,
+		predicate: filter.predicate,
+		values:    copyScopeValues(filter.values),
+	}
+	e.hasParentFilter = true
+	return e
 }
 
 func (e referenceExpectation) Name() string {
-	parent := e.parent.Name
-	if e.parent.Schema != "" {
-		parent = e.parent.Schema + "." + e.parent.Name
-	}
-	return strings.Join(e.localColumns, ", ") + " references " + parent + " (" + strings.Join(e.parentColumns, ", ") + ")"
+	return strings.Join(e.localColumns, ", ") + " references " + tableRefDisplay(e.parent) + " (" + strings.Join(e.parentColumns, ", ") + ")"
 }
 
 func (e referenceExpectation) expectationKind() ExpectationKind { return KindReference }
@@ -31,24 +43,37 @@ func (e referenceExpectation) preflight() error {
 	if err := validateReferenceMapping(e.localColumns, e.parent, e.parentColumns); err != nil {
 		return newConfigError(err)
 	}
+	if e.hasParentFilter {
+		if _, err := validateParentFilter(e.parentFilter); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 func (e referenceExpectation) evaluateSQL(
 	ctx context.Context, db DB, table TableRef, opts evalOptions,
 ) (Result, error) {
-	facts := ResultFacts{
-		Reference: &ReferenceFacts{
-			LocalColumns:  append([]string(nil), e.localColumns...),
-			Parent:        e.parent,
-			ParentColumns: append([]string(nil), e.parentColumns...),
-		},
+	refFacts := &ReferenceFacts{
+		LocalColumns:  append([]string(nil), e.localColumns...),
+		Parent:        e.parent,
+		ParentColumns: append([]string(nil), e.parentColumns...),
 	}
+	facts := ResultFacts{Reference: refFacts}
 	base := Result{
 		Kind:           KindReference,
 		Name:           e.Name(),
 		RowDenominator: RowDenominatorUnavailable,
 		Facts:          facts,
+	}
+	var validatedParentFilter ParentFilter
+	if e.hasParentFilter {
+		filter, err := validateParentFilter(e.parentFilter)
+		if err != nil {
+			return base, err
+		}
+		validatedParentFilter = filter
+		refFacts.ParentFilterID = filter.identity
 	}
 
 	if !dialectSupportsRelationalKeys(opts.dialect) {
@@ -80,8 +105,24 @@ func (e referenceExpectation) evaluateSQL(
 		return base, categorizeRenderError(err)
 	}
 
+	var parentFilterPred *rowPredicate
+	if e.hasParentFilter {
+		offset := 0
+		if opts.scope != nil {
+			offset = len(opts.scope.values)
+		}
+		filterPred, err := validatedParentFilter.renderAt(opts.dialect, offset)
+		if err != nil {
+			return base, categorizeRenderError(err)
+		}
+		filterPred = rewriteParentFilterTargetForAlias(filterPred, e.parent, parentTbl, parentAlias)
+		parentFilterPred = &filterPred
+	}
+
 	outerFrom := tbl + " AS " + localAlias
-	orphanPred, err := referenceOrphanPredicate(localAlias, localQuoted, parentTbl, parentAlias, parentQuoted)
+	orphanPred, err := referenceOrphanPredicate(
+		localAlias, localQuoted, parentTbl, parentAlias, parentQuoted, parentFilterPred,
+	)
 	if err != nil {
 		return base, categorizeRenderError(err)
 	}
@@ -181,14 +222,15 @@ func validateDistinctIdents(names []string, label string) error {
 }
 
 // referenceOrphanPredicate is true for complete local tuples with no matching
-// unscoped parent row. Scope must be composed onto the local side only; the
-// parent subquery is intentionally unscoped.
+// parent row. Suite scope must be composed onto the local side only. An optional
+// parentFilterPred is applied only inside the parent NOT EXISTS predicate.
 func referenceOrphanPredicate(
 	localAlias string,
 	localQuoted []string,
 	parentTable string,
 	parentAlias string,
 	parentQuoted []string,
+	parentFilterPred *rowPredicate,
 ) (rowPredicate, error) {
 	if len(localQuoted) == 0 || len(localQuoted) != len(parentQuoted) {
 		return rowPredicate{}, fmt.Errorf("gxsql: reference predicate arity mismatch")
@@ -201,11 +243,17 @@ func referenceOrphanPredicate(
 	for i := range localQuoted {
 		eqs[i] = parentAlias + "." + parentQuoted[i] + " = " + localAlias + "." + localQuoted[i]
 	}
+	parentWhere := strings.Join(eqs, " AND ")
+	var args []any
+	if parentFilterPred != nil && parentFilterPred.where != "" {
+		parentWhere = parentWhere + " AND (" + parentFilterPred.where + ")"
+		args = append(args, parentFilterPred.args...)
+	}
 	parts = append(parts, fmt.Sprintf(
 		"NOT EXISTS (SELECT 1 FROM %s AS %s WHERE %s)",
-		parentTable, parentAlias, strings.Join(eqs, " AND "),
+		parentTable, parentAlias, parentWhere,
 	))
-	return withWhere(strings.Join(parts, " AND "), nil), nil
+	return withWhere(strings.Join(parts, " AND "), args), nil
 }
 
 func rewriteScopeTargetForAlias(pred rowPredicate, table TableRef, renderedTarget, localAlias string) rowPredicate {
@@ -220,6 +268,29 @@ func rewriteScopeTargetForAlias(pred rowPredicate, table TableRef, renderedTarge
 		targetPrefixes = append(targetPrefixes, table.Schema+"."+table.Name+".")
 	}
 	targetPrefixes = append(targetPrefixes, table.Name+".")
+	for _, prefix := range targetPrefixes {
+		where = strings.ReplaceAll(where, prefix, aliasPrefix)
+	}
+	return withWhere(where, append([]any(nil), pred.args...))
+}
+
+// rewriteParentFilterTargetForAlias rewrites parent-table-qualified identifiers
+// in a parent filter predicate onto the parent subquery alias. Suite scope is
+// never applied here.
+func rewriteParentFilterTargetForAlias(
+	pred rowPredicate, parent TableRef, renderedParent, parentAlias string,
+) rowPredicate {
+	where := pred.where
+	aliasPrefix := parentAlias + "."
+
+	targetPrefixes := []string{}
+	if renderedParent != "" {
+		targetPrefixes = append(targetPrefixes, renderedParent+".")
+	}
+	if parent.Schema != "" {
+		targetPrefixes = append(targetPrefixes, parent.Schema+"."+parent.Name+".")
+	}
+	targetPrefixes = append(targetPrefixes, parent.Name+".")
 	for _, prefix := range targetPrefixes {
 		where = strings.ReplaceAll(where, prefix, aliasPrefix)
 	}

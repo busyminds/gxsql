@@ -28,12 +28,13 @@ Built-in builders create the expectations that `gxsql` supports:
 | `RequiredColumns` / `ExactColumns`  | unordered column-set presence or exact-set contracts                      |
 | `Column(name)`                      | `IsNull`, `NotNull`, `In`, `NotIn`, `Unique`, `DistinctCount`             |
 | `Column(left)` same-row comparisons | `EqualColumn`, `NotEqualColumn`, `LessThanColumn`, `GreaterOrEqualColumn` |
-| `Columns(names...)`                 | composite `Unique`, `References`                                          |
+| `Columns(names...)`                 | composite `Unique`, `References`, optional `WithParentFilter`             |
+| `ReconcileCounts(secondary)`        | `WithSecondaryFilter`, `Equal` for dual `COUNT(*)` equality               |
 | `Int(name)` / `Float(name)`         | range and comparison checks, plus aggregate checks                        |
 | `Int(name).RatioEqual`              | integer algebraic `value == right * bound` (not SQL `/`)                  |
 | `String(name)`                      | `Empty`, `NotEmpty`, `LenEqual`, `LenBetween`, `HasPrefix`, `HasSuffix`, `Contains`, `Like`, `NotLike`, capability-gated `Regex` |
 | `Timestamp(name)`                   | `InWindow`, `FreshSince`                                                  |
-| `TrustedCountQuery` + `CustomCount` | Trusted SQL count returning one non-negative failure count                |
+| `TrustedCountQuery` + `CustomCount` | Trusted SQL count for joins, grouped aggregates, and exotic recipes       |
 
 Decorate builders with `WithID`, `WithPolicy`, `WithMaxFailedCount`, and
 `When` / `TrustedEligibility` when you need stable IDs, policy metadata, or
@@ -186,6 +187,21 @@ omit scope predicate text and bound arguments, along with captured SQL and
 arguments. Enable diagnostic export only deliberately. Apply redaction when
 those values may be sensitive.
 
+Suite scope never becomes a parent or secondary filter. Cross-table checks use
+distinct trusted constructors:
+
+| Mechanism | Applies to | Does not apply to | Published identity |
+| --------- | ---------- | ----------------- | ------------------ |
+| `WithScope(TrustedScope(...))` | Local / left population for the run | Parent lookup; secondary `COUNT(*)` | `Report.ScopeID`; reconcile `LeftScopeID` |
+| `WithParentFilter(TrustedParentFilter(...))` | Parent side of a referential `NOT EXISTS` | Local rows; suite scope reuse | `Reference.ParentFilterID` |
+| `WithSecondaryFilter(TrustedSecondaryFilter(...))` | Secondary `COUNT(*)` in `ReconcileCounts` | Left `COUNT(*)`; suite scope reuse | `Reconcile.SecondaryFilterID` |
+
+Parent and secondary filters keep the same trusted-input rules as
+`TrustedScope`: fixed Go-code predicate text, `?` placeholders, matching bound
+values, and no user-authored SQL. Default errors, display output, and exports
+publish identity only—never predicate text or arguments. See the
+[expectations reference](../reference/expectations.md) for builder details.
+
 In production, pass a context with a deadline to every `ValidateTable` call. Use
 a read-only database role. Prefer a role that is restricted to the validation
 tables or views.
@@ -198,10 +214,12 @@ Suite scope and rule eligibility answer different questions:
 | ------- | --- | ---- |
 | Shared population for one validation call | `TrustedScope` / `WithScope` | Select the tenant, batch, or window every expectation sees |
 | Conditional rows for one expectation | `TrustedEligibility` / `When` | Narrow which scoped rows are subject to that rule |
+| Parent or secondary population for one cross-table check | `TrustedParentFilter` / `TrustedSecondaryFilter` | Narrow only the non-local side of that check |
 
 Do not replace suite scope with eligibility, and do not treat eligibility as a
 second `Report.ScopeID`. Scope still defines the outer population. Eligibility
-evaluates inside that population.
+evaluates inside that population. Do not pass suite scope as a parent or
+secondary filter.
 
 Use suite scope for partitions and tenants:
 
@@ -249,11 +267,12 @@ vacuously: `Total` and `FailedCount` are zero, no percentage is fabricated, and
 
 `When` wraps exactly one expectation. Nested eligibility fails preflight.
 Supported shapes are ordinary per-row, uniqueness, composite uniqueness, and
-referential-integrity expectations. Table-level, aggregate, distinct-count,
-custom-count, and structural expectations reject eligibility at preflight.
-Eligibility predicates are trusted Go-code input, not a sandbox for untrusted
-SQL. Default errors, display output, and `ExportReport` omit eligibility
-predicate text and bound arguments.
+referential-integrity expectations, including parent-filtered references.
+Table-level, aggregate, distinct-count, custom-count, reconcile-count, and
+structural expectations reject eligibility at preflight. Eligibility predicates
+are trusted Go-code input, not a sandbox for untrusted SQL. Default errors,
+display output, and `ExportReport` omit eligibility predicate text and bound
+arguments.
 
 ## Policy Packs
 
@@ -301,7 +320,36 @@ participate in duplicate-ID rejection.
 Reuse completed packs and suites concurrently only after configuration is
 finished and nothing mutates during `ValidateTable`.
 
-## Custom Count Checks
+## Reconcile Counts and Custom Counts
+
+Prefer `ReconcileCounts(secondary).Equal()` for suite-bound dual `COUNT(*)`
+equality. The table passed to `ValidateTable` is the left side; `secondary` is
+the explicit right side. Suite `WithScope` narrows only the left `COUNT(*)`.
+Attach `WithSecondaryFilter(TrustedSecondaryFilter(...))` when the right side
+needs its own population. Equality yields `FailedCount` 0; inequality yields
+`FailedCount` 1. Results use `KindReconcileCountsEqual`, leave `Column` blank,
+set `RowDenominatorUnavailable`, and publish privacy-safe reconcile facts.
+Samples and failed keys are never retained. `WithMaxFailedCount` and
+`MaxFailedPercent` are not eligible.
+
+```go
+suite := gxsql.NewSuite(
+    gxsql.ReconcileCounts(gxsql.Table("orders_served")).
+        WithSecondaryFilter(
+            gxsql.TrustedSecondaryFilter("served-ready", "status = ?", "ready"),
+        ).
+        Equal(),
+)
+report, err := suite.ValidateTable(ctx, db, gxsql.Table("orders"),
+    gxsql.WithDialect(gxsql.Postgres()),
+    gxsql.WithScope(gxsql.TrustedScope("tenant-acme", "tenant_id = ?", tenantID)),
+)
+```
+
+Remain on `CustomCount` for joins, `GROUP BY` / `HAVING`, `SUM` / `AVG` or other
+aggregates across sides, non-equality relationships, and other exotic
+cross-table recipes. Built-in reconciliation covers only dual `COUNT(*)`
+equality.
 
 `TrustedCountQuery` and `CustomCount` add one constrained custom shape: a
 trusted SQL template that returns a single non-negative failure count. Template
@@ -394,11 +442,13 @@ columns. Preflight errors include:
 - `WithScope` combined with `RequiredColumns` or `ExactColumns`
 - nil or invalid `TrustedEligibility` configuration
 - nested `When` wrappers
-- `When` around table-level, aggregate, distinct-count, custom-count, or
-  structural expectations
+- `When` around table-level, aggregate, distinct-count, custom-count,
+  reconcile-count, or structural expectations
+- invalid parent-filter or secondary-filter identities, predicates, or arity
+- tolerance wrappers around custom-count or reconcile-count expectations
 
-Invalid custom-count declarations never execute SQL. Structural column
-expectations never ignore an attached scope.
+Invalid custom-count and reconcile-count declarations never execute SQL.
+Structural column expectations never ignore an attached scope.
 
 `ContinueOnError()` does not make a nil top-level error mean success. Inspect
 `report.OK()`, `report.Err()`, and each `Result.Err` when it is enabled.

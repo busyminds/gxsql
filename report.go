@@ -82,6 +82,9 @@ type ResultFacts struct {
 	Comparison *ComparisonFacts
 	// Ratio holds same-row integer ratio facts.
 	Ratio *RatioFacts
+	// Reconcile holds dual-side count reconciliation facts. Nil when this
+	// result is not a reconcile check.
+	Reconcile *ReconcileFacts
 
 	// RequiredColumns lists caller-configured expected column names in
 	// declaration order for structural column expectations. Empty when unset.
@@ -116,10 +119,37 @@ type RatioFacts struct {
 type ReferenceFacts struct {
 	// LocalColumns are the local foreign-key components in declaration order.
 	LocalColumns []string
-	// Parent is the unscoped parent target identified by Schema and Name.
+	// Parent is the parent target identified by Schema and Name.
 	Parent TableRef
 	// ParentColumns are the parent key components mapped 1:1 to LocalColumns.
 	ParentColumns []string
+	// ParentFilterID is the caller identity from [TrustedParentFilter] when a
+	// parent filter was attached. Empty when unset. Predicate text and args are
+	// never published here.
+	ParentFilterID string
+}
+
+// ReconcileFacts describes dual-side COUNT(*) observations for suite-bound
+// count reconciliation. Left is always the ValidateTable target. Observed
+// counts are pointers so a missing side is distinct from an observed zero.
+// Predicate text and filter args are never published here.
+type ReconcileFacts struct {
+	// Left is the ValidateTable target identified by Schema and Name.
+	Left TableRef
+	// Right is the secondary table identified by Schema and Name.
+	Right TableRef
+	// ObservedLeftCount is the left-side COUNT(*) when that side was observed.
+	ObservedLeftCount *int
+	// ObservedRightCount is the right-side COUNT(*) when that side was observed.
+	ObservedRightCount *int
+	// Relationship is the fixed comparison; equality uses "equal".
+	Relationship string
+	// LeftScopeID is the suite scope identity when WithScope was set. Empty when
+	// unscoped. Predicate text and args are never published here.
+	LeftScopeID string
+	// SecondaryFilterID is the secondary-filter identity when set. Empty when
+	// unset. Predicate text and args are never published here.
+	SecondaryFilterID string
 }
 
 // resultDiagnostics holds captured SQL text and bound arguments for export.
@@ -136,6 +166,7 @@ type resultShape uint8
 const (
 	resultShapeNone resultShape = iota
 	resultShapeCustomCount
+	resultShapeReconcileCounts
 )
 
 // Result is the outcome of one expectation over a single ValidateTable run.

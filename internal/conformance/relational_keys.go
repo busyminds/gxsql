@@ -213,4 +213,129 @@ func runRelationalKeyIntegrity(t *testing.T, cfg Config) {
 			t.Fatalf("single-column reference = %#v, want total=4 failed=1", res)
 		}
 	})
+
+	t.Run("parent filter excludes inactive matches", func(t *testing.T) {
+		db := &recordingDB{DB: cfg.DB}
+		parent := gxsql.TrustedParentFilter("customers-active", "status = ?", "active")
+		report, err := gxsql.NewSuite(
+			gxsql.Columns("tenant_id", "customer_id").References(cfg.ParentTable, "tenant_id", "id").
+				WithParentFilter(parent),
+		).ValidateTable(context.Background(), db, cfg.Table,
+			gxsql.WithDialect(cfg.Dialect), gxsql.WithKey("id"), gxsql.WithFailedKeysCap(0),
+			gxsql.CaptureQueryDiagnostics())
+		if err != nil {
+			t.Fatalf("ValidateTable: %v", err)
+		}
+		res := report.Results[0]
+		// Without filter only row 4 is an orphan. Active-only parent excludes
+		// tenant-b/30, so row 3 becomes an orphan too.
+		if res.Success || res.Total != 4 || res.FailedCount != 2 {
+			t.Fatalf("parent-filtered reference = %#v, want total=4 failed=2", res)
+		}
+		if res.Facts.Reference == nil || res.Facts.Reference.ParentFilterID != "customers-active" {
+			t.Fatalf("ParentFilterID = %#v, want customers-active", res.Facts.Reference)
+		}
+		if len(res.FailedKeys) != 2 {
+			t.Fatalf("FailedKeys = %#v, want orphan ids 3 and 4", res.FailedKeys)
+		}
+		assertParentFilterInNotExists(t, db)
+	})
+
+	t.Run("parent filter includes active matches under local scope", func(t *testing.T) {
+		scope := gxsql.TrustedScope("tenant-a", "tenant_id = ?", "tenant-a")
+		db := &recordingDB{DB: cfg.DB}
+		parent := gxsql.TrustedParentFilter("customers-active", "status = ?", "active")
+		report, err := gxsql.NewSuite(
+			gxsql.Columns("tenant_id", "customer_id").References(cfg.ParentTable, "tenant_id", "id").
+				WithParentFilter(parent),
+		).ValidateTable(context.Background(), db, cfg.Table,
+			gxsql.WithDialect(cfg.Dialect), gxsql.WithScope(scope), gxsql.WithKey("id"),
+			gxsql.CaptureQueryDiagnostics())
+		if err != nil {
+			t.Fatalf("ValidateTable: %v", err)
+		}
+		assertScopedQueries(t, db, "tenant_id", false, "tenant-a")
+		res := report.Results[0]
+		// Scoped local rows 1-2; parent tenant-a/10 is active so both pass
+		// (row 2 has NULL customer_id).
+		if !res.Success || res.Total != 2 || res.FailedCount != 0 {
+			t.Fatalf("inclusive parent filter = %#v, want clean pass over local rows", res)
+		}
+		if report.ScopeID != "tenant-a" {
+			t.Fatalf("ScopeID = %q, want tenant-a", report.ScopeID)
+		}
+		if res.Facts.Reference == nil || res.Facts.Reference.ParentFilterID != "customers-active" {
+			t.Fatalf("ParentFilterID = %#v, want customers-active", res.Facts.Reference)
+		}
+		assertParentFilterStaysInNotExists(t, db)
+	})
+
+	t.Run("parent filter with local scope leaves out-of-scope orphans excluded", func(t *testing.T) {
+		scope := gxsql.TrustedScope("tenant-b", "tenant_id = ?", "tenant-b")
+		parent := gxsql.TrustedParentFilter("customers-active", "status = ?", "active")
+		report, err := gxsql.NewSuite(
+			gxsql.Columns("tenant_id", "customer_id").References(cfg.ParentTable, "tenant_id", "id").
+				WithParentFilter(parent),
+		).ValidateTable(context.Background(), cfg.DB, cfg.Table,
+			gxsql.WithDialect(cfg.Dialect), gxsql.WithScope(scope), gxsql.WithKey("id"),
+			gxsql.WithFailedKeysCap(0))
+		if err != nil {
+			t.Fatalf("ValidateTable: %v", err)
+		}
+		res := report.Results[0]
+		// Local tenant-b rows 3-4; inactive parent excludes the tenant-b match,
+		// so both complete tuples are orphans under the active parent filter.
+		if res.Success || res.Total != 2 || res.FailedCount != 2 {
+			t.Fatalf("scoped exclude = %#v, want total=2 failed=2", res)
+		}
+		if res.Facts.Reference == nil || res.Facts.Reference.ParentFilterID != "customers-active" {
+			t.Fatalf("ParentFilterID = %#v", res.Facts.Reference)
+		}
+	})
+}
+
+func assertParentFilterInNotExists(t *testing.T, db *recordingDB) {
+	t.Helper()
+	found := false
+	for _, q := range db.queries {
+		upper := strings.ToUpper(q.text)
+		if !strings.Contains(upper, "NOT EXISTS") {
+			continue
+		}
+		notExistsIdx := strings.Index(upper, "NOT EXISTS")
+		parentSQL := strings.ToLower(q.text[notExistsIdx:])
+		if strings.Contains(parentSQL, "status") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected status parent filter inside NOT EXISTS; queries=%#v", db.queries)
+	}
+}
+
+func assertParentFilterStaysInNotExists(t *testing.T, db *recordingDB) {
+	t.Helper()
+	var sawParentFilter, sawLocalScope bool
+	for _, q := range db.queries {
+		upper := strings.ToUpper(q.text)
+		if !strings.Contains(upper, "NOT EXISTS") {
+			continue
+		}
+		notExistsIdx := strings.Index(upper, "NOT EXISTS")
+		outer := strings.ToLower(q.text[:notExistsIdx])
+		parentSQL := strings.ToLower(q.text[notExistsIdx:])
+		if strings.Contains(parentSQL, "status") {
+			sawParentFilter = true
+		}
+		if strings.Contains(outer, "tenant_id") {
+			sawLocalScope = true
+		}
+		if strings.Contains(parentSQL, "tenant_id =") {
+			t.Fatalf("suite scope leaked into parent subquery: %s", q.text)
+		}
+	}
+	if !sawParentFilter || !sawLocalScope {
+		t.Fatalf("expected local scope outside NOT EXISTS and parent filter inside; queries=%#v", db.queries)
+	}
 }

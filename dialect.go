@@ -13,6 +13,10 @@ var identRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // [WithDialect]. [QuoteIdent] must reject empty or invalid names. A nil dialect
 // is a run-level configuration error before preflight or SQL, not a
 // rendering-time error.
+//
+// Optional capabilities use separate interfaces rather than widening Dialect.
+// Regex support is advertised through [RegexDialect]; dialects that omit it
+// fail [StringColumn.Regex] closed at suite preflight.
 type Dialect interface {
 	QuoteIdent(name string) (string, error)
 	Placeholder(n int) string

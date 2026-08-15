@@ -55,14 +55,16 @@ func Float(name string) NumberColumn {
 	return NumberColumn{column: name}
 }
 
-// StringColumn is the entry point for string emptiness and length checks on one
-// column. Construct one with [String]. Length predicates use the active
-// [Dialect.StringLength] expression.
+// StringColumn is the entry point for string emptiness, length, and portable
+// pattern checks on one column. Construct one with [String]. Length predicates
+// use the active [Dialect.StringLength] expression. LIKE-family builders and
+// capability-gated [StringColumn.Regex] live alongside these methods.
 type StringColumn struct {
 	column string
 }
 
-// String returns a builder for string column checks on name.
+// String returns a builder for string column checks on name, including
+// emptiness, length, LIKE-family, and capability-gated regex checks.
 func String(name string) StringColumn {
 	return StringColumn{column: name}
 }

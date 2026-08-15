@@ -6,7 +6,8 @@ type postgresDialect struct{}
 
 // Postgres returns the PostgreSQL [Dialect]. Identifiers are double-quoted after
 // validation; placeholders are positional $n; string length uses CHAR_LENGTH.
-// Pair with [WithDialect] when validating PostgreSQL tables.
+// It advertises [RegexDialect] with the POSIX "~" substring operator. Pair with
+// [WithDialect] when validating PostgreSQL tables.
 func Postgres() Dialect { return postgresDialect{} }
 
 func (postgresDialect) QuoteIdent(name string) (string, error) {

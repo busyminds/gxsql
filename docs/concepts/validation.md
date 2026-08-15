@@ -31,7 +31,7 @@ Built-in builders create the expectations that `gxsql` supports:
 | `Columns(names...)`                 | composite `Unique`, `References`                                          |
 | `Int(name)` / `Float(name)`         | range and comparison checks, plus aggregate checks                        |
 | `Int(name).RatioEqual`              | integer algebraic `value == right * bound` (not SQL `/`)                  |
-| `String(name)`                      | `Empty`, `NotEmpty`, `LenEqual`, `LenBetween`                             |
+| `String(name)`                      | `Empty`, `NotEmpty`, `LenEqual`, `LenBetween`, `HasPrefix`, `HasSuffix`, `Contains`, `Like`, `NotLike`, capability-gated `Regex` |
 | `Timestamp(name)`                   | `InWindow`, `FreshSince`                                                  |
 | `TrustedCountQuery` + `CustomCount` | Trusted SQL count returning one non-negative failure count                |
 

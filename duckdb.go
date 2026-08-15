@@ -5,8 +5,9 @@ import "fmt"
 type duckdbDialect struct{}
 
 // DuckDB returns the DuckDB [Dialect]. Identifiers are double-quoted after
-// validation; placeholders are positional $n; string length uses LENGTH. Pair
-// with [WithDialect] when validating DuckDB tables.
+// validation; placeholders are positional $n; string length uses LENGTH. It
+// advertises [RegexDialect] with the "~" substring operator. Pair with
+// [WithDialect] when validating DuckDB tables.
 func DuckDB() Dialect { return duckdbDialect{} }
 
 func (duckdbDialect) QuoteIdent(name string) (string, error) {

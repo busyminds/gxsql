@@ -41,12 +41,14 @@ production code and tests. When omitted, `ValidateTable` defaults to
 
 Built-in dialects: `gxsql.Postgres()`, `gxsql.SQLite()`, `gxsql.DuckDB()`, and
 `gxsql.MySQL()`. They implement `Dialect` (`QuoteIdent`, `Placeholder`,
-`StringLength`). `gxsql.DuckDB()` uses double-quoted identifiers, `$n`
-placeholders, and `LENGTH(expr)`; callers must supply a compatible
-`database/sql` DuckDB driver. `gxsql.MySQL()` uses backtick-quoted identifiers,
-`?` placeholders, and `CHAR_LENGTH(expr)`; callers must supply a compatible
-`database/sql` MySQL driver. CI covers MySQL 8.4; MariaDB is not in the
-supported matrix. CI runs the shared conformance kit against DuckDB 1.5.4 via
+`StringLength`). Optional regex support is advertised through `RegexDialect`
+without widening `Dialect`: Postgres (`~`), DuckDB (`~`), and MySQL
+(`REGEXP`) advertise it; SQLite does not. `gxsql.DuckDB()` uses double-quoted
+identifiers, `$n` placeholders, and `LENGTH(expr)`; callers must supply a
+compatible `database/sql` DuckDB driver. `gxsql.MySQL()` uses backtick-quoted
+identifiers, `?` placeholders, and `CHAR_LENGTH(expr)`; callers must supply a
+compatible `database/sql` MySQL driver. CI covers MySQL 8.4; MariaDB is not in
+the supported matrix. CI runs the shared conformance kit against DuckDB 1.5.4 via
 `github.com/duckdb/duckdb-go/v2` v2.10504.0. Identifiers must match
 `^[A-Za-z_][A-Za-z0-9_]*$`. Custom `Dialect` implementations outside the
 built-in set are not part of the published CI matrix; do not document or

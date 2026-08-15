@@ -64,6 +64,18 @@ const (
 	KindLenEqual ExpectationKind = "len_equal"
 	// KindLenBetween marks an expectation from StringColumn.LenBetween.
 	KindLenBetween ExpectationKind = "len_between"
+	// KindHasPrefix marks an expectation from StringColumn.HasPrefix.
+	KindHasPrefix ExpectationKind = "has_prefix"
+	// KindHasSuffix marks an expectation from StringColumn.HasSuffix.
+	KindHasSuffix ExpectationKind = "has_suffix"
+	// KindContains marks an expectation from StringColumn.Contains.
+	KindContains ExpectationKind = "contains"
+	// KindLike marks an expectation from StringColumn.Like.
+	KindLike ExpectationKind = "like"
+	// KindNotLike marks an expectation from StringColumn.NotLike.
+	KindNotLike ExpectationKind = "not_like"
+	// KindRegex marks an expectation from StringColumn.Regex.
+	KindRegex ExpectationKind = "regex"
 
 	// KindDistinctCountEqual marks an expectation from DistinctCountBuilder.Equal.
 	KindDistinctCountEqual ExpectationKind = "distinct_count_equal"

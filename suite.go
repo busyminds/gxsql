@@ -2,6 +2,7 @@ package gxsql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -53,6 +54,7 @@ type validateConfig struct {
 	continueOnError        bool
 	captureDiagnostics     bool
 	sharedScalarEvaluation bool
+	observer               ObserverFunc
 	scope                  Scope
 	hasScope               bool
 }
@@ -128,6 +130,12 @@ func WithSharedScalarEvaluation() Option {
 	return func(cfg *validateConfig) { cfg.sharedScalarEvaluation = true }
 }
 
+// WithObserver attaches a synchronous privacy-safe observer for this run.
+// Observer panics abort validation with a typed observer error.
+func WithObserver(observer ObserverFunc) Option {
+	return func(cfg *validateConfig) { cfg.observer = observer }
+}
+
 // ValidateTable runs every expectation in declaration order (collect-all, never
 // fail-fast on policy failures) and returns the aggregated Report. It uses
 // Postgres when WithDialect is not supplied.
@@ -140,6 +148,8 @@ func WithSharedScalarEvaluation() Option {
 // each affected slot records Result.Err. The first database, rendering, scan,
 // or context error aborts with a zero Report and error unless ContinueOnError
 // is set, when the error is recorded on that result and evaluation continues.
+// Observer panics are recovered as typed observer errors and always abort with
+// a zero Report, including when ContinueOnError is set.
 func (s *Suite) ValidateTable(
 	ctx context.Context,
 	db DB,
@@ -232,6 +242,7 @@ func (s *Suite) ValidateTable(
 		captureDiagnostics: cfg.captureDiagnostics,
 		continueOnError:    cfg.continueOnError,
 		scope:              validatedScope,
+		observer:           &observerState{observer: cfg.observer},
 		scopedTotal:        scopedTotal,
 	}
 
@@ -291,6 +302,9 @@ func (s *Suite) ValidateTable(
 			}
 			res := batchResults[bi][i]
 			if batchErrs[bi] != nil {
+				if errors.Is(batchErrs[bi], ErrCategoryObserver) {
+					return Report{}, batchErrs[bi]
+				}
 				if cfg.continueOnError {
 					if res.Err == nil {
 						res.Err = batchErrs[bi]
@@ -310,7 +324,10 @@ func (s *Suite) ValidateTable(
 			results[i] = res
 			continue
 		}
-		res, err := exp.evaluateSQL(ctx, db, table, evalOpts)
+		opts := evalOpts
+		opts.checkID = expectationID(exp)
+		opts.checkKind = expectationKind(exp)
+		res, err := exp.evaluateSQL(ctx, db, table, opts)
 		if res.Kind == "" {
 			res.Kind = expectationKind(exp)
 		}
@@ -318,6 +335,9 @@ func (s *Suite) ValidateTable(
 			res.ID = id
 		}
 		if err != nil {
+			if errors.Is(err, ErrCategoryObserver) {
+				return Report{}, err
+			}
 			if cfg.continueOnError {
 				if res.Err == nil {
 					res.Err = err

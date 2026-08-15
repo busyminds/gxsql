@@ -3,9 +3,11 @@ package gxsql
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // sharedScalarMaxSelectTargets caps COUNT targets per shared statement so
@@ -261,7 +263,12 @@ func evalSharedScalarCountChunk(
 		captureDiagnostics(&results[i], opts, query, args)
 	}
 
-	total, err := resolveScopedTotal(ctx, db, table, opts)
+	// Attribute the shared scoped total to the first plan only. Keep opts
+	// identity empty for the combined shared_scalar query event below.
+	totalOpts := opts
+	totalOpts.checkID = plans[0].id
+	totalOpts.checkKind = plans[0].kind
+	total, err := resolveScopedTotal(ctx, db, table, totalOpts)
 	if err != nil {
 		for i := range results {
 			results[i].Err = err
@@ -269,7 +276,7 @@ func evalSharedScalarCountChunk(
 		return err
 	}
 
-	counts, err := queryScalarInts(ctx, db, query, len(plans), args...)
+	counts, err := queryScalarInts(ctx, db, opts, query, len(plans), args...)
 	if err != nil {
 		for i := range results {
 			results[i].Err = err
@@ -282,9 +289,17 @@ func evalSharedScalarCountChunk(
 		res.ID = plan.id
 		captureDiagnostics(&res, opts, query, args)
 		if counts[i] > 0 {
-			if opts.sampleCap > 0 {
-				samples, sampleErr := queryColumnSamples(ctx, db, tbl, plan.column, scopedFailPreds[i], opts, opts.sampleCap)
+			planOpts := opts
+			planOpts.checkID = plan.id
+			planOpts.checkKind = plan.kind
+			if planOpts.sampleCap > 0 {
+				samples, sampleErr := queryColumnSamples(
+					ctx, db, tbl, plan.column, scopedFailPreds[i], planOpts, planOpts.sampleCap,
+				)
 				if sampleErr != nil {
+					if errors.Is(sampleErr, ErrCategoryObserver) {
+						return sampleErr
+					}
 					res.Err = sampleErr
 					res.Success = false
 					results[i] = applySharedPlanPolicy(res, plan)
@@ -295,9 +310,14 @@ func evalSharedScalarCountChunk(
 				}
 				res.SampleValues = samples
 			}
-			if !opts.summaryOnly && len(opts.keyColumns) > 0 {
-				keys, keyErr := queryFailedKeys(ctx, db, tbl, opts, scopedFailPreds[i])
+			if !planOpts.summaryOnly && len(planOpts.keyColumns) > 0 {
+				keys, keyErr := queryFailedKeys(
+					ctx, db, tbl, planOpts, scopedFailPreds[i],
+				)
 				if keyErr != nil {
+					if errors.Is(keyErr, ErrCategoryObserver) {
+						return keyErr
+					}
 					res.Err = keyErr
 					res.Success = false
 					results[i] = applySharedPlanPolicy(res, plan)
@@ -329,7 +349,28 @@ func dialectUsesQuestionMark(d Dialect) bool {
 	return d == nil || d.Placeholder(1) == "?"
 }
 
-func queryScalarInts(ctx context.Context, db DB, query string, n int, args ...any) ([]int, error) {
+func queryScalarInts(
+	ctx context.Context,
+	db DB,
+	opts evalOptions,
+	query string,
+	n int,
+	args ...any,
+) (counts []int, err error) {
+	var start time.Time
+	attempted := false
+	defer func() {
+		if attempted {
+			if observerErr := opts.observer.observe(
+				start, opts.checkID, opts.checkKind, QueryCategorySharedScalar, err,
+			); observerErr != nil {
+				counts = nil
+				err = observerErr
+			}
+		}
+	}()
+	start = time.Now()
+	attempted = true
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, categorizeExecutionError(ctx, err)
@@ -356,13 +397,13 @@ func queryScalarInts(ctx context.Context, db DB, query string, n int, args ...an
 	if err := finishRowsRead(ctx, rows); err != nil {
 		return nil, err
 	}
-	out := make([]int, n)
+	counts = make([]int, n)
 	for i, v := range nulls {
 		if v.Valid {
-			out[i] = int(v.Int64)
+			counts[i] = int(v.Int64)
 		}
 	}
-	return out, nil
+	return counts, nil
 }
 
 // shiftPositionalPlaceholders rewrites $n placeholders by +delta for dialects

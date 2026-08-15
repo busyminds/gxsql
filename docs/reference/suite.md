@@ -29,7 +29,7 @@ per-expectation failure in the report.
 `Option` is an opaque function that configures one validation run. Per-run
 options override suite-level caps.
 
-| Option                         | Effect                                                                                                                                                            |
+| API                            | Effect                                                                                                                                                            |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `WithDialect(d Dialect)`       | Selects the SQL renderer. Defaults to `Postgres()`.                                                                                                               |
 | `WithSampleCap(n int)`         | Overrides the maximum retained sample values; `0` disables sample collection.                                                                                     |
@@ -38,6 +38,7 @@ options override suite-level caps.
 | `SummaryOnly()`                | Does not load failed-row identities.                                                                                                                              |
 | `ContinueOnError()`            | Records preflight and execution errors on results and continues.                                                                                                  |
 | `CaptureQueryDiagnostics()`    | Records SQL and arguments for optional export only.                                                                                                               |
+| `WithObserver(observer)`       | Emits synchronous privacy-safe `QueryEvent` values; observer panics abort with a typed observer error.                                                           |
 | `WithSharedScalarEvaluation()` | Combines contiguous compatible built-in per-row failure counts into conditional-aggregate statement(s). Disabled by default.                                      |
 | `WithScope(scope Scope)`       | Limits every expectation to rows that match the scope predicate; validates the scope when the run starts. Incompatible with `RequiredColumns` and `ExactColumns`. |
 
@@ -45,6 +46,18 @@ When the run supplies neither `WithKey` nor `SummaryOnly`, results contain
 counts and capped samples but no failed-row identities. Invalid run-level
 options—such as a nil dialect, negative caps, invalid key columns, or invalid
 scopes—always prevent evaluation.
+
+### WithObserver
+
+`WithObserver(gxsql.ObserverFunc(...))` emits one synchronous `QueryEvent` for
+each attempted statement. Events expose `ID`, `Kind`, `Category`, `Duration`,
+and `Status`. They omit SQL text, bound arguments, scope predicates, samples,
+and failed keys. The duration uses a monotonic clock. Row counts are not a
+stable event field in this release, and observation never runs an extra query.
+
+Observer panics are recovered and returned as a typed observer error. No
+partial report is returned. Keep observer callbacks side-effect-light and
+avoid using them to alter validation policy.
 
 ### WithSharedScalarEvaluation
 
@@ -343,6 +356,26 @@ shared by `*testing.T` and `*testing.B`.
 
 Both helpers accept the same options as `ValidateTable`.
 
+
+Pass a caller-owned `*sql.Tx` when several statements must use one transaction
+and isolation level. `gxsql` does not begin, commit, roll back, or close the
+transaction:
+
+```go
+tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+if err != nil {
+	return err
+}
+defer tx.Rollback()
+
+report, err := suite.ValidateTable(ctx, tx, gxsql.Table("orders"),
+	gxsql.WithDialect(gxsql.Postgres()),
+)
+```
+
+Without a caller-owned transaction, a pooled `*sql.DB` may use different
+connections between statements. Avoid snapshot-consistency claims in that
+mode.
 ## Database and Dialects
 
 `DB` is the narrow query interface that `ValidateTable` needs:

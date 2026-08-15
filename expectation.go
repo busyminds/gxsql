@@ -39,6 +39,9 @@ type evalOptions struct {
 	captureDiagnostics bool
 	continueOnError    bool
 	scope              *trustedScope
+	observer           *observerState
+	checkID            string
+	checkKind          ExpectationKind
 	// scopedTotal caches one shared COUNT(*) for denominator-using expectations
 	// within a ValidateTable call. Nil means each resolve loads locally.
 	scopedTotal *scopedTotalCache

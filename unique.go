@@ -52,7 +52,9 @@ func (e uniqueExpectation) evaluateSQL(
 		return res, err
 	}
 
-	failed, err := queryCount(ctx, db, tbl, failPred.where, failPred.args)
+	failed, err := queryCount(
+		ctx, db, opts, QueryCategoryUniqueness, tbl, failPred.where, failPred.args,
+	)
 	if err != nil {
 		res := Result{Kind: KindUnique, Name: e.Name(), Column: e.column, RowDenominator: RowDenominatorUnavailable}
 		captureDiagnostics(&res, opts, failQuery, failArgs)
@@ -163,7 +165,9 @@ func (e compositeUniqueExpectation) evaluateSQL(
 		return res, err
 	}
 
-	failed, err := queryCount(ctx, db, tbl, failPred.where, failPred.args)
+	failed, err := queryCount(
+		ctx, db, opts, QueryCategoryUniqueness, tbl, failPred.where, failPred.args,
+	)
 	if err != nil {
 		res := base
 		captureDiagnostics(&res, opts, failQuery, failArgs)

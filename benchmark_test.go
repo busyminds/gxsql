@@ -7,10 +7,11 @@ import (
 	"testing"
 )
 
-// These benchmarks measure scoped-total query behavior using the in-memory
-// fake SQL harness in harness_test.go. Results reflect harness execution only
-// and must not be interpreted as universal production speedups on real
-// PostgreSQL or SQLite deployments.
+// These benchmarks measure query-count and shared-scalar behavior using the
+// in-memory fake SQL harness in harness_test.go. The deterministic PostgreSQL
+// and SQLite fixture definitions in testdata/bench/ document the real-engine
+// seed shape; benchmark results here reflect harness execution only and must
+// not be interpreted as universal production speedups.
 
 const scopedTotalExpectationCount = 6
 

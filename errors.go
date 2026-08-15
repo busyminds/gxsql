@@ -25,7 +25,8 @@ const (
 	CategoryScan ErrorCategory = "scan"
 	// CategoryContext marks context cancellation or deadline exceeded.
 	CategoryContext ErrorCategory = "context"
-	// CategoryObserver marks export redaction or normalization failures.
+	// CategoryObserver marks observer failures and export redaction or
+	// normalization failures.
 	CategoryObserver ErrorCategory = "observer"
 )
 

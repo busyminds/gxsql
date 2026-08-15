@@ -106,7 +106,9 @@ func (e referenceExpectation) evaluateSQL(
 		return res, err
 	}
 
-	failed, err := queryCount(ctx, db, outerFrom, failPred.where, failPred.args)
+	failed, err := queryCount(
+		ctx, db, opts, QueryCategoryFailureCount, outerFrom, failPred.where, failPred.args,
+	)
 	if err != nil {
 		res := base
 		captureDiagnostics(&res, opts, failQuery, failArgs)

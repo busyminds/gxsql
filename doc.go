@@ -234,4 +234,16 @@
 // [Report.ExecutionFailures] to query the distinct outcome classes. Default
 // [ExportReport] includes policy fields and configured thresholds while still
 // omitting samples, keys, SQL, and arguments.
+//
+// Attach [WithObserver] to receive one synchronous [QueryEvent] per attempted
+// statement. Events contain stable check identity when [WithID] is present,
+// [ExpectationKind], [QueryCategory], monotonic [time.Duration], and
+// [QueryStatus]. Events do not contain SQL text, bound arguments, scope
+// predicates, samples, or failed keys. Row count is not a stable event field
+// in this release, and observation never issues an extra query. An observer
+// panic is recovered as a typed [CategoryObserver] run error; no partial report
+// is returned.
+//
+// [ValidateTable] accepts caller-owned [*sql.Tx] values through [DB]. The
+// caller owns transaction begin, isolation, commit, rollback, and close.
 package gxsql

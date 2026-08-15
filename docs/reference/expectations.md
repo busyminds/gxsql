@@ -117,7 +117,7 @@ fail `ValidateTable` preflight before SQL.
 | Method                                                 | Policy                                                                                                         |
 | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
 | `Unique()`                                             | Each complete non-`NULL` tuple appears at most once in the scoped local population; every duplicate row fails. |
-| `References(parent TableRef, parentColumns ...string)` | Every complete non-`NULL` local tuple resolves to at least one unscoped parent row; orphans fail locally.      |
+| `References(parent TableRef, parentColumns ...string)` | Every complete non-`NULL` local tuple resolves to at least one parent row; optional `WithParentFilter` narrows parents; orphans fail locally. |
 
 `Column(name).References(parent, parentColumn)` covers the single-column form
 with the same semantics and `KindReference`.
@@ -164,21 +164,43 @@ Partial mappings against a composite parent key are allowed by the API, but are
 only correct when the mapped parent columns are unique at that arity; otherwise
 unrelated parent rows can match.
 
-`WithScope` applies only to the local validated table. Parent lookup is
-intentionally unscoped: local scope is never reused on the parent side. There is
-no parent-scope API in this release.
+`WithScope` applies only to the local validated table. Parent lookup never
+reuses suite scope. Narrow the parent population with an explicit parent filter
+instead:
+
+| API | Role |
+| --- | --- |
+| `TrustedParentFilter(id, predicate string, args ...any) ParentFilter` | Builds an immutable trusted parent-side predicate with bound values. |
+| `(reference).WithParentFilter(filter ParentFilter)` | Applies that predicate only inside the parent `NOT EXISTS` lookup. |
+
+`ParentFilter` is a distinct type from `Scope` and from reconciliation
+`SecondaryFilter`. Suite scope cannot be passed as a parent filter.
+`TrustedParentFilter` predicates are trusted Go-code input, not a sandbox for
+untrusted SQL. Keep the predicate text fixed in application code. Bind values
+through `?` placeholders; placeholder arity must match the supplied values.
+Never pass user-authored predicate text.
+
+When both `WithScope` and `WithParentFilter` are set, they remain independent:
+suite scope limits local rows; the parent filter limits which parent rows can
+satisfy the reference. Filter identity is published as
+`Result.Facts.Reference.ParentFilterID`. Predicate text and bound arguments are
+never published in facts, default display output, or default export.
 
 Results use `KindReference`, leave `Result.Column` blank, and populate
 `Result.Facts.Reference` with `LocalColumns`, structured `Parent` (`TableRef`),
-and `ParentColumns`. Samples and failed keys are local-only under existing caps;
-parent values and parent keys are never emitted. Preflight rejects empty
-mappings, unequal arity, invalid or duplicate identifiers, and unsupported
-dialect capability before SQL.
+`ParentColumns`, and optional `ParentFilterID`. Samples and failed keys are
+local-only under existing caps; parent values and parent keys are never emitted.
+Preflight rejects empty mappings, unequal arity, invalid or duplicate
+identifiers, invalid parent filters, and unsupported dialect capability before
+SQL. Parent-filtered references remain eligible for `WithMaxFailedCount` and
+`MaxFailedPercent`.
 
 ```go
 suite := gxsql.NewSuite(
     gxsql.Columns("tenant_id", "customer_id").References(
         gxsql.SchemaTable("public", "customers"), "tenant_id", "id",
+    ).WithParentFilter(
+        gxsql.TrustedParentFilter("customers-active", "status = ?", "active"),
     ),
 )
 report, err := suite.ValidateTable(ctx, db, gxsql.Table("orders"),
@@ -417,12 +439,70 @@ pattern arguments stay out of default export; capture them only with
 `CaptureQueryDiagnostics` plus opt-in diagnostic export. Samples and failed keys
 keep their existing opt-in rules.
 
+## Reconcile Counts
+
+`ReconcileCounts(secondary TableRef) ReconcileCountsBuilder` starts a suite-bound
+`COUNT(*)` reconciliation. The table passed to `ValidateTable` is always the
+left side; `secondary` is the explicit right side.
+
+| Method | Policy |
+| --- | --- |
+| `WithSecondaryFilter(filter SecondaryFilter)` | Applies `filter` only to the secondary `COUNT(*)`. |
+| `Equal()` | Left and right `COUNT(*)` values must be equal. |
+
+`TrustedSecondaryFilter(id, predicate string, args ...any) SecondaryFilter`
+builds the optional secondary predicate. `SecondaryFilter` is a distinct type
+from `Scope` and `ParentFilter`. Suite scope cannot be reused as a secondary
+filter. Secondary-filter predicates are trusted Go-code input with `?`
+placeholders and separately bound values—not a sandbox for user-authored SQL.
+
+Suite `WithScope` applies only to the left `COUNT(*)`. It never narrows the
+secondary table. Use `WithSecondaryFilter` when the right side needs its own
+population. Filter identity is published as
+`Result.Facts.Reconcile.SecondaryFilterID`. Left suite-scope identity is
+published as `Result.Facts.Reconcile.LeftScopeID` when `WithScope` is set.
+Predicate text and bound arguments are never published in facts, default display
+output, or default export.
+
+Equality yields `FailedCount` 0; inequality yields `FailedCount` 1. Results use
+`KindReconcileCountsEqual` (`reconcile_counts_equal`), leave `Column` blank, set
+`RowDenominatorUnavailable`, and populate `Result.Facts.Reconcile` with left and
+right targets, observed counts, fixed `Relationship` `"equal"`, and optional
+scope or secondary-filter identities. Samples and failed keys are never
+retained. `WithKey`, sample caps, and `SummaryOnly()` do not add diagnostics.
+`WithMaxFailedCount` and `MaxFailedPercent` are not eligible; wrapping a
+reconcile expectation fails preflight.
+
+```go
+suite := gxsql.NewSuite(
+    gxsql.ReconcileCounts(gxsql.Table("orders_served")).
+        WithSecondaryFilter(
+            gxsql.TrustedSecondaryFilter("served-ready", "status = ?", "ready"),
+        ).
+        Equal(),
+)
+report, err := suite.ValidateTable(ctx, db, gxsql.Table("orders"),
+    gxsql.WithDialect(gxsql.Postgres()),
+    gxsql.WithScope(gxsql.TrustedScope("tenant-acme", "tenant_id = ?", tenantID)),
+)
+```
+
+Built-in reconciliation covers only dual `COUNT(*)` equality. Keep using
+`CustomCount` for joins, `GROUP BY` / `HAVING`, `SUM` / `AVG` or other
+aggregates across sides, non-equality relationships, and other exotic
+cross-table recipes. See [suite and SQL integration](suite.md) for those
+patterns.
+
 ## Custom Counts
 
 `TrustedCountQuery(template string, args ...any) CountQuery` creates an
 immutable trusted SQL template. Use `CustomCount(name string, query CountQuery)`
 to add it to a suite. Template text is application-owned Go code, not a sandbox
 for user-authored SQL.
+
+Prefer `ReconcileCounts(...).Equal()` for suite-bound dual `COUNT(*)` equality.
+Remain on `CustomCount` when the check needs joins, grouped aggregates,
+non-equality relationships, or other SQL shapes outside that built-in contract.
 
 The template must contain exactly one `{{target}}` and one `{{scope}}` marker,
 both outside SQL strings and comments. `{{target}}` is replaced with the
@@ -452,16 +532,18 @@ gate and are never tolerated.
 percentage in `[0, 100]`. A denominator-available result passes when
 `FailedCount / Total * 100 <= p`, before display rounding. Raw-zero and empty
 evaluated populations pass and are not tolerated. Per-row, uniqueness, and
-referential-integrity expectations qualify. Table-level, aggregate,
-distinct-count, row-count, custom-count, and structural column declarations fail
-preflight. A second tolerance form in one decorated expectation also fails
-preflight.
+referential-integrity expectations qualify, including parent-filtered
+references. Table-level, aggregate, distinct-count, row-count, custom-count,
+reconcile-count, and structural column declarations fail preflight. A second
+tolerance form in one decorated expectation also fails preflight.
 
 `WithMaxFailedCount(max int, exp Expectation)` remains the inclusive
 non-negative maximum failed-row count form. It applies to the same eligible
 per-row, uniqueness, and referential-integrity shapes, including composite
-uniqueness, same-row comparisons, ratios, numeric bounds, string and pattern
-checks, and timestamp windows. Existing count-tolerance behavior is unchanged.
+uniqueness, references with or without `WithParentFilter`, same-row
+comparisons, ratios, numeric bounds, string and pattern checks, and timestamp
+windows. Existing count-tolerance behavior is unchanged. `ReconcileCounts` and
+`CustomCount` remain ineligible.
 
 Tolerance changes only the policy verdict after the inner expectation evaluates
 once. Raw `Total`, `FailedCount`, `FailedPercent`, samples, and failed keys
@@ -491,9 +573,10 @@ scope are subject to the rule; it does not replace `WithScope`. See
 [suite and SQL integration](suite.md) for scope composition and pack examples.
 
 Supported shapes: ordinary per-row (row-denominator), uniqueness, composite
-uniqueness, and referential integrity. Table-level, aggregate, distinct-count,
-custom-count, and structural expectations reject eligibility at `ValidateTable`
-preflight. Nested `When` wrappers are configuration errors.
+uniqueness, and referential integrity (including parent-filtered references).
+Table-level, aggregate, distinct-count, custom-count, reconcile-count, and
+structural expectations reject eligibility at `ValidateTable` preflight. Nested
+`When` wrappers are configuration errors.
 
 Eligible rows define `Total` and the denominator for percentages and tolerance.
 Ineligible rows neither pass nor fail. Zero eligible rows use the existing

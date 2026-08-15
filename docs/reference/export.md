@@ -13,7 +13,9 @@ result has `Err` and later expectations still run. IDs are never derived from
 
 `ExpectationKind` is the stable category of a built-in expectation. The `Kind*`
 constants cover row-count, structural column, per-row predicate, distinct-count,
-aggregate, and temporal builders; `KindCustom` marks custom counts from
+aggregate, temporal, and reconcile builders; `KindReconcileCountsEqual`
+(`reconcile_counts_equal`) marks dual `COUNT(*)` equality from
+`ReconcileCounts(...).Equal()`. `KindCustom` marks custom counts from
 `CustomCount`. Other expectations may still use `KindCustom` when built-in
 metadata is unavailable. Use `Kind` and `ID` for machine joins, not display
 text.
@@ -23,6 +25,15 @@ Structural column results use `KindRequiredColumns` (`required_columns`) or
 `missing_columns` / `unexpected_columns` facts under `gxsql.report.v1`, keep
 `RowDenominatorUnavailable`, and never export samples or failed keys. `WithKey`,
 sample caps, and `SummaryOnly()` do not change that shape.
+
+Reconcile-count results use `KindReconcileCountsEqual` and export
+`facts.reconcile` with left and right targets, observed counts, relationship
+`"equal"`, and optional `left_scope_id` / `secondary_filter_id`. They keep
+`RowDenominatorUnavailable`, export `counts.failed` as `0` or `1`, omit
+`counts.total` and `counts.failed_percent`, and never export samples or failed
+keys. Reference results may export optional `parent_filter_id` under
+`facts.reference`. Parent-filter, secondary-filter, and scope predicate text and
+arguments stay out of default export.
 
 Custom-count results export `counts.failed` when execution succeeds, including
 an explicit zero. `counts.total` and `counts.failed_percent` are omitted because
@@ -85,12 +96,14 @@ exported, err := gxsql.ExportReport(report)
 
 `Report.ScopeID` and exported `scope.id` carry only the caller-supplied scope
 identity. They do not serialize the scope predicate text or bound arguments.
+Parent-filter and secondary-filter identities follow the same rule through
+`parent_filter_id`, `secondary_filter_id`, and reconcile `left_scope_id`.
 Default `Report.Err()`, `Report.String()`, and `Result.String()` output omit
-those scope fields, as does default `ExportReport` output. Ordinary samples and
-failed keys remain subject to the usual report redaction guidance.
-`IncludeCapturedDiagnostics()` or `IncludeCapturedArguments()` deliberately opts
-into sensitive SQL diagnostics; use those options only with appropriate
-redaction.
+predicate text and bound arguments, as does default `ExportReport` output.
+Ordinary samples and failed keys remain subject to the usual report redaction
+guidance. `IncludeCapturedDiagnostics()` or `IncludeCapturedArguments()`
+deliberately opts into sensitive SQL diagnostics; use those options only with
+appropriate redaction.
 
 `RequiredColumns` and `ExactColumns` cannot run under `WithScope`. Pairing
 either expectation with `WithScope` fails `ValidateTable` preflight before
@@ -146,10 +159,11 @@ A redactor error or panic fails export closed.
 | `ExportedScope`           | Optional stable caller scope identity as `scope.id`; predicate and bound values are not included.                                                                                                                                                                                                                  |
 | `ExportedResult`          | Identity, verdicts, optional `tolerated`, counts, facts, caps, opted-in diagnostics, and categorized errors.                                                                                                                                                                                                       |
 | `ExportedCounts`          | Optional total, failed count, and failed percentage.                                                                                                                                                                                                                                                               |
-| `ExportedFacts`           | Observations and configured thresholds, including optional `configured_max_failed_count`, `configured_max_failed_percent`, temporal `configured_time_*` / `observed_time` fields, `key_columns`, `comparison`, `ratio`, `reference`, and structural `required_columns` / `missing_columns` / `unexpected_columns`. |
+| `ExportedFacts`           | Observations and configured thresholds, including optional `configured_max_failed_count`, `configured_max_failed_percent`, temporal `configured_time_*` / `observed_time` fields, `key_columns`, `comparison`, `ratio`, `reference`, `reconcile`, and structural `required_columns` / `missing_columns` / `unexpected_columns`. |
 | `ExportedComparisonFacts` | Same-row comparison operands and relationship.                                                                                                                                                                                                                                                                     |
 | `ExportedRatioFacts`      | Same-row ratio operands and integral bound.                                                                                                                                                                                                                                                                        |
-| `ExportedReferenceFacts`  | Structured local-to-parent mapping (`local_columns`, parent target, `parent_columns`) for reference results.                                                                                                                                                                                                       |
+| `ExportedReferenceFacts`  | Structured local-to-parent mapping (`local_columns`, parent target, `parent_columns`, optional `parent_filter_id`) for reference results.                                                                                                                                                                           |
+| `ExportedReconcileFacts`  | Dual-side reconcile mapping (`left`, `right`, observed counts, `relationship`, optional `left_scope_id` / `secondary_filter_id`).                                                                                                                                                                                  |
 | `ExportedCaps`            | Returned and truncated flags for opted-in samples and keys.                                                                                                                                                                                                                                                        |
 | `ExportedDiagnostics`     | Opted-in redacted SQL, optional arguments, and truncation flags.                                                                                                                                                                                                                                                   |
 | `ExportedError`           | Stable error category and export-safe message.                                                                                                                                                                                                                                                                     |
@@ -178,6 +192,21 @@ appear as `unexpected_columns` in driver discovery order. Empty difference lists
 are omitted. Default export still omits samples, failed keys, and query
 diagnostics; column-name facts are not row diagnostics and follow the ordinary
 facts path under `gxsql.report.v1`.
+
+## Reference and Reconcile Facts
+
+Reference results export structured `facts.reference` with `local_columns`, the
+parent target, and `parent_columns`. When `WithParentFilter` was attached,
+`parent_filter_id` carries only the caller identity from
+`TrustedParentFilter`. Parent values never appear in samples or failed keys.
+
+Reconcile results export structured `facts.reconcile` with `left`, `right`,
+`observed_left_count`, `observed_right_count`, and `relationship: "equal"`.
+When the run used `WithScope`, `left_scope_id` carries the suite scope identity.
+When `WithSecondaryFilter` was attached, `secondary_filter_id` carries only the
+caller identity from `TrustedSecondaryFilter`. Default export omits predicate
+text, bound arguments, samples, failed keys, and query diagnostics for both
+shapes.
 
 ## Normalized Values
 

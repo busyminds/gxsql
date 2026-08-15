@@ -170,6 +170,8 @@ type ExportedFacts struct {
 	Comparison *ExportedComparisonFacts `json:"comparison,omitempty"`
 	// Ratio holds same-row integer ratio facts.
 	Ratio *ExportedRatioFacts `json:"ratio,omitempty"`
+	// Reconcile holds dual-side count reconciliation facts.
+	Reconcile *ExportedReconcileFacts `json:"reconcile,omitempty"`
 	// RequiredColumns lists caller-configured expected column names in
 	// declaration order for structural column expectations.
 	RequiredColumns []string `json:"required_columns,omitempty"`
@@ -205,10 +207,33 @@ type ExportedRatioFacts struct {
 type ExportedReferenceFacts struct {
 	// LocalColumns are the local foreign-key components in declaration order.
 	LocalColumns []string `json:"local_columns,omitempty"`
-	// Parent is the unscoped parent target; schema is omitted when empty.
+	// Parent is the parent target; schema is omitted when empty.
 	Parent ExportedTarget `json:"parent"`
 	// ParentColumns are the parent key components in declaration order.
 	ParentColumns []string `json:"parent_columns,omitempty"`
+	// ParentFilterID is the parent-filter identity when set. Predicate text and
+	// args are never exported by default.
+	ParentFilterID string `json:"parent_filter_id,omitempty"`
+}
+
+// ExportedReconcileFacts is the JSON form of ReconcileFacts.
+type ExportedReconcileFacts struct {
+	// Left is the ValidateTable target; schema is omitted when empty.
+	Left ExportedTarget `json:"left"`
+	// Right is the secondary target; schema is omitted when empty.
+	Right ExportedTarget `json:"right"`
+	// ObservedLeftCount is the left-side COUNT(*) when observed.
+	ObservedLeftCount *int `json:"observed_left_count,omitempty"`
+	// ObservedRightCount is the right-side COUNT(*) when observed.
+	ObservedRightCount *int `json:"observed_right_count,omitempty"`
+	// Relationship is the fixed comparison name.
+	Relationship string `json:"relationship"`
+	// LeftScopeID is the suite scope identity when set. Predicate text and args
+	// are never exported by default.
+	LeftScopeID string `json:"left_scope_id,omitempty"`
+	// SecondaryFilterID is the secondary-filter identity when set. Predicate
+	// text and args are never exported by default.
+	SecondaryFilterID string `json:"secondary_filter_id,omitempty"`
 }
 
 // ExportedCaps reports diagnostic truncation metadata.
@@ -361,6 +386,11 @@ func exportResult(res Result, target *TableRef, cfg exportConfig) (ExportedResul
 		if err := validateCustomCountResult(res); err != nil {
 			return ExportedResult{}, err
 		}
+		if res.Err == nil {
+			failed := res.FailedCount
+			out.Counts = &ExportedCounts{Failed: &failed}
+		}
+	} else if reconcileResultProfile(res) {
 		if res.Err == nil {
 			failed := res.FailedCount
 			out.Counts = &ExportedCounts{Failed: &failed}
@@ -614,7 +644,8 @@ func exportFacts(facts ResultFacts) (*ExportedFacts, error) {
 				Schema: facts.Reference.Parent.Schema,
 				Table:  facts.Reference.Parent.Name,
 			},
-			ParentColumns: append([]string(nil), facts.Reference.ParentColumns...),
+			ParentColumns:  append([]string(nil), facts.Reference.ParentColumns...),
+			ParentFilterID: facts.Reference.ParentFilterID,
 		}
 		has = true
 	}
@@ -631,6 +662,24 @@ func exportFacts(facts ResultFacts) (*ExportedFacts, error) {
 			LeftColumn:  facts.Ratio.LeftColumn,
 			RightColumn: facts.Ratio.RightColumn,
 			Bound:       facts.Ratio.Bound,
+		}
+		has = true
+	}
+	if facts.Reconcile != nil {
+		out.Reconcile = &ExportedReconcileFacts{
+			Left: ExportedTarget{
+				Schema: facts.Reconcile.Left.Schema,
+				Table:  facts.Reconcile.Left.Name,
+			},
+			Right: ExportedTarget{
+				Schema: facts.Reconcile.Right.Schema,
+				Table:  facts.Reconcile.Right.Name,
+			},
+			ObservedLeftCount:  facts.Reconcile.ObservedLeftCount,
+			ObservedRightCount: facts.Reconcile.ObservedRightCount,
+			Relationship:       facts.Reconcile.Relationship,
+			LeftScopeID:        facts.Reconcile.LeftScopeID,
+			SecondaryFilterID:  facts.Reconcile.SecondaryFilterID,
 		}
 		has = true
 	}

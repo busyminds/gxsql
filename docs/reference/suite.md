@@ -143,6 +143,20 @@ expectation with `WithScope` fails `ValidateTable` preflight with an
 `invalid_config` error rather than ignoring scope. Run a separate unscoped
 structural suite when shape checks must gate content validation.
 
+Suite scope never becomes a parent or secondary filter. Use distinct trusted
+constructors when a cross-table check needs a non-local predicate:
+
+| Mechanism | Applies to | Does not apply to | Published identity |
+| --- | --- | --- | --- |
+| `WithScope(TrustedScope(...))` | Local / left population for the run | Parent lookup; secondary `COUNT(*)` | `Report.ScopeID`; reconcile `LeftScopeID` |
+| `WithParentFilter(TrustedParentFilter(...))` | Parent side of a referential `NOT EXISTS` | Local rows; suite scope reuse | `Reference.ParentFilterID` |
+| `WithSecondaryFilter(TrustedSecondaryFilter(...))` | Secondary `COUNT(*)` in `ReconcileCounts` | Left `COUNT(*)`; suite scope reuse | `Reconcile.SecondaryFilterID` |
+
+Parent and secondary filters keep the same trusted-input rules as
+`TrustedScope`: fixed Go-code predicate text, `?` placeholders, matching bound
+values, and no user-authored SQL. Default errors, display output, and exports
+publish identity only—never predicate text or arguments.
+
 Production callers should use a database role with read-only permissions and
 pass a context with a deadline:
 
@@ -195,9 +209,10 @@ the wrapped rule. Zero eligible rows pass vacuously with `Total == 0`,
 `FailedCount == 0`, no fabricated percentage, and `Tolerated == false`.
 
 Supported shapes: ordinary per-row, uniqueness, composite uniqueness, and
-referential integrity. Table-level, aggregate, distinct-count, custom-count, and
-structural expectations reject eligibility at preflight. Nested `When` wrappers
-are configuration errors. Nil or invalid eligibility configuration fails
+referential integrity (including parent-filtered references). Table-level,
+aggregate, distinct-count, custom-count, reconcile-count, and structural
+expectations reject eligibility at preflight. Nested `When` wrappers are
+configuration errors. Nil or invalid eligibility configuration fails
 preflight before SQL. Without `ContinueOnError()`, those failures return
 `(Report{}, *PreflightErrors)`. With it, the affected declaration-order slot
 records `Err` and later expectations still run.
@@ -259,6 +274,12 @@ finished and nothing mutates during `ValidateTable`.
 | `TrustedCountQuery(template string, args ...any) CountQuery` | Builds an immutable trusted SQL count template with bound custom arguments.                      |
 | `CustomCount(name string, query CountQuery) Expectation`     | Executes the template and treats the scalar result as a failure count. `name` must be non-blank. |
 | `CountQuery`                                                 | Immutable carrier for template and arguments; construct only with `TrustedCountQuery`.           |
+
+Prefer `ReconcileCounts(secondary).Equal()` for suite-bound dual `COUNT(*)`
+equality with left-only suite scope and an optional secondary filter. Remain on
+`CustomCount` for joins, `GROUP BY` / `HAVING`, non-`COUNT(*)` aggregates,
+non-equality relationships, and other exotic cross-table recipes. See
+[expectation builders](expectations.md) for the built-in reconcile contract.
 
 Template SQL is trusted Go-code input, not a sandbox for untrusted text. Callers
 must never insert user-authored SQL into templates. A template contains exactly
@@ -324,13 +345,14 @@ errors always gate.
 | `Report.PolicyFailures() []Result`                         | Evaluated data-quality failures, excluding result errors.                                                  |
 
 Per-row, uniqueness, and referential-integrity expectations qualify for either
-tolerance form, including composite `Columns(...).Unique()` and `References()`.
-Wrapping a table-level, aggregate, distinct-count, row-count, custom-count, or
-structural column declaration with `MaxFailedPercent`—or combining count and
-percent tolerance—fails preflight before SQL. Without `ContinueOnError()`,
-invalid policy returns the zero report and `*PreflightErrors`. With it, the
-matching declaration-order slot records the configuration error and later
-expectations still run.
+tolerance form, including composite `Columns(...).Unique()` and `References()`
+with or without `WithParentFilter`. Wrapping a table-level, aggregate,
+distinct-count, row-count, custom-count, reconcile-count, or structural column
+declaration with `MaxFailedPercent`—or combining count and percent
+tolerance—fails preflight before SQL. Without `ContinueOnError()`, invalid
+policy returns the zero report and `*PreflightErrors`. With it, the matching
+declaration-order slot records the configuration error and later expectations
+still run.
 
 `MaxFailedPercent(p)` compares `FailedCount / Total * 100 <= p` before display
 rounding. Both tolerance forms preserve raw `Total`, `FailedCount`,

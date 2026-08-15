@@ -36,20 +36,25 @@ scoped validation run is used.
 
 `RowDenominatorAvailable` means `Total` and `FailedPercent` describe a per-row
 population. `RowDenominatorUnavailable` marks a table-level check; `Total == 0`
-does not mean the table was empty. Custom-count results are the exception to the
+does not mean the table was empty. Custom-count results are one exception to the
 usual denominator interpretation: they use `KindCustom` and
 `RowDenominatorUnavailable`, but `FailedCount` is a complete non-negative count
-even though `Total` and `FailedPercent` are unavailable. `Column` is blank and
-`WithMaxFailedCount` and `MaxFailedPercent` apply to denominator-available
-per-row, uniqueness, and referential-integrity shapes, including composite
-uniqueness and references. `MaxFailedPercent(p)` uses the inclusive unrounded
-comparison `FailedCount / Total * 100 <= p` for `p` in `[0, 100]`. Both forms
-change `Success` only and preserve raw observations. Empty evaluated populations
-pass without division by zero or `NaN` and are not tolerated. Scope remains the
+even though `Total` and `FailedPercent` are unavailable. Reconcile-count results
+use `KindReconcileCountsEqual` and `RowDenominatorUnavailable`; `FailedCount` is
+`0` when the dual `COUNT(*)` values are equal and `1` when they differ. `Column`
+is blank. `WithMaxFailedCount` and `MaxFailedPercent` apply to
+denominator-available per-row, uniqueness, and referential-integrity shapes,
+including composite uniqueness and references with or without parent filters.
+They do not apply to custom-count or reconcile-count results.
+`MaxFailedPercent(p)` uses the inclusive unrounded comparison
+`FailedCount / Total * 100 <= p` for `p` in `[0, 100]`. Both forms change
+`Success` only and preserve raw observations. Empty evaluated populations pass
+without division by zero or `NaN` and are not tolerated. Scope remains the
 evaluated population for all raw counts. Table-level, aggregate, distinct-count,
-row-count, custom-count, and structural column wrappers fail preflight.
-Execution and configuration errors keep `Success: false` and `Tolerated: false`;
-non-advisory policy failures gate, while warning/info failures remain queryable.
+row-count, custom-count, reconcile-count, and structural column wrappers fail
+preflight. Execution and configuration errors keep `Success: false` and
+`Tolerated: false`; non-advisory policy failures gate, while warning/info
+failures remain queryable.
 
 `RowKey` is `[]any` containing caller-supplied `WithKey` values in the same
 column order.
@@ -58,7 +63,8 @@ Composite uniqueness and referential integrity both report complete local
 `FailedCount` values under `RowDenominatorAvailable`: duplicate participating
 rows for `KindCompositeUnique`, orphaned local rows for `KindReference`. Samples
 and failed keys remain local, capped, and subject to existing privacy controls.
-Parent values never appear in diagnostics.
+Parent values never appear in diagnostics. Optional parent-filter identity
+appears only as `Facts.Reference.ParentFilterID`.
 
 ## Structured Facts
 
@@ -81,8 +87,14 @@ Parent values never appear in diagnostics.
   set. Prefer this over parsing `Name`; `Result.Column` stays blank for those
   results.
 - `Reference` holds local-to-parent mapping facts for referential checks:
-  `LocalColumns`, structured `Parent` (`TableRef`), and `ParentColumns`. Nil
-  when the result is not a reference check.
+  `LocalColumns`, structured `Parent` (`TableRef`), `ParentColumns`, and
+  optional `ParentFilterID`. Nil when the result is not a reference check.
+  Predicate text and parent-filter arguments are never published here.
+- `Reconcile` holds dual-side count reconciliation facts: structured `Left` and
+  `Right` targets, `ObservedLeftCount`, `ObservedRightCount`, fixed
+  `Relationship` (`"equal"`), optional `LeftScopeID`, and optional
+  `SecondaryFilterID`. Nil when the result is not a reconcile check. Predicate
+  text and filter arguments are never published here.
 - `Comparison` holds same-row operand and relationship facts: `LeftColumn`,
   `RightColumn`, and `Relationship`. Nil when the result is not a same-row
   column comparison.

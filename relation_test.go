@@ -11,9 +11,9 @@ import (
 func referenceFixture() map[string][]map[string]any {
 	return map[string][]map[string]any{
 		"customers": {
-			{"id": int64(1), "tenant_id": "t1"},
-			{"id": int64(2), "tenant_id": "t1"},
-			{"id": int64(9), "tenant_id": "t2"},
+			{"id": int64(1), "tenant_id": "t1", "status": "active"},
+			{"id": int64(2), "tenant_id": "t1", "status": "inactive"},
+			{"id": int64(9), "tenant_id": "t2", "status": "active"},
 		},
 		"orders": {
 			{"id": int64(1), "tenant_id": "t1", "customer_id": int64(1)},
@@ -490,6 +490,238 @@ func TestReferenceNoDiagnosticStatementsAfterZeroFailures(t *testing.T) {
 	}
 	if len(db.queries) != 2 {
 		t.Fatalf("queries = %d, want total + failure count only; got %#v", len(db.queries), db.queries)
+	}
+}
+
+func TestReferenceParentFilterExcludesMatches(t *testing.T) {
+	setHarnessData(t, referenceFixture())
+	db := openHarnessDB(t)
+
+	parent := TrustedParentFilter("customers-active", "status = ?", "active")
+	rep, err := NewSuite(
+		Columns("tenant_id", "customer_id").References(Table("customers"), "tenant_id", "id").
+			WithParentFilter(parent),
+	).ValidateTable(
+		context.Background(), db, Table("orders"),
+		WithDialect(Postgres()), WithKey("id"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := rep.Results[0]
+	// Without filter: orphans are ids 3 and 6.
+	// Active-only parent excludes customer 2, so order id 2 also becomes an orphan.
+	if res.Success || res.Total != 6 || res.FailedCount != 3 {
+		t.Fatalf("got %#v, want 3 orphans of 6 with active parent filter", res)
+	}
+	wantKeys := []RowKey{{int64(2)}, {int64(3)}, {int64(6)}}
+	if !reflect.DeepEqual(res.FailedKeys, wantKeys) {
+		t.Fatalf("FailedKeys = %#v, want %#v", res.FailedKeys, wantKeys)
+	}
+	if res.Facts.Reference == nil || res.Facts.Reference.ParentFilterID != "customers-active" {
+		t.Fatalf("ParentFilterID = %#v", res.Facts.Reference)
+	}
+}
+
+func TestReferenceParentFilterIncludesMatches(t *testing.T) {
+	setHarnessData(t, map[string][]map[string]any{
+		"customers": {
+			{"id": int64(1), "status": "active"},
+			{"id": int64(2), "status": "active"},
+		},
+		"orders": {
+			{"id": int64(1), "customer_id": int64(1)},
+			{"id": int64(2), "customer_id": int64(2)},
+		},
+	})
+	db := openHarnessDB(t)
+
+	parent := TrustedParentFilter("customers-active", "status = ?", "active")
+	rep, err := NewSuite(
+		Column("customer_id").References(Table("customers"), "id").WithParentFilter(parent),
+	).ValidateTable(
+		context.Background(), db, Table("orders"),
+		WithDialect(Postgres()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := rep.Results[0]
+	if !res.Success || res.Total != 2 || res.FailedCount != 0 {
+		t.Fatalf("got %#v, want pass under inclusive parent filter", res)
+	}
+	if res.Facts.Reference == nil || res.Facts.Reference.ParentFilterID != "customers-active" {
+		t.Fatalf("ParentFilterID = %#v", res.Facts.Reference)
+	}
+}
+
+func TestReferenceParentFilterArityPreflightNoSQL(t *testing.T) {
+	setHarnessData(t, map[string][]map[string]any{
+		"customers": {{"id": int64(1), "status": "active"}},
+		"orders":    {{"id": int64(1), "customer_id": int64(1)}},
+	})
+	counter := openCountingHarnessDB(t)
+
+	parent := TrustedParentFilter("customers-active", "status = ?", "a", "b")
+	_, err := NewSuite(
+		Column("customer_id").References(Table("customers"), "id").WithParentFilter(parent),
+	).ValidateTable(
+		context.Background(), counter, Table("orders"), WithDialect(Postgres()),
+	)
+	if err == nil {
+		t.Fatal("expected parent filter arity preflight error")
+	}
+	var pf *PreflightErrors
+	if !errors.As(err, &pf) {
+		t.Fatalf("err = %v, want PreflightErrors", err)
+	}
+	if !errors.Is(err, ErrCategoryInvalidConfig) {
+		t.Fatalf("category = %v, want invalid_config", err)
+	}
+	if counter.queries != 0 {
+		t.Fatalf("queries = %d, want 0 before SQL", counter.queries)
+	}
+}
+
+func TestReferenceParentFilterContinueOnErrorDeclarationOrder(t *testing.T) {
+	setHarnessData(t, map[string][]map[string]any{
+		"customers": {{"id": int64(1), "status": "active"}},
+		"orders":    {{"id": int64(1), "customer_id": int64(1)}},
+	})
+	counter := openCountingHarnessDB(t)
+
+	invalid := TrustedParentFilter("bad", "status = ?", "a", "b")
+	valid := TrustedParentFilter("customers-active", "status = ?", "active")
+	rep, err := NewSuite(
+		Column("customer_id").References(Table("customers"), "id").WithParentFilter(invalid),
+		Column("customer_id").References(Table("customers"), "id").WithParentFilter(valid),
+		RowCount().Equal(1),
+	).ValidateTable(
+		context.Background(), counter, Table("orders"),
+		WithDialect(Postgres()), ContinueOnError(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Results) != 3 {
+		t.Fatalf("results = %d", len(rep.Results))
+	}
+	if rep.Results[0].Success || rep.Results[0].Err == nil || !errors.Is(rep.Results[0].Err, ErrCategoryInvalidConfig) {
+		t.Fatalf("invalid parent filter slot = %#v", rep.Results[0])
+	}
+	if !rep.Results[1].Success || rep.Results[1].Err != nil {
+		t.Fatalf("valid parent-filtered reference should pass: %#v", rep.Results[1])
+	}
+	if !rep.Results[2].Success {
+		t.Fatalf("later expectation should still run: %#v", rep.Results[2])
+	}
+}
+
+func TestReferenceParentFilterLocalOnlySamplesAndKeys(t *testing.T) {
+	setHarnessData(t, map[string][]map[string]any{
+		"customers": {
+			{"id": int64(1), "status": "inactive"},
+			{"id": int64(2), "status": "active"},
+		},
+		"orders": {
+			{"id": int64(10), "customer_id": int64(1)},
+			{"id": int64(20), "customer_id": int64(2)},
+		},
+	})
+	db := openRecordingHarnessDB(t)
+
+	parent := TrustedParentFilter("customers-active", "status = ?", "active")
+	rep, err := NewSuite(
+		Column("customer_id").References(Table("customers"), "id").WithParentFilter(parent),
+	).ValidateTable(
+		context.Background(), db, Table("orders"),
+		WithDialect(Postgres()), WithKey("id"), CaptureQueryDiagnostics(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := rep.Results[0]
+	if res.Success || res.FailedCount != 1 {
+		t.Fatalf("got %#v, want one orphan under active parent filter", res)
+	}
+	if !reflect.DeepEqual(res.FailedKeys, []RowKey{{int64(10)}}) {
+		t.Fatalf("FailedKeys = %#v, want local key [[10]]", res.FailedKeys)
+	}
+	if !reflect.DeepEqual(res.SampleValues, []any{int64(1)}) {
+		t.Fatalf("SampleValues = %#v, want local FK [1]", res.SampleValues)
+	}
+	for _, sample := range res.SampleValues {
+		if sample == "inactive" || sample == "active" {
+			t.Fatalf("samples must stay local-only, got %v", sample)
+		}
+	}
+	for _, q := range db.queries {
+		if strings.Contains(q.text, "NOT EXISTS") &&
+			!strings.Contains(q.text, "COUNT(*)") &&
+			strings.Contains(strings.ToUpper(q.text), "SELECT") {
+			if strings.Contains(q.text, `"status"`) && strings.Contains(q.text, `SELECT "__gx_parent"`) {
+				t.Fatalf("diagnostics must not project parent columns: %q", q.text)
+			}
+		}
+	}
+}
+
+func TestReferenceParentFilterSuiteScopeRemainsLocalOnly(t *testing.T) {
+	setHarnessData(t, referenceFixture())
+	db := openRecordingHarnessDB(t)
+
+	parent := TrustedParentFilter("customers-active", "status = ?", "active")
+	rep, err := NewSuite(
+		Columns("tenant_id", "customer_id").References(Table("customers"), "tenant_id", "id").
+			WithParentFilter(parent),
+	).ValidateTable(
+		context.Background(), db, Table("orders"),
+		WithDialect(Postgres()),
+		WithScope(TrustedScope("tenant", "tenant_id = ?", "t1")),
+		WithKey("id"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := rep.Results[0]
+	// Scoped local rows: 1,2,3,4. Active parent excludes customer 2; orphan ids 2 and 3.
+	if res.Success || res.Total != 4 || res.FailedCount != 2 {
+		t.Fatalf("got %#v, want scoped total 4 and 2 orphans", res)
+	}
+	if !reflect.DeepEqual(res.FailedKeys, []RowKey{{int64(2)}, {int64(3)}}) {
+		t.Fatalf("FailedKeys = %#v, want [[2] [3]]", res.FailedKeys)
+	}
+	if rep.ScopeID != "tenant" {
+		t.Fatalf("ScopeID = %q, want suite identity tenant", rep.ScopeID)
+	}
+	if res.Facts.Reference == nil || res.Facts.Reference.ParentFilterID != "customers-active" {
+		t.Fatalf("ParentFilterID = %#v", res.Facts.Reference)
+	}
+
+	var sawParentFilter, sawLocalScope bool
+	for _, q := range db.queries {
+		if !strings.Contains(q.text, "NOT EXISTS") {
+			continue
+		}
+		notExistsIdx := strings.Index(q.text, "NOT EXISTS")
+		outer := q.text[:notExistsIdx]
+		parentSQL := q.text[notExistsIdx:]
+		if strings.Contains(parentSQL, "status = $") {
+			sawParentFilter = true
+		}
+		if strings.Contains(outer, "tenant_id = $") {
+			sawLocalScope = true
+		}
+		if strings.Contains(parentSQL, "tenant_id = $") {
+			t.Fatalf("suite scope leaked into parent subquery: %s", q.text)
+		}
+		// Placeholder offset: scope $1, parent filter $2.
+		if strings.Contains(parentSQL, "status = $1") {
+			t.Fatalf("parent filter placeholder should follow suite scope offset: %s", q.text)
+		}
+	}
+	if !sawParentFilter || !sawLocalScope {
+		t.Fatalf("expected local scope and parent filter SQL; queries=%#v", db.queries)
 	}
 }
 

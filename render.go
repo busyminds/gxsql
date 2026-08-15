@@ -13,9 +13,10 @@ const maxDisplay = 10
 // FailedCount, Total, FailedPercent, sample values, and failed keys under the
 // existing display caps. Failing per-row results include FailedCount,
 // FailedPercent, sample values, and failed keys. Table-level results omit row
-// denominators; failing lines show Name only when FailedCount is zero. Sample
-// values and failed keys are truncated to maxDisplay (10) entries with an
-// ellipsis.
+// denominators; failing [CustomCount] and [KindReconcileCountsEqual] lines use
+// their display helpers and render as "N failed". Other table-level failures
+// show Name only when FailedCount is zero. Sample values and failed keys are
+// truncated to maxDisplay (10) entries with an ellipsis.
 func (r Result) String() string {
 	if r.Success {
 		if r.Tolerated {
@@ -37,6 +38,9 @@ func (r Result) String() string {
 		return fmt.Sprintf("✗ %s", r.Name)
 	}
 	if failed, ok := customCountDisplayFailed(r); ok {
+		return fmt.Sprintf("✗ %s  %d failed", r.Name, failed)
+	}
+	if failed, ok := reconcileCountsDisplayFailed(r); ok {
 		return fmt.Sprintf("✗ %s  %d failed", r.Name, failed)
 	}
 	return fmt.Sprintf("✗ %s  %d/%d failed (%.1f%%)  e.g. %s @ %s",

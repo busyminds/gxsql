@@ -140,10 +140,12 @@ func (c ColumnsBuilder) Unique() Expectation {
 // References returns a per-row expectation that every complete non-NULL local
 // foreign-key tuple resolves to at least one row in parent. A local row with
 // any NULL component passes (nullable foreign-key policy). Parent lookup is
-// intentionally unscoped; [WithScope] applies only to the local target.
-// Results use [KindReference], leave [Result.Column] empty, and populate
-// [ResultFacts.Reference]. Samples and failed keys remain local-only.
-func (c ColumnBuilder) References(parent TableRef, parentColumns ...string) Expectation {
+// intentionally unscoped by default; [WithScope] applies only to the local
+// target. Narrow the parent population with
+// [WithParentFilter] on the value returned by References. Results use [KindReference], leave
+// [Result.Column] empty, and populate [ResultFacts.Reference]. Samples and
+// failed keys remain local-only.
+func (c ColumnBuilder) References(parent TableRef, parentColumns ...string) referenceExpectation {
 	return referenceExpectation{
 		localColumns:  []string{c.column},
 		parent:        parent,
@@ -154,10 +156,12 @@ func (c ColumnBuilder) References(parent TableRef, parentColumns ...string) Expe
 // References returns a per-row expectation that every complete non-NULL local
 // foreign-key tuple resolves to at least one row in parent. Local and parent
 // column lists must have equal arity. A local row with any NULL component
-// passes. Parent lookup is intentionally unscoped; [WithScope] applies only to
-// the local target. Results use [KindReference], leave [Result.Column] empty,
-// and populate [ResultFacts.Reference]. Samples and failed keys remain local-only.
-func (c ColumnsBuilder) References(parent TableRef, parentColumns ...string) Expectation {
+// passes. Parent lookup is intentionally unscoped by default; [WithScope]
+// applies only to the local target. Narrow the parent population with
+// [WithParentFilter] on the value returned by References. Results use [KindReference], leave
+// [Result.Column] empty, and populate [ResultFacts.Reference]. Samples and
+// failed keys remain local-only.
+func (c ColumnsBuilder) References(parent TableRef, parentColumns ...string) referenceExpectation {
 	return referenceExpectation{
 		localColumns:  append([]string(nil), c.columns...),
 		parent:        parent,

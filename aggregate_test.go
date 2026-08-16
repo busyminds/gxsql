@@ -5,6 +5,20 @@ import (
 	"testing"
 )
 
+func TestIntegerBoundUint64Range(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+
+	got, ok := integerBound(uint64(maxInt))
+	if !ok || got != maxInt {
+		t.Fatalf("integerBound(maxInt) = (%d, %t), want (%d, true)", got, ok, maxInt)
+	}
+
+	got, ok = integerBound(^uint64(0))
+	if ok {
+		t.Fatalf("integerBound(maxUint64) = (%d, true), want out of range", got)
+	}
+}
+
 func TestAggregateAverageBetween(t *testing.T) {
 	setHarnessData(t, harnessUsers(
 		map[string]any{"id": int64(1), "amount": float64(10)},

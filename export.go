@@ -172,6 +172,18 @@ type ExportedFacts struct {
 	Ratio *ExportedRatioFacts `json:"ratio,omitempty"`
 	// Reconcile holds dual-side count reconciliation facts.
 	Reconcile *ExportedReconcileFacts `json:"reconcile,omitempty"`
+	// Sum holds structured SUM observations and bounds.
+	Sum *ExportedSumFacts `json:"sum,omitempty"`
+	// PopulationStdDev holds structured population standard-deviation facts.
+	PopulationStdDev *ExportedPopulationStdDevFacts `json:"population_stddev,omitempty"`
+	// Completeness holds non-NULL numerator, denominator, and rate facts.
+	Completeness *ExportedRateFacts `json:"completeness,omitempty"`
+	// DuplicateRate holds duplicate-row numerator, denominator, and rate facts.
+	DuplicateRate *ExportedRateFacts `json:"duplicate_rate,omitempty"`
+	// Frequency holds one category's count and share facts.
+	Frequency *ExportedFrequencyFacts `json:"frequency,omitempty"`
+	// DominantShare holds maximum share and tie-count facts.
+	DominantShare *ExportedDominantShareFacts `json:"dominant_share,omitempty"`
 	// RequiredColumns lists caller-configured expected column names in
 	// declaration order for structural column expectations.
 	RequiredColumns []string `json:"required_columns,omitempty"`
@@ -189,6 +201,61 @@ type ExportedFacts struct {
 	ConfiguredReportedType string `json:"configured_reported_type,omitempty"`
 	// ObservedReportedType is the driver-/catalog-reported type name.
 	ObservedReportedType string `json:"observed_reported_type,omitempty"`
+}
+
+// ExportedSumFacts is the encoded form of SumFacts.
+type ExportedSumFacts struct {
+	Observed             *int             `json:"observed,omitempty"`
+	ObservedFloat        *NormalizedValue `json:"observed_float,omitempty"`
+	ConfiguredLower      *int             `json:"configured_lower,omitempty"`
+	ConfiguredUpper      *int             `json:"configured_upper,omitempty"`
+	ConfiguredFloatLower *NormalizedValue `json:"configured_float_lower,omitempty"`
+	ConfiguredFloatUpper *NormalizedValue `json:"configured_float_upper,omitempty"`
+	Exactness            string           `json:"exactness,omitempty"`
+}
+
+// ExportedPopulationStdDevFacts is the encoded form of PopulationStdDevFacts.
+type ExportedPopulationStdDevFacts struct {
+	Observed        *NormalizedValue `json:"observed,omitempty"`
+	ConfiguredLower *NormalizedValue `json:"configured_lower,omitempty"`
+	ConfiguredUpper *NormalizedValue `json:"configured_upper,omitempty"`
+	Algorithm       string           `json:"algorithm,omitempty"`
+	Exactness       string           `json:"exactness,omitempty"`
+}
+
+// ExportedRateFacts is the encoded form of completeness or duplicate-rate
+// observations.
+type ExportedRateFacts struct {
+	NonNullCount    *int             `json:"non_null_count,omitempty"`
+	DuplicateCount  *int             `json:"duplicate_count,omitempty"`
+	TotalCount      *int             `json:"total_count,omitempty"`
+	Rate            *NormalizedValue `json:"rate,omitempty"`
+	ConfiguredBound *NormalizedValue `json:"configured_bound,omitempty"`
+	ConfiguredLower *NormalizedValue `json:"configured_lower,omitempty"`
+	ConfiguredUpper *NormalizedValue `json:"configured_upper,omitempty"`
+}
+
+// ExportedFrequencyFacts is the encoded form of FrequencyFacts.
+type ExportedFrequencyFacts struct {
+	ConfiguredValue *NormalizedValue `json:"configured_value,omitempty"`
+	ConfiguredNull  bool             `json:"configured_null,omitempty"`
+	ValueCount      *int             `json:"value_count,omitempty"`
+	TotalCount      *int             `json:"total_count,omitempty"`
+	Share           *NormalizedValue `json:"share,omitempty"`
+	ConfiguredBound *NormalizedValue `json:"configured_bound,omitempty"`
+	ConfiguredLower *NormalizedValue `json:"configured_lower,omitempty"`
+	ConfiguredUpper *NormalizedValue `json:"configured_upper,omitempty"`
+}
+
+// ExportedDominantShareFacts is the encoded form of DominantShareFacts.
+type ExportedDominantShareFacts struct {
+	DominantCount   *int             `json:"dominant_count,omitempty"`
+	TotalCount      *int             `json:"total_count,omitempty"`
+	Share           *NormalizedValue `json:"share,omitempty"`
+	TieCount        *int             `json:"tie_count,omitempty"`
+	ConfiguredBound *NormalizedValue `json:"configured_bound,omitempty"`
+	ConfiguredLower *NormalizedValue `json:"configured_lower,omitempty"`
+	ConfiguredUpper *NormalizedValue `json:"configured_upper,omitempty"`
 }
 
 // ExportedComparisonFacts is the JSON form of ComparisonFacts.
@@ -637,6 +704,129 @@ func exportFacts(facts ResultFacts) (*ExportedFacts, error) {
 		out.ConfiguredMaxFailedPercent = facts.ConfiguredMaxFailedPercent
 		has = true
 	}
+	if facts.Sum != nil {
+		out.Sum = &ExportedSumFacts{
+			Observed:        facts.Sum.Observed,
+			ConfiguredLower: facts.Sum.ConfiguredLower,
+			ConfiguredUpper: facts.Sum.ConfiguredUpper,
+			Exactness:       facts.Sum.Exactness,
+		}
+		var err error
+		out.Sum.ObservedFloat, err = exportOptionalFloat(facts.Sum.ObservedFloat)
+		if err != nil {
+			return nil, err
+		}
+		out.Sum.ConfiguredFloatLower, err = exportOptionalFloat(facts.Sum.ConfiguredFloatLower)
+		if err != nil {
+			return nil, err
+		}
+		out.Sum.ConfiguredFloatUpper, err = exportOptionalFloat(facts.Sum.ConfiguredFloatUpper)
+		if err != nil {
+			return nil, err
+		}
+		has = true
+	}
+	if facts.PopulationStdDev != nil {
+		out.PopulationStdDev = &ExportedPopulationStdDevFacts{
+			Algorithm: facts.PopulationStdDev.Algorithm,
+			Exactness: facts.PopulationStdDev.Exactness,
+		}
+		var err error
+		out.PopulationStdDev.Observed, err = exportOptionalFloat(facts.PopulationStdDev.Observed)
+		if err != nil {
+			return nil, err
+		}
+		out.PopulationStdDev.ConfiguredLower, err = exportOptionalFloat(facts.PopulationStdDev.ConfiguredLower)
+		if err != nil {
+			return nil, err
+		}
+		out.PopulationStdDev.ConfiguredUpper, err = exportOptionalFloat(facts.PopulationStdDev.ConfiguredUpper)
+		if err != nil {
+			return nil, err
+		}
+		has = true
+	}
+	if facts.Completeness != nil {
+		var err error
+		out.Completeness, err = exportRateFacts(
+			facts.Completeness.NonNullCount, nil, facts.Completeness.TotalCount,
+			facts.Completeness.Rate, facts.Completeness.ConfiguredBound,
+			facts.Completeness.ConfiguredLower, facts.Completeness.ConfiguredUpper,
+		)
+		if err != nil {
+			return nil, err
+		}
+		has = true
+	}
+	if facts.DuplicateRate != nil {
+		var err error
+		out.DuplicateRate, err = exportRateFacts(
+			nil, facts.DuplicateRate.DuplicateCount, facts.DuplicateRate.TotalCount,
+			facts.DuplicateRate.Rate, facts.DuplicateRate.ConfiguredBound,
+			facts.DuplicateRate.ConfiguredLower, facts.DuplicateRate.ConfiguredUpper,
+		)
+		if err != nil {
+			return nil, err
+		}
+		has = true
+	}
+	if facts.Frequency != nil {
+		out.Frequency = &ExportedFrequencyFacts{
+			ConfiguredNull: facts.Frequency.ConfiguredNull,
+			ValueCount:     facts.Frequency.ValueCount,
+			TotalCount:     facts.Frequency.TotalCount,
+		}
+		if facts.Frequency.ConfiguredValue != nil {
+			nv, err := normalizeValue(facts.Frequency.ConfiguredValue)
+			if err != nil {
+				return nil, err
+			}
+			out.Frequency.ConfiguredValue = &nv
+		}
+		var err error
+		out.Frequency.Share, err = exportOptionalFloat(facts.Frequency.Share)
+		if err != nil {
+			return nil, err
+		}
+		out.Frequency.ConfiguredBound, err = exportOptionalFloat(facts.Frequency.ConfiguredBound)
+		if err != nil {
+			return nil, err
+		}
+		out.Frequency.ConfiguredLower, err = exportOptionalFloat(facts.Frequency.ConfiguredLower)
+		if err != nil {
+			return nil, err
+		}
+		out.Frequency.ConfiguredUpper, err = exportOptionalFloat(facts.Frequency.ConfiguredUpper)
+		if err != nil {
+			return nil, err
+		}
+		has = true
+	}
+	if facts.DominantShare != nil {
+		out.DominantShare = &ExportedDominantShareFacts{
+			DominantCount: facts.DominantShare.DominantCount,
+			TotalCount:    facts.DominantShare.TotalCount,
+			TieCount:      facts.DominantShare.TieCount,
+		}
+		var err error
+		out.DominantShare.Share, err = exportOptionalFloat(facts.DominantShare.Share)
+		if err != nil {
+			return nil, err
+		}
+		out.DominantShare.ConfiguredBound, err = exportOptionalFloat(facts.DominantShare.ConfiguredBound)
+		if err != nil {
+			return nil, err
+		}
+		out.DominantShare.ConfiguredLower, err = exportOptionalFloat(facts.DominantShare.ConfiguredLower)
+		if err != nil {
+			return nil, err
+		}
+		out.DominantShare.ConfiguredUpper, err = exportOptionalFloat(facts.DominantShare.ConfiguredUpper)
+		if err != nil {
+			return nil, err
+		}
+		has = true
+	}
 	if facts.ObservedTimePresent != nil {
 		out.ObservedTimePresent = facts.ObservedTimePresent
 		has = true
@@ -721,6 +911,42 @@ func exportFacts(facts ResultFacts) (*ExportedFacts, error) {
 	}
 	if !has {
 		return nil, nil
+	}
+	return out, nil
+}
+func exportOptionalFloat(value *float64) (*NormalizedValue, error) {
+	if value == nil {
+		return nil, nil
+	}
+	nv, err := normalizeFloat(*value)
+	if err != nil {
+		return nil, err
+	}
+	return &nv, nil
+}
+
+func exportRateFacts(nonNull, duplicate, total *int, rate, bound, lower, upper *float64) (*ExportedRateFacts, error) {
+	out := &ExportedRateFacts{
+		NonNullCount:   nonNull,
+		DuplicateCount: duplicate,
+		TotalCount:     total,
+	}
+	var err error
+	out.Rate, err = exportOptionalFloat(rate)
+	if err != nil {
+		return nil, err
+	}
+	out.ConfiguredBound, err = exportOptionalFloat(bound)
+	if err != nil {
+		return nil, err
+	}
+	out.ConfiguredLower, err = exportOptionalFloat(lower)
+	if err != nil {
+		return nil, err
+	}
+	out.ConfiguredUpper, err = exportOptionalFloat(upper)
+	if err != nil {
+		return nil, err
 	}
 	return out, nil
 }

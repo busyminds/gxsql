@@ -85,6 +85,24 @@ type ResultFacts struct {
 	// Reconcile holds dual-side count reconciliation facts. Nil when this
 	// result is not a reconcile check.
 	Reconcile *ReconcileFacts
+	// Sum holds exact integer sum-bound facts. Nil when this result is not a
+	// sum check.
+	Sum *SumFacts
+	// PopulationStdDev holds exact population-standard-deviation facts. Nil
+	// when this result is not a population standard-deviation check.
+	PopulationStdDev *PopulationStdDevFacts
+	// Completeness holds completeness-rate facts. Nil when this result is not a
+	// completeness-rate check. Distinct from NotNull FailedPercent.
+	Completeness *CompletenessFacts
+	// DuplicateRate holds duplicate-rate facts. Nil when this result is not a
+	// duplicate-rate check. Distinct from Unique FailedPercent.
+	DuplicateRate *DuplicateRateFacts
+	// Frequency holds value-frequency facts. Nil when this result is not a
+	// value-frequency check.
+	Frequency *FrequencyFacts
+	// DominantShare holds dominant-share facts. Nil when this result is not a
+	// dominant-share check.
+	DominantShare *DominantShareFacts
 
 	// RequiredColumns lists caller-configured expected column names in
 	// declaration order for structural column expectations. Empty when unset.
@@ -178,6 +196,123 @@ type ReconcileFacts struct {
 	// SecondaryFilterID is the secondary-filter identity when set. Empty when
 	// unset. Predicate text and args are never published here.
 	SecondaryFilterID string
+}
+
+// SumFacts describes SUM observations and configured bounds. Integer fields are
+// exact when populated; floating fields use the documented float64 path.
+// Observations are pointers so empty/all-NULL absence is distinct from zero.
+type SumFacts struct {
+	// Observed is the exact integer SUM when present.
+	Observed *int
+	// ObservedFloat is the float64 SUM when present.
+	ObservedFloat *float64
+	// ConfiguredLower is the inclusive lower integer bound when set.
+	ConfiguredLower *int
+	// ConfiguredUpper is the inclusive upper integer bound when set.
+	ConfiguredUpper *int
+	// ConfiguredFloatLower is the inclusive lower float bound when set.
+	ConfiguredFloatLower *float64
+	// ConfiguredFloatUpper is the inclusive upper float bound when set.
+	ConfiguredFloatUpper *float64
+	// Exactness labels the observation path.
+	Exactness string
+}
+
+// PopulationStdDevFacts describes an exact population-standard-deviation
+// observation and its configured bounds. Algorithm and Exactness are explicit
+// labels so an observed float is not mistaken for cross-engine identity.
+type PopulationStdDevFacts struct {
+	// Observed is the population standard deviation when present. Nil means
+	// empty/all-NULL input and is never encoded as NaN.
+	Observed *float64
+	// ConfiguredLower is the inclusive lower float bound when set.
+	ConfiguredLower *float64
+	// ConfiguredUpper is the inclusive upper float bound when set.
+	ConfiguredUpper *float64
+	// Algorithm names the exact population algorithm used by the dialect.
+	Algorithm string
+	// Exactness labels the observation contract.
+	Exactness string
+}
+
+// CompletenessFacts describes completeness-rate observations. Counts and the
+// derived rate are pointers so absence is distinct from zero. Distinct from
+// NotNull FailedPercent.
+type CompletenessFacts struct {
+	// NonNullCount is the non-null numerator when observed.
+	NonNullCount *int
+	// TotalCount is the scoped-row denominator when observed. Completeness
+	// defaults to scoped row count (nulls included).
+	TotalCount *int
+	// Rate is the derived completeness rate when computable. Nil when absent;
+	// never NaN.
+	Rate *float64
+	// ConfiguredBound is the inclusive rate bound for single-sided checks.
+	ConfiguredBound *float64
+	// ConfiguredLower and ConfiguredUpper are inclusive bounds for Between.
+	ConfiguredLower *float64
+	ConfiguredUpper *float64
+}
+
+// DuplicateRateFacts describes duplicate-rate observations. Counts and the
+// derived rate are pointers so absence is distinct from zero. Distinct from
+// Unique FailedPercent. Duplicate rate is duplicate rows divided by scoped rows.
+type DuplicateRateFacts struct {
+	// DuplicateCount is the duplicate-row numerator when observed.
+	DuplicateCount *int
+	// TotalCount is the scoped-row denominator when observed.
+	TotalCount *int
+	// Rate is the derived duplicate rate when computable. Nil when absent;
+	// never NaN.
+	Rate *float64
+	// ConfiguredBound is the inclusive rate bound for single-sided checks.
+	ConfiguredBound *float64
+	// ConfiguredLower and ConfiguredUpper are inclusive bounds for Between.
+	ConfiguredLower *float64
+	ConfiguredUpper *float64
+}
+
+// FrequencyFacts describes value-frequency observations for one category share
+// against a documented denominator. SQL NULL is one category. Pointers keep
+// absence distinct from zero.
+type FrequencyFacts struct {
+	// ConfiguredValue is the requested category when non-NULL.
+	ConfiguredValue any
+	// ConfiguredNull marks SQL NULL as the requested category.
+	ConfiguredNull bool
+	// ValueCount is the matching-category count when observed.
+	ValueCount *int
+	// TotalCount is the documented denominator when observed.
+	TotalCount *int
+	// Share is the category share when computable. Nil when absent; never NaN.
+	Share *float64
+	// ConfiguredBound is the inclusive category-share bound for single-sided
+	// checks.
+	ConfiguredBound *float64
+	// ConfiguredLower and ConfiguredUpper are inclusive bounds for Between.
+	ConfiguredLower *float64
+	ConfiguredUpper *float64
+}
+
+// DominantShareFacts describes dominant-share observations. Ties publish the
+// maximum share and tie count without selecting a representative value.
+type DominantShareFacts struct {
+	// ConfiguredBound is the inclusive dominant-share bound for single-sided
+	// checks.
+	ConfiguredBound *float64
+	// ConfiguredLower and ConfiguredUpper are inclusive bounds for Between.
+	ConfiguredLower *float64
+	ConfiguredUpper *float64
+	// DominantCount is the maximum category count when observed.
+	DominantCount *int
+	// TotalCount is the documented denominator when observed.
+	TotalCount *int
+	// Share is the maximum category share when computable. Nil when absent;
+	// never NaN.
+	Share *float64
+	// TieCount is the number of categories tied at the maximum share. Nil when
+	// unset; a pointer to 1 means a unique dominant category.
+	TieCount *int
 }
 
 // resultDiagnostics holds captured SQL text and bound arguments for export.

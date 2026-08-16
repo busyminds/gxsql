@@ -753,7 +753,88 @@ func Run(t *testing.T, cfg Config) {
 	runTemporalAndFreshness(t, cfg)
 	runStructuralColumnContracts(t, cfg)
 	runSchemaContracts(t, cfg)
+	runBroaderMetrics(t, cfg)
 	runPatternChecks(t, cfg)
+}
+func runBroaderMetrics(t *testing.T, cfg Config) {
+	t.Helper()
+	t.Run("broader metrics", func(t *testing.T) {
+		db := &recordingDB{DB: cfg.DB}
+		report, err := gxsql.NewSuite(
+			gxsql.Int("paid_cents").SumBetween(59, 61),
+			gxsql.Column("nullable").CompletenessRate().GreaterOrEqual(0.75),
+			gxsql.Column("name").DuplicateRate().LessOrEqual(0.5),
+			gxsql.Column("nullable").Frequency(nil).LessOrEqual(0.25),
+			gxsql.Column("name").DominantShare().GreaterOrEqual(0.5),
+		).ValidateTable(context.Background(), db, cfg.Table, gxsql.WithDialect(cfg.Dialect))
+		if err != nil {
+			t.Fatalf("ValidateTable: %v", err)
+		}
+		if len(report.Results) != 5 {
+			t.Fatalf("results = %d, want 5", len(report.Results))
+		}
+		for i, result := range report.Results {
+			if !result.Success || result.Err != nil ||
+				result.RowDenominator != gxsql.RowDenominatorUnavailable ||
+				result.FailedPercent != 0 {
+				t.Fatalf("result[%d] = %#v, want table-level successful metric", i, result)
+			}
+		}
+		if got := report.Results[0].Facts.Sum.Observed; got == nil || *got != 60 {
+			t.Fatalf("sum facts = %#v, want 60", report.Results[0].Facts.Sum)
+		}
+		completeness := report.Results[1].Facts.Completeness
+		if completeness == nil || completeness.NonNullCount == nil || *completeness.NonNullCount != 3 ||
+			completeness.TotalCount == nil || *completeness.TotalCount != 4 {
+			t.Fatalf("completeness facts = %#v", completeness)
+		}
+		duplicates := report.Results[2].Facts.DuplicateRate
+		if duplicates == nil || duplicates.DuplicateCount == nil || *duplicates.DuplicateCount != 2 {
+			t.Fatalf("duplicate facts = %#v", duplicates)
+		}
+		frequency := report.Results[3].Facts.Frequency
+		if frequency == nil || frequency.ValueCount == nil || *frequency.ValueCount != 1 {
+			t.Fatalf("frequency facts = %#v", frequency)
+		}
+		dominant := report.Results[4].Facts.DominantShare
+		if dominant == nil || dominant.DominantCount == nil || *dominant.DominantCount != 2 ||
+			dominant.TieCount == nil || *dominant.TieCount != 1 {
+			t.Fatalf("dominant facts = %#v", dominant)
+		}
+	})
+
+	t.Run("empty sum has absent observation", func(t *testing.T) {
+		report, err := gxsql.NewSuite(
+			gxsql.Int("paid_cents").SumBetween(0, 1),
+		).ValidateTable(context.Background(), cfg.DB, cfg.EmptyTable, gxsql.WithDialect(cfg.Dialect))
+		if err != nil {
+			t.Fatalf("ValidateTable: %v", err)
+		}
+		result := report.Results[0]
+		if !result.Success || result.Facts.Sum == nil || result.Facts.Sum.Observed != nil {
+			t.Fatalf("empty sum result = %#v", result)
+		}
+	})
+
+	t.Run("population stddev capability", func(t *testing.T) {
+		capability, ok := cfg.Dialect.(gxsql.AggregateMetricsDialect)
+		advertised := ok && capability.AggregateMetricsCapability().PopulationStdDev
+		report, err := gxsql.NewSuite(
+			gxsql.Float("score").StdDevBetween(0.8, 0.83),
+		).ValidateTable(context.Background(), cfg.DB, cfg.Table, gxsql.WithDialect(cfg.Dialect))
+		if advertised {
+			if err != nil {
+				t.Fatalf("advertised stddev: %v", err)
+			}
+			if !report.Results[0].Success || report.Results[0].Facts.PopulationStdDev == nil {
+				t.Fatalf("stddev result = %#v", report.Results[0])
+			}
+			return
+		}
+		if err == nil || !errors.Is(err, gxsql.ErrCategoryUnsupported) {
+			t.Fatalf("unsupported stddev error = %v", err)
+		}
+	})
 }
 
 func assertToleranceRawPreservation(t *testing.T, bare, tol gxsql.Result) {

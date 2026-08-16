@@ -42,21 +42,27 @@ usual denominator interpretation: they use `KindCustom` and
 even though `Total` and `FailedPercent` are unavailable. Reconcile-count results
 use `KindReconcileCountsEqual` and `RowDenominatorUnavailable`; `FailedCount` is
 `0` when the dual `COUNT(*)` values are equal and `1` when they differ. `Column`
-is blank. `WithMaxFailedCount` and `MaxFailedPercent` apply to
-denominator-available per-row, uniqueness, and referential-integrity shapes,
-including composite uniqueness and references with or without parent filters.
-They do not apply to custom-count or reconcile-count results.
-`MaxFailedPercent(p)` uses the inclusive unrounded comparison
-`FailedCount / Total * 100 <= p` for `p` in `[0, 100]`. Both forms change
-`Success` only and preserve raw observations. Empty evaluated populations pass
-without division by zero or `NaN` and are not tolerated. Scope remains the
+is blank. Broader metric results (`KindSumBetween`,
+`KindPopulationStdDevBetween`, `KindCompletenessRate`, `KindDuplicateRate`,
+`KindValueFrequency`, `KindDominantShare`) are also table-level: they keep
+`FailedPercent` at its zero value and publish observations only under nested
+`Result.Facts` fields. Those rate facts are distinct from `NotNull` / `Unique` /
+`Columns(...).Unique()` `FailedPercent`. `WithMaxFailedCount` and
+`MaxFailedPercent` apply to denominator-available per-row, uniqueness, and
+referential-integrity shapes, including composite uniqueness and references with
+or without parent filters. They do not apply to custom-count, reconcile-count,
+or broader metric results. `MaxFailedPercent(p)` uses the inclusive unrounded
+comparison `FailedCount / Total * 100 <= p` for `p` in `[0, 100]`. Both forms
+change `Success` only and preserve raw observations. Empty evaluated populations
+pass without division by zero or `NaN` and are not tolerated. Scope remains the
 evaluated population for all raw counts. Table-level, aggregate, distinct-count,
-row-count, custom-count, reconcile-count, and structural column wrappers
-(including catalog nullability and reported-type contracts) fail preflight.
-Execution and configuration errors keep `Success: false` and `Tolerated: false`;
-non-advisory policy failures gate, while warning/info failures remain queryable.
-Catalog schema contracts also use `RowDenominatorUnavailable`, emit no samples
-or failed keys, and remain count-tolerance-ineligible.
+row-count, custom-count, reconcile-count, broader-metric, and structural column
+wrappers (including catalog nullability and reported-type contracts) fail
+preflight. Execution and configuration errors keep `Success: false` and
+`Tolerated: false`; non-advisory policy failures gate, while warning/info
+failures remain queryable. Catalog schema contracts also use
+`RowDenominatorUnavailable`, emit no samples or failed keys, and remain
+count-tolerance-ineligible.
 
 `RowKey` is `[]any` containing caller-supplied `WithKey` values in the same
 column order.
@@ -121,9 +127,36 @@ appears only as `Facts.Reference.ParentFilterID`.
 - `ConfiguredReportedType` and `ObservedReportedType` hold the caller-configured
   and driver-reported type spellings for `KindColumnType`. Comparison is
   byte-for-byte; missing columns omit observed type rather than inventing one.
+- `Sum` holds nested `SumFacts` for `KindSumBetween`: integer `Observed` with
+  `Exactness` `exact_integer`, or `ObservedFloat` with `Exactness` `float64`,
+  plus configured lower/upper bounds. Empty or all-`NULL` input leaves the
+  observation pointer nil (absence, not zero or `NaN`).
+- `PopulationStdDev` holds nested `PopulationStdDevFacts` for
+  `KindPopulationStdDevBetween`: `Observed`, configured bounds, `Algorithm`
+  `STDDEV_POP`, and `Exactness` `exact_population`. Empty or all-`NULL` input
+  leaves `Observed` nil. Quantile facts are not published.
+- `Completeness` holds nested `CompletenessFacts` for `KindCompletenessRate`:
+  `NonNullCount`, scoped `TotalCount` (SQL `NULL` rows included), `Rate`, and
+  either `ConfiguredBound` for single-sided checks or `ConfiguredLower` /
+  `ConfiguredUpper` for `Between`. Distinct from `NotNull` `FailedPercent`.
+- `DuplicateRate` holds nested `DuplicateRateFacts` for `KindDuplicateRate`:
+  `DuplicateCount`, scoped `TotalCount`, `Rate`, and either `ConfiguredBound`
+  for single-sided checks or `ConfiguredLower` / `ConfiguredUpper` for
+  `Between`. Distinct from `Unique` / composite-unique `FailedPercent`.
+- `Frequency` holds nested `FrequencyFacts` for `KindValueFrequency`:
+  `ConfiguredValue` / `ConfiguredNull`, `ValueCount`, `TotalCount`, `Share`, and
+  either `ConfiguredBound` for single-sided checks or `ConfiguredLower` /
+  `ConfiguredUpper` for `Between`. SQL `NULL` is one category.
+- `DominantShare` holds nested `DominantShareFacts` for `KindDominantShare`:
+  `DominantCount`, `TotalCount`, `Share`, `TieCount`, and either
+  `ConfiguredBound` for single-sided checks or `ConfiguredLower` /
+  `ConfiguredUpper` for `Between`. Ties publish the maximum share and tie count
+  without selecting a value.
 
 Built-in expectations populate threshold and mapping fields at construction
-time. Do not encode composite tuples as comma-separated `Column` text.
+time. Do not encode composite tuples as comma-separated `Column` text. Broader
+metric rates and aggregates live only in these nested facts; do not derive them
+from `FailedPercent`.
 
 ## Validation Errors
 
@@ -148,7 +181,10 @@ capability (`nullability` or `exact_reported_type`). `ColumnNullability` on
 `Postgres`, `DuckDB`, and `SQLite` fails that way at preflight. When a dialect
 advertises nullability (`MySQL`) but `Rows.ColumnTypes` cannot resolve it for a
 column, `UnknownMetadataError` is returned under the same category and never
-becomes a passing policy result. Use `errors.As` to inspect those typed errors.
+becomes a passing policy result. Population standard-deviation claims that the
+dialect does not advertise fail the same way with capability
+`aggregate.population_stddev` and kind `population_stddev_between` (`SQLite` in
+the built-in matrix). Use `errors.As` to inspect those typed errors.
 
 ## Display Output
 

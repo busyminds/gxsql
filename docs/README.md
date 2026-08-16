@@ -23,6 +23,7 @@ run. You own the `database/sql` driver and must select the dialect explicitly.
 | [Results and remediation](concepts/results.md)   | inspect failures, retain row keys, and understand vacuous passes                   |
 | [Operational limits](concepts/operations.md)     | plan query cost, control retained data, and protect sensitive values               |
 | [Stable identity and export](concepts/export.md) | join results across runs and export a privacy-preserving JSON data transfer object |
+| [Compatibility](concepts/compatibility.md)       | select a built-in dialect and check the supported database matrix                  |
 
 For the opt-in `WithSharedScalarEvaluation()` performance option, see
 [operational limits](concepts/operations.md#use-shared-scalar-evaluation).

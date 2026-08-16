@@ -99,7 +99,6 @@ multi-statement view is required. A pooled `*sql.DB` without a caller-owned
 transaction may use different connections between statements. Do not describe
 that mode as snapshot-consistent.
 
-
 ## Limit Retained Data
 
 | Control                | Default                    | Effect                                                     |
@@ -128,8 +127,8 @@ go test -run '^$' -bench . -benchmem -count 5 ./...
 ```
 
 Benchmark output is comparison evidence, not a performance guarantee. Query
-category counts and observer timings are the baseline; engine cost estimates
-are outside this contract.
+category counts and observer timings are the baseline; engine cost estimates are
+outside this contract.
 
 ## Avoid Oversized Membership Lists
 

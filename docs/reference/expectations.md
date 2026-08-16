@@ -94,9 +94,9 @@ type names across engines.
 `ColumnNullability(name string) ColumnNullabilityBuilder` starts a catalog
 nullability contract for one validated identifier.
 
-| Method          | Policy                                                              |
-| --------------- | ------------------------------------------------------------------- |
-| `NotNullable()` | The column is advertised `NOT NULL` by `Rows.ColumnTypes` metadata. |
+| Method          | Policy                                                                |
+| --------------- | --------------------------------------------------------------------- |
+| `NotNullable()` | The column is advertised `NOT NULL` by `Rows.ColumnTypes` metadata.   |
 | `Nullable()`    | The column is advertised NULL-capable by `Rows.ColumnTypes` metadata. |
 
 These assert **catalog** nullability. They do not replace content
@@ -107,17 +107,17 @@ does not prove catalog nullability.
 Results use `KindColumnNullability` (`column_nullability`), set `Result.Column`
 to the checked name, and use `RowDenominatorUnavailable`. Structured facts
 publish `ConfiguredNullability` and, when the column is present,
-`ObservedNullability` as `CatalogNullability` values `nullable`,
-`not_nullable`, or `unknown`.
+`ObservedNullability` as `CatalogNullability` values `nullable`, `not_nullable`,
+or `unknown`.
 
 ### Exact Reported Type
 
 `ColumnType(name string) ColumnTypeBuilder` starts an exact reported-type
-contract. `ReportedAs(typeName string)` requires the driver-reported
-type name to equal `typeName` **byte-for-byte**. gxsql does not lowercase,
-uppercase, trim modifiers, or equate dialect synonyms (`INTEGER` vs `INT` vs
-`INT4`). Callers must supply the exact spelling their selected dialect and
-driver report through `ColumnType.DatabaseTypeName()`.
+contract. `ReportedAs(typeName string)` requires the driver-reported type name
+to equal `typeName` **byte-for-byte**. gxsql does not lowercase, uppercase, trim
+modifiers, or equate dialect synonyms (`INTEGER` vs `INT` vs `INT4`). Callers
+must supply the exact spelling their selected dialect and driver report through
+`ColumnType.DatabaseTypeName()`.
 
 Results use `KindColumnType` (`column_type`), set `Result.Column` to the checked
 name, and use `RowDenominatorUnavailable`. Facts publish
@@ -179,17 +179,17 @@ Unsupported claims fail closed before discovery SQL:
 ### Per-Dialect `Rows.ColumnTypes` Capability Matrix
 
 Built-in dialects advertise schema-metadata claims through
-`SchemaMetadataDialect`. Discovery reads `Rows.ColumnTypes()` after the
-zero-row probe. Advertised support means gxsql trusts affirmative metadata
-from the conformance-supported driver; `ok == false` fails closed. Drivers
-outside that support matrix are not covered by the built-in capability claim.
+`SchemaMetadataDialect`. Discovery reads `Rows.ColumnTypes()` after the zero-row
+probe. Advertised support means gxsql trusts affirmative metadata from the
+conformance-supported driver; `ok == false` fails closed. Drivers outside that
+support matrix are not covered by the built-in capability claim.
 
-| Dialect    | Catalog nullability | Exact reported type | Metadata source for advertised claims |
-| ---------- | ------------------- | ------------------- | ------------------------------------- |
-| `MySQL`    | supported           | supported           | `Rows.ColumnTypes` (`Nullable`, `DatabaseTypeName`) |
+| Dialect    | Catalog nullability | Exact reported type | Metadata source for advertised claims                                                                                 |
+| ---------- | ------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `MySQL`    | supported           | supported           | `Rows.ColumnTypes` (`Nullable`, `DatabaseTypeName`)                                                                   |
 | `Postgres` | unsupported         | supported           | Type via `Rows.ColumnTypes` (`DatabaseTypeName`); nullability refused at preflight (`pgx` omits `ColumnTypeNullable`) |
 | `DuckDB`   | unsupported         | supported           | Type via `Rows.ColumnTypes` (`DatabaseTypeName`); nullability refused at preflight (`Nullable` returns `ok == false`) |
-| `SQLite`   | unsupported         | supported           | Type via `Rows.ColumnTypes` (`DatabaseTypeName`); nullability refused at preflight (untruthful `Nullable`) |
+| `SQLite`   | unsupported         | supported           | Type via `Rows.ColumnTypes` (`DatabaseTypeName`); nullability refused at preflight (untruthful `Nullable`)            |
 
 Only `MySQL` advertises catalog nullability through `Rows.ColumnTypes`. Exact
 reported-type claims remain available on every built-in dialect; supply the
@@ -209,9 +209,9 @@ position, and cross-engine type families are out of scope for these builders.
 | `Unique()`           | No non-null value appears more than once; all rows in duplicate groups fail. |
 | `DistinctCount()`    | Starts a table-level count of distinct non-null values.                      |
 
-`IsNull` / `NotNull` are content checks over row values. For catalog
-nullability of a named column, use `ColumnNullability(...).Nullable()` /
-`NotNullable()` instead.
+`IsNull` / `NotNull` are content checks over row values. For catalog nullability
+of a named column, use `ColumnNullability(...).Nullable()` / `NotNullable()`
+instead.
 
 `In` and `NotIn` require at least one non-nil value. Empty lists and nil entries
 are configuration errors. Each value becomes a bound placeholder; see
@@ -234,9 +234,9 @@ or more separately validated identifiers. Empty names, invalid identifiers,
 duplicates within one tuple, and fewer than two columns for composite uniqueness
 fail `ValidateTable` preflight before SQL.
 
-| Method                                                 | Policy                                                                                                         |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
-| `Unique()`                                             | Each complete non-`NULL` tuple appears at most once in the scoped local population; every duplicate row fails. |
+| Method                                                 | Policy                                                                                                                                        |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Unique()`                                             | Each complete non-`NULL` tuple appears at most once in the scoped local population; every duplicate row fails.                                |
 | `References(parent TableRef, parentColumns ...string)` | Every complete non-`NULL` local tuple resolves to at least one parent row; optional `WithParentFilter` narrows parents; orphans fail locally. |
 
 `Column(name).References(parent, parentColumn)` covers the single-column form
@@ -288,10 +288,10 @@ unrelated parent rows can match.
 reuses suite scope. Narrow the parent population with an explicit parent filter
 instead:
 
-| API | Role |
-| --- | --- |
+| API                                                                   | Role                                                                 |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | `TrustedParentFilter(id, predicate string, args ...any) ParentFilter` | Builds an immutable trusted parent-side predicate with bound values. |
-| `(reference).WithParentFilter(filter ParentFilter)` | Applies that predicate only inside the parent `NOT EXISTS` lookup. |
+| `(reference).WithParentFilter(filter ParentFilter)`                   | Applies that predicate only inside the parent `NOT EXISTS` lookup.   |
 
 `ParentFilter` is a distinct type from `Scope` and from reconciliation
 `SecondaryFilter`. Suite scope cannot be passed as a parent filter.
@@ -476,17 +476,17 @@ suite := gxsql.NewSuite(
 fails each string policy. Empty tables and empty scoped populations pass
 vacuously.
 
-| Method                   | Policy                                                  |
-| ------------------------ | ------------------------------------------------------- |
-| `NotEmpty()`             | Every string is non-empty.                              |
-| `Empty()`                | Every string is empty.                                  |
-| `LenEqual(n int)`        | Every database string length equals `n`.                |
-| `LenBetween(lo, hi int)` | Every database string length is in the inclusive range. |
-| `HasPrefix(prefix)`      | Value starts with the literal fragment `prefix`.        |
-| `HasSuffix(suffix)`      | Value ends with the literal fragment `suffix`.          |
-| `Contains(substr)`       | Value contains the literal fragment `substr`.           |
-| `Like(pattern)`          | Value matches the caller-owned SQL `LIKE` pattern.      |
-| `NotLike(pattern)`       | Value does not match the caller-owned SQL `LIKE` pattern. |
+| Method                   | Policy                                                     |
+| ------------------------ | ---------------------------------------------------------- |
+| `NotEmpty()`             | Every string is non-empty.                                 |
+| `Empty()`                | Every string is empty.                                     |
+| `LenEqual(n int)`        | Every database string length equals `n`.                   |
+| `LenBetween(lo, hi int)` | Every database string length is in the inclusive range.    |
+| `HasPrefix(prefix)`      | Value starts with the literal fragment `prefix`.           |
+| `HasSuffix(suffix)`      | Value ends with the literal fragment `suffix`.             |
+| `Contains(substr)`       | Value contains the literal fragment `substr`.              |
+| `Like(pattern)`          | Value matches the caller-owned SQL `LIKE` pattern.         |
+| `NotLike(pattern)`       | Value does not match the caller-owned SQL `LIKE` pattern.  |
 | `Regex(pattern)`         | Value matches under a dialect-advertised regex capability. |
 
 Length uses the dialect's SQL length expression—`CHAR_LENGTH` or `LENGTH`—not Go
@@ -495,10 +495,10 @@ rune counting.
 ### Portable LIKE-Family Patterns
 
 `HasPrefix`, `HasSuffix`, and `Contains` treat the argument as a **literal
-fragment**. Before rendering SQL `LIKE`, gxsql escapes backslash, `%`, and `_` and
-adds a dialect-safe `ESCAPE` clause so caller data never becomes wildcards by
-default. The fragment is then wrapped with `%` as needed (`prefix%`, `%suffix`,
-or `%substr%`) and bound as a placeholder.
+fragment**. Before rendering SQL `LIKE`, gxsql escapes backslash, `%`, and `_`
+and adds a dialect-safe `ESCAPE` clause so caller data never becomes wildcards
+by default. The fragment is then wrapped with `%` as needed (`prefix%`,
+`%suffix`, or `%substr%`) and bound as a placeholder.
 
 `Like` and `NotLike` treat the argument as a **raw SQL LIKE pattern**. Callers
 own wildcards; gxsql binds the pattern without automatic escaping and without an
@@ -522,10 +522,9 @@ formats with `Like`, capability-gated `Regex`, or `CustomCount` recipes.
 
 ### Capability-Gated Regex
 
-`Regex(pattern)` runs only when the selected dialect implements
-`RegexDialect` and advertises a complete `RegexCapability` (name, operator or
-function, flags, match mode, null behavior, and Unicode limits). Built-in
-support:
+`Regex(pattern)` runs only when the selected dialect implements `RegexDialect`
+and advertises a complete `RegexCapability` (name, operator or function, flags,
+match mode, null behavior, and Unicode limits). Built-in support:
 
 | Dialect    | Advertised? | Operator | Match mode |
 | ---------- | ----------- | -------- | ---------- |
@@ -534,12 +533,11 @@ support:
 | `MySQL`    | yes         | `REGEXP` | substring  |
 | `SQLite`   | no          | —        | —          |
 
-Unsupported dialects fail closed at suite preflight with
-`CategoryUnsupported` and an `UnsupportedCapabilityError` naming kind
-`regex`, the dialect label, and capability `regex`. No SQL runs, and gxsql never
-rewrites regex to `LIKE`. Under `ContinueOnError`, the same static capability
-failure occupies the declaration-order slot as `Result.Err` before later rules
-execute.
+Unsupported dialects fail closed at suite preflight with `CategoryUnsupported`
+and an `UnsupportedCapabilityError` naming kind `regex`, the dialect label, and
+capability `regex`. No SQL runs, and gxsql never rewrites regex to `LIKE`. Under
+`ContinueOnError`, the same static capability failure occupies the
+declaration-order slot as `Result.Err` before later rules execute.
 
 Advertised engines still differ in flags, Unicode, and regex dialect. gxsql
 documents per-dialect metadata and does not claim cross-engine regex parity.
@@ -553,22 +551,22 @@ gxsql.String("ref").Regex(`^[A-Z]{3}-[0-9]+$`)
 ### Pattern Export Privacy
 
 Pattern literals appear in in-memory `Result.Name` for local debugging. Default
-`ExportReport` display names redact them to forms such as `code has prefix
-(...)`, `path contains (...)`, `email like (...)`, and `ref regex (...)`. Bound
-pattern arguments stay out of default export; capture them only with
-`CaptureQueryDiagnostics` plus opt-in diagnostic export. Samples and failed keys
-keep their existing opt-in rules.
+`ExportReport` display names redact them to forms such as
+`code has prefix (...)`, `path contains (...)`, `email like (...)`, and
+`ref regex (...)`. Bound pattern arguments stay out of default export; capture
+them only with `CaptureQueryDiagnostics` plus opt-in diagnostic export. Samples
+and failed keys keep their existing opt-in rules.
 
 ## Reconcile Counts
 
-`ReconcileCounts(secondary TableRef) ReconcileCountsBuilder` starts a suite-bound
-`COUNT(*)` reconciliation. The table passed to `ValidateTable` is always the
-left side; `secondary` is the explicit right side.
+`ReconcileCounts(secondary TableRef) ReconcileCountsBuilder` starts a
+suite-bound `COUNT(*)` reconciliation. The table passed to `ValidateTable` is
+always the left side; `secondary` is the explicit right side.
 
-| Method | Policy |
-| --- | --- |
+| Method                                        | Policy                                             |
+| --------------------------------------------- | -------------------------------------------------- |
 | `WithSecondaryFilter(filter SecondaryFilter)` | Applies `filter` only to the secondary `COUNT(*)`. |
-| `Equal()` | Left and right `COUNT(*)` values must be equal. |
+| `Equal()`                                     | Left and right `COUNT(*)` values must be equal.    |
 
 `TrustedSecondaryFilter(id, predicate string, args ...any) SecondaryFilter`
 builds the optional secondary predicate. `SecondaryFilter` is a distinct type
@@ -654,15 +652,16 @@ percentage in `[0, 100]`. A denominator-available result passes when
 evaluated populations pass and are not tolerated. Per-row, uniqueness, and
 referential-integrity expectations qualify, including parent-filtered
 references. Table-level, aggregate, distinct-count, row-count, custom-count,
-reconcile-count, and structural column declarations (including catalog nullability and reported-type contracts) fail preflight. A second
-tolerance form in one decorated expectation also fails preflight.
+reconcile-count, and structural column declarations (including catalog
+nullability and reported-type contracts) fail preflight. A second tolerance form
+in one decorated expectation also fails preflight.
 
 `WithMaxFailedCount(max int, exp Expectation)` remains the inclusive
 non-negative maximum failed-row count form. It applies to the same eligible
 per-row, uniqueness, and referential-integrity shapes, including composite
-uniqueness, references with or without `WithParentFilter`, same-row
-comparisons, ratios, numeric bounds, string and pattern checks, and timestamp
-windows. Existing count-tolerance behavior is unchanged. `ReconcileCounts` and
+uniqueness, references with or without `WithParentFilter`, same-row comparisons,
+ratios, numeric bounds, string and pattern checks, and timestamp windows.
+Existing count-tolerance behavior is unchanged. `ReconcileCounts` and
 `CustomCount` remain ineligible.
 
 Tolerance changes only the policy verdict after the inner expectation evaluates
@@ -696,8 +695,8 @@ Supported shapes: ordinary per-row (row-denominator), uniqueness, composite
 uniqueness, and referential integrity (including parent-filtered references).
 Table-level, aggregate, distinct-count, custom-count, reconcile-count, and
 structural expectations (including catalog nullability and reported-type
-contracts) reject eligibility at `ValidateTable` preflight. Nested
-`When` wrappers are configuration errors.
+contracts) reject eligibility at `ValidateTable` preflight. Nested `When`
+wrappers are configuration errors.
 
 Eligible rows define `Total` and the denominator for percentages and tolerance.
 Ineligible rows neither pass nor fail. Zero eligible rows use the existing

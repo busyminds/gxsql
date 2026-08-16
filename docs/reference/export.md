@@ -14,12 +14,11 @@ result has `Err` and later expectations still run. IDs are never derived from
 `ExpectationKind` is the stable category of a built-in expectation. The `Kind*`
 constants cover row-count, structural column, catalog nullability and reported
 type, per-row predicate, distinct-count, aggregate, temporal, and reconcile
-builders; `KindReconcileCountsEqual`
-(`reconcile_counts_equal`) marks dual `COUNT(*)` equality from
-`ReconcileCounts(...).Equal()`. `KindCustom` marks custom counts from
-`CustomCount`. Other expectations may still use `KindCustom` when built-in
-metadata is unavailable. Use `Kind` and `ID` for machine joins, not display
-text.
+builders; `KindReconcileCountsEqual` (`reconcile_counts_equal`) marks dual
+`COUNT(*)` equality from `ReconcileCounts(...).Equal()`. `KindCustom` marks
+custom counts from `CustomCount`. Other expectations may still use `KindCustom`
+when built-in metadata is unavailable. Use `Kind` and `ID` for machine joins,
+not display text.
 
 Structural column results use `KindRequiredColumns` (`required_columns`) or
 `KindExactColumns` (`exact_columns`). They export ordered `required_columns` /
@@ -71,10 +70,10 @@ not gate `Report.OK()` or `Report.Err()`; result errors always gate.
 Export remains privacy-safe by default. Samples, failed keys, query diagnostics,
 and arguments keep their existing opt-in and redaction rules (`IncludeSamples`,
 `IncludeFailedKeys`, `IncludeCapturedDiagnostics`, `IncludeCapturedArguments`,
-and redactors). Pattern expectation display names redact configured fragments and
-patterns (`has prefix (...)`, `like (...)`, `regex (...)`, and related forms);
-bound pattern arguments are not exported unless captured diagnostics are opted
-in.
+and redactors). Pattern expectation display names redact configured fragments
+and patterns (`has prefix (...)`, `like (...)`, `regex (...)`, and related
+forms); bound pattern arguments are not exported unless captured diagnostics are
+opted in.
 
 ## Scoped Reports and Privacy
 
@@ -162,21 +161,21 @@ A redactor error or panic fails export closed.
 
 ## Exported Types
 
-| Type                      | JSON Role                                                                                                                                                                                                                                                                                                          |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ExportedReport`          | Schema version, optional target/scope, and declaration-ordered results.                                                                                                                                                                                                                                            |
-| `ExportedTarget`          | Optional schema and table name.                                                                                                                                                                                                                                                                                    |
-| `ExportedScope`           | Optional stable caller scope identity as `scope.id`; predicate and bound values are not included.                                                                                                                                                                                                                  |
-| `ExportedResult`          | Identity, verdicts, optional `tolerated`, counts, facts, caps, opted-in diagnostics, and categorized errors.                                                                                                                                                                                                       |
-| `ExportedCounts`          | Optional total, failed count, and failed percentage.                                                                                                                                                                                                                                                               |
+| Type                      | JSON Role                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ExportedReport`          | Schema version, optional target/scope, and declaration-ordered results.                                                                                                                                                                                                                                                                                                                                                                                    |
+| `ExportedTarget`          | Optional schema and table name.                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `ExportedScope`           | Optional stable caller scope identity as `scope.id`; predicate and bound values are not included.                                                                                                                                                                                                                                                                                                                                                          |
+| `ExportedResult`          | Identity, verdicts, optional `tolerated`, counts, facts, caps, opted-in diagnostics, and categorized errors.                                                                                                                                                                                                                                                                                                                                               |
+| `ExportedCounts`          | Optional total, failed count, and failed percentage.                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `ExportedFacts`           | Observations and configured thresholds, including optional `configured_max_failed_count`, `configured_max_failed_percent`, temporal `configured_time_*` / `observed_time` fields, `key_columns`, `comparison`, `ratio`, `reference`, `reconcile`, structural `required_columns` / `missing_columns` / `unexpected_columns`, and schema-contract `configured_nullability` / `observed_nullability` / `configured_reported_type` / `observed_reported_type`. |
-| `ExportedComparisonFacts` | Same-row comparison operands and relationship.                                                                                                                                                                                                                                                                     |
-| `ExportedRatioFacts`      | Same-row ratio operands and integral bound.                                                                                                                                                                                                                                                                        |
-| `ExportedReferenceFacts`  | Structured local-to-parent mapping (`local_columns`, parent target, `parent_columns`, optional `parent_filter_id`) for reference results.                                                                                                                                                                           |
-| `ExportedReconcileFacts`  | Dual-side reconcile mapping (`left`, `right`, observed counts, `relationship`, optional `left_scope_id` / `secondary_filter_id`).                                                                                                                                                                                  |
-| `ExportedCaps`            | Returned and truncated flags for opted-in samples and keys.                                                                                                                                                                                                                                                        |
-| `ExportedDiagnostics`     | Opted-in redacted SQL, optional arguments, and truncation flags.                                                                                                                                                                                                                                                   |
-| `ExportedError`           | Stable error category and export-safe message.                                                                                                                                                                                                                                                                     |
+| `ExportedComparisonFacts` | Same-row comparison operands and relationship.                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `ExportedRatioFacts`      | Same-row ratio operands and integral bound.                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `ExportedReferenceFacts`  | Structured local-to-parent mapping (`local_columns`, parent target, `parent_columns`, optional `parent_filter_id`) for reference results.                                                                                                                                                                                                                                                                                                                  |
+| `ExportedReconcileFacts`  | Dual-side reconcile mapping (`left`, `right`, observed counts, `relationship`, optional `left_scope_id` / `secondary_filter_id`).                                                                                                                                                                                                                                                                                                                          |
+| `ExportedCaps`            | Returned and truncated flags for opted-in samples and keys.                                                                                                                                                                                                                                                                                                                                                                                                |
+| `ExportedDiagnostics`     | Opted-in redacted SQL, optional arguments, and truncation flags.                                                                                                                                                                                                                                                                                                                                                                                           |
+| `ExportedError`           | Stable error category and export-safe message.                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 `PolicyVerdict` is `pass`, `fail`, or `unevaluated`. `unevaluated` is used when
 the source `Result` has `Err`. `ExecutionOutcome` distinguishes a successful
@@ -224,13 +223,13 @@ is never part of their evaluation or export surface.
 
 Reference results export structured `facts.reference` with `local_columns`, the
 parent target, and `parent_columns`. When `WithParentFilter` was attached,
-`parent_filter_id` carries only the caller identity from
-`TrustedParentFilter`. Parent values never appear in samples or failed keys.
+`parent_filter_id` carries only the caller identity from `TrustedParentFilter`.
+Parent values never appear in samples or failed keys.
 
 Reconcile results export structured `facts.reconcile` with `left`, `right`,
-`observed_left_count`, `observed_right_count`, and `relationship: "equal"`.
-When the run used `WithScope`, `left_scope_id` carries the suite scope identity.
-When `WithSecondaryFilter` was attached, `secondary_filter_id` carries only the
+`observed_left_count`, `observed_right_count`, and `relationship: "equal"`. When
+the run used `WithScope`, `left_scope_id` carries the suite scope identity. When
+`WithSecondaryFilter` was attached, `secondary_filter_id` carries only the
 caller identity from `TrustedSecondaryFilter`. Default export omits predicate
 text, bound arguments, samples, failed keys, and query diagnostics for both
 shapes.

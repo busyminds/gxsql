@@ -22,24 +22,24 @@ suite := gxsql.NewSuite(
 
 Built-in builders create the expectations that `gxsql` supports:
 
-| Builder                             | Examples                                                                  |
-| ----------------------------------- | ------------------------------------------------------------------------- |
-| `RowCount()`                        | `Equal`, `Between`, `GreaterOrEqual`                                      |
-| `RequiredColumns` / `ExactColumns`  | unordered column-set presence or exact-set contracts                      |
-| `Column(name)`                      | `IsNull`, `NotNull`, `In`, `NotIn`, `Unique`, `DistinctCount`             |
-| `Column(left)` same-row comparisons | `EqualColumn`, `NotEqualColumn`, `LessThanColumn`, `GreaterOrEqualColumn` |
-| `Columns(names...)`                 | composite `Unique`, `References`, optional `WithParentFilter`             |
-| `ReconcileCounts(secondary)`        | `WithSecondaryFilter`, `Equal` for dual `COUNT(*)` equality               |
-| `Int(name)` / `Float(name)`         | range and comparison checks, plus aggregate checks                        |
-| `Int(name).RatioEqual`              | integer algebraic `value == right * bound` (not SQL `/`)                  |
+| Builder                             | Examples                                                                                                                         |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `RowCount()`                        | `Equal`, `Between`, `GreaterOrEqual`                                                                                             |
+| `RequiredColumns` / `ExactColumns`  | unordered column-set presence or exact-set contracts                                                                             |
+| `Column(name)`                      | `IsNull`, `NotNull`, `In`, `NotIn`, `Unique`, `DistinctCount`                                                                    |
+| `Column(left)` same-row comparisons | `EqualColumn`, `NotEqualColumn`, `LessThanColumn`, `GreaterOrEqualColumn`                                                        |
+| `Columns(names...)`                 | composite `Unique`, `References`, optional `WithParentFilter`                                                                    |
+| `ReconcileCounts(secondary)`        | `WithSecondaryFilter`, `Equal` for dual `COUNT(*)` equality                                                                      |
+| `Int(name)` / `Float(name)`         | range and comparison checks, plus aggregate checks                                                                               |
+| `Int(name).RatioEqual`              | integer algebraic `value == right * bound` (not SQL `/`)                                                                         |
 | `String(name)`                      | `Empty`, `NotEmpty`, `LenEqual`, `LenBetween`, `HasPrefix`, `HasSuffix`, `Contains`, `Like`, `NotLike`, capability-gated `Regex` |
-| `Timestamp(name)`                   | `InWindow`, `FreshSince`                                                  |
-| `TrustedCountQuery` + `CustomCount` | Trusted SQL count for joins, grouped aggregates, and exotic recipes       |
+| `Timestamp(name)`                   | `InWindow`, `FreshSince`                                                                                                         |
+| `TrustedCountQuery` + `CustomCount` | Trusted SQL count for joins, grouped aggregates, and exotic recipes                                                              |
 
-Decorate builders with `WithID`, `WithPolicy`, `WithMaxFailedCount`, and
-`When` / `TrustedEligibility` when you need stable IDs, policy metadata, or
-rule-level eligibility. Do not implement `Expectation` outside `gxsql`. It is a
-sealed interface. Construct expectations with these builders. The
+Decorate builders with `WithID`, `WithPolicy`, `WithMaxFailedCount`, and `When`
+/ `TrustedEligibility` when you need stable IDs, policy metadata, or rule-level
+eligibility. Do not implement `Expectation` outside `gxsql`. It is a sealed
+interface. Construct expectations with these builders. The
 [expectations reference](../reference/expectations.md) describes all methods.
 
 Expectations run in declaration order, including after packs are concatenated. A
@@ -190,11 +190,11 @@ those values may be sensitive.
 Suite scope never becomes a parent or secondary filter. Cross-table checks use
 distinct trusted constructors:
 
-| Mechanism | Applies to | Does not apply to | Published identity |
-| --------- | ---------- | ----------------- | ------------------ |
-| `WithScope(TrustedScope(...))` | Local / left population for the run | Parent lookup; secondary `COUNT(*)` | `Report.ScopeID`; reconcile `LeftScopeID` |
-| `WithParentFilter(TrustedParentFilter(...))` | Parent side of a referential `NOT EXISTS` | Local rows; suite scope reuse | `Reference.ParentFilterID` |
-| `WithSecondaryFilter(TrustedSecondaryFilter(...))` | Secondary `COUNT(*)` in `ReconcileCounts` | Left `COUNT(*)`; suite scope reuse | `Reconcile.SecondaryFilterID` |
+| Mechanism                                          | Applies to                                | Does not apply to                   | Published identity                        |
+| -------------------------------------------------- | ----------------------------------------- | ----------------------------------- | ----------------------------------------- |
+| `WithScope(TrustedScope(...))`                     | Local / left population for the run       | Parent lookup; secondary `COUNT(*)` | `Report.ScopeID`; reconcile `LeftScopeID` |
+| `WithParentFilter(TrustedParentFilter(...))`       | Parent side of a referential `NOT EXISTS` | Local rows; suite scope reuse       | `Reference.ParentFilterID`                |
+| `WithSecondaryFilter(TrustedSecondaryFilter(...))` | Secondary `COUNT(*)` in `ReconcileCounts` | Left `COUNT(*)`; suite scope reuse  | `Reconcile.SecondaryFilterID`             |
 
 Parent and secondary filters keep the same trusted-input rules as
 `TrustedScope`: fixed Go-code predicate text, `?` placeholders, matching bound
@@ -210,11 +210,11 @@ tables or views.
 
 Suite scope and rule eligibility answer different questions:
 
-| Concern | API | Role |
-| ------- | --- | ---- |
-| Shared population for one validation call | `TrustedScope` / `WithScope` | Select the tenant, batch, or window every expectation sees |
-| Conditional rows for one expectation | `TrustedEligibility` / `When` | Narrow which scoped rows are subject to that rule |
-| Parent or secondary population for one cross-table check | `TrustedParentFilter` / `TrustedSecondaryFilter` | Narrow only the non-local side of that check |
+| Concern                                                  | API                                              | Role                                                       |
+| -------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------- |
+| Shared population for one validation call                | `TrustedScope` / `WithScope`                     | Select the tenant, batch, or window every expectation sees |
+| Conditional rows for one expectation                     | `TrustedEligibility` / `When`                    | Narrow which scoped rows are subject to that rule          |
+| Parent or secondary population for one cross-table check | `TrustedParentFilter` / `TrustedSecondaryFilter` | Narrow only the non-local side of that check               |
 
 Do not replace suite scope with eligibility, and do not treat eligibility as a
 second `Report.ScopeID`. Scope still defines the outer population. Eligibility
@@ -310,10 +310,10 @@ Contract:
 4. A composed suite must produce the same ordered report as the identical flat
    list written by hand, including policy fields and eligibility wrappers.
 
-Recommend stable IDs with reverse-domain or pack-prefix paths
-(for example `acme.orders.id.present`). Do not derive machine IDs from
-descriptions or tags. Blank and duplicate caller IDs fail preflight before SQL;
-with `ContinueOnError()` they occupy declaration-order slots. Missing IDs remain
+Recommend stable IDs with reverse-domain or pack-prefix paths (for example
+`acme.orders.id.present`). Do not derive machine IDs from descriptions or tags.
+Blank and duplicate caller IDs fail preflight before SQL; with
+`ContinueOnError()` they occupy declaration-order slots. Missing IDs remain
 allowed (`Result.ID` empty). Library `Kind` values are not caller IDs and do not
 participate in duplicate-ID rejection.
 

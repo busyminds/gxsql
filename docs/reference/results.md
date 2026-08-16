@@ -53,10 +53,10 @@ without division by zero or `NaN` and are not tolerated. Scope remains the
 evaluated population for all raw counts. Table-level, aggregate, distinct-count,
 row-count, custom-count, reconcile-count, and structural column wrappers
 (including catalog nullability and reported-type contracts) fail preflight.
-Execution and configuration errors keep `Success: false` and `Tolerated:
-false`; non-advisory policy failures gate, while warning/info failures remain
-queryable. Catalog schema contracts also use `RowDenominatorUnavailable`, emit
-no samples or failed keys, and remain count-tolerance-ineligible.
+Execution and configuration errors keep `Success: false` and `Tolerated: false`;
+non-advisory policy failures gate, while warning/info failures remain queryable.
+Catalog schema contracts also use `RowDenominatorUnavailable`, emit no samples
+or failed keys, and remain count-tolerance-ineligible.
 
 `RowKey` is `[]any` containing caller-supplied `WithKey` values in the same
 column order.
@@ -116,8 +116,8 @@ appears only as `Facts.Reference.ParentFilterID`.
   `ExactColumns` failures.
 - `ConfiguredNullability` and `ObservedNullability` hold catalog nullability
   claims and observations for `KindColumnNullability` as `CatalogNullability`
-  values `nullable`, `not_nullable`, or `unknown`. Observed unknown never
-  yields a passing policy result.
+  values `nullable`, `not_nullable`, or `unknown`. Observed unknown never yields
+  a passing policy result.
 - `ConfiguredReportedType` and `ObservedReportedType` hold the caller-configured
   and driver-reported type spellings for `KindColumnType`. Comparison is
   byte-for-byte; missing columns omit observed type rather than inventing one.

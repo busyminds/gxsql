@@ -9,6 +9,7 @@ if you want a step-by-step introduction.
 | [Results and Remediation](results.md)           | read reports, retain failed row keys, and account for vacuous passes      |
 | [Operational Limits and Privacy](operations.md) | plan query cost, bound retained data, and protect sensitive diagnostics   |
 | [Stable Identity and Export](export.md)         | give results machine IDs and emit the versioned JSON data transfer object |
+| [Compatibility](compatibility.md)               | select a built-in dialect and check the supported database matrix         |
 
 ## API Details
 

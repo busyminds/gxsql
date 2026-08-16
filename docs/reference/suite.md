@@ -12,12 +12,12 @@ suite := gxsql.NewSuite(
 )
 ```
 
-| API                                                               | Description                                                           |
-| ----------------------------------------------------------------- | --------------------------------------------------------------------- |
+| API                                                               | Description                                                                                                     |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | `NewSuite(exps ...Expectation) *Suite`                            | Creates an ordered suite with the default sample and failed-key caps. Accepts a flattened pack-plus-local list. |
-| `(*Suite).WithSampleCap(n int) *Suite`                            | Sets the suite default sample cap; `0` disables sample collection.    |
-| `(*Suite).WithFailedKeysCap(n int) *Suite`                        | Sets the suite default failed-key cap; `0` is unlimited.              |
-| `(*Suite).ValidateTable(ctx, db, table, opts...) (Report, error)` | Runs every expectation and returns its aggregated report.             |
+| `(*Suite).WithSampleCap(n int) *Suite`                            | Sets the suite default sample cap; `0` disables sample collection.                                              |
+| `(*Suite).WithFailedKeysCap(n int) *Suite`                        | Sets the suite default failed-key cap; `0` is unlimited.                                                        |
+| `(*Suite).ValidateTable(ctx, db, table, opts...) (Report, error)` | Runs every expectation and returns its aggregated report.                                                       |
 
 `ValidateTable` returns `(report, nil)` for failed validation policies. Gate on
 `report.OK()` or `report.Err()`. It returns `(Report{}, err)` for run-level,
@@ -38,7 +38,7 @@ options override suite-level caps.
 | `SummaryOnly()`                | Does not load failed-row identities.                                                                                                                              |
 | `ContinueOnError()`            | Records preflight and execution errors on results and continues.                                                                                                  |
 | `CaptureQueryDiagnostics()`    | Records SQL and arguments for optional export only.                                                                                                               |
-| `WithObserver(observer)`       | Emits synchronous privacy-safe `QueryEvent` values; observer panics abort with a typed observer error.                                                           |
+| `WithObserver(observer)`       | Emits synchronous privacy-safe `QueryEvent` values; observer panics abort with a typed observer error.                                                            |
 | `WithSharedScalarEvaluation()` | Combines contiguous compatible built-in per-row failure counts into conditional-aggregate statement(s). Disabled by default.                                      |
 | `WithScope(scope Scope)`       | Limits every expectation to rows that match the scope predicate; validates the scope when the run starts. Incompatible with `RequiredColumns` and `ExactColumns`. |
 
@@ -55,9 +55,9 @@ and `Status`. They omit SQL text, bound arguments, scope predicates, samples,
 and failed keys. The duration uses a monotonic clock. Row counts are not a
 stable event field in this release, and observation never runs an extra query.
 
-Observer panics are recovered and returned as a typed observer error. No
-partial report is returned. Keep observer callbacks side-effect-light and
-avoid using them to alter validation policy.
+Observer panics are recovered and returned as a typed observer error. No partial
+report is returned. Keep observer callbacks side-effect-light and avoid using
+them to alter validation policy.
 
 ### WithSharedScalarEvaluation
 
@@ -146,11 +146,11 @@ structural suite when shape checks must gate content validation.
 Suite scope never becomes a parent or secondary filter. Use distinct trusted
 constructors when a cross-table check needs a non-local predicate:
 
-| Mechanism | Applies to | Does not apply to | Published identity |
-| --- | --- | --- | --- |
-| `WithScope(TrustedScope(...))` | Local / left population for the run | Parent lookup; secondary `COUNT(*)` | `Report.ScopeID`; reconcile `LeftScopeID` |
-| `WithParentFilter(TrustedParentFilter(...))` | Parent side of a referential `NOT EXISTS` | Local rows; suite scope reuse | `Reference.ParentFilterID` |
-| `WithSecondaryFilter(TrustedSecondaryFilter(...))` | Secondary `COUNT(*)` in `ReconcileCounts` | Left `COUNT(*)`; suite scope reuse | `Reconcile.SecondaryFilterID` |
+| Mechanism                                          | Applies to                                | Does not apply to                   | Published identity                        |
+| -------------------------------------------------- | ----------------------------------------- | ----------------------------------- | ----------------------------------------- |
+| `WithScope(TrustedScope(...))`                     | Local / left population for the run       | Parent lookup; secondary `COUNT(*)` | `Report.ScopeID`; reconcile `LeftScopeID` |
+| `WithParentFilter(TrustedParentFilter(...))`       | Parent side of a referential `NOT EXISTS` | Local rows; suite scope reuse       | `Reference.ParentFilterID`                |
+| `WithSecondaryFilter(TrustedSecondaryFilter(...))` | Secondary `COUNT(*)` in `ReconcileCounts` | Left `COUNT(*)`; suite scope reuse  | `Reconcile.SecondaryFilterID`             |
 
 Parent and secondary filters keep the same trusted-input rules as
 `TrustedScope`: fixed Go-code predicate text, `?` placeholders, matching bound
@@ -173,11 +173,11 @@ rules described above.
 
 ## Rule Eligibility
 
-| API | Description |
-| --- | ----------- |
-| `TrustedEligibility(id, predicate string, args ...any) Eligibility` | Builds an immutable trusted eligibility predicate with bound values. |
-| `When(eligibility Eligibility, exp Expectation) Expectation` | Wraps one expectation so only eligible rows inside the suite scope are evaluated. |
-| `Eligibility` | Immutable carrier for identity, predicate, and arguments; construct only with `TrustedEligibility`. |
+| API                                                                 | Description                                                                                         |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `TrustedEligibility(id, predicate string, args ...any) Eligibility` | Builds an immutable trusted eligibility predicate with bound values.                                |
+| `When(eligibility Eligibility, exp Expectation) Expectation`        | Wraps one expectation so only eligible rows inside the suite scope are evaluated.                   |
+| `Eligibility`                                                       | Immutable carrier for identity, predicate, and arguments; construct only with `TrustedEligibility`. |
 
 `TrustedEligibility` predicates are trusted Go-code input, not a sandbox for
 untrusted SQL. Keep the predicate text fixed in application code. Pass dynamic
@@ -202,8 +202,8 @@ report, err := gxsql.NewSuite(shippedAtPresent).ValidateTable(
 )
 ```
 
-Eligible results use the eligible-row count as `Total` and as the denominator for
-percentages and policy tolerance. Samples and failed keys come only from
+Eligible results use the eligible-row count as `Total` and as the denominator
+for percentages and policy tolerance. Samples and failed keys come only from
 eligible failing rows under existing caps. Ineligible rows neither pass nor fail
 the wrapped rule. Zero eligible rows pass vacuously with `Total == 0`,
 `FailedCount == 0`, no fabricated percentage, and `Tolerated == false`.
@@ -212,8 +212,8 @@ Supported shapes: ordinary per-row, uniqueness, composite uniqueness, and
 referential integrity (including parent-filtered references). Table-level,
 aggregate, distinct-count, custom-count, reconcile-count, and structural
 expectations reject eligibility at preflight. Nested `When` wrappers are
-configuration errors. Nil or invalid eligibility configuration fails
-preflight before SQL. Without `ContinueOnError()`, those failures return
+configuration errors. Nil or invalid eligibility configuration fails preflight
+before SQL. Without `ContinueOnError()`, those failures return
 `(Report{}, *PreflightErrors)`. With it, the affected declaration-order slot
 records `Err` and later expectations still run.
 
@@ -252,9 +252,10 @@ Rules:
 2. Pack functions take only explicit parameters. Do not share mutable package-
    level expectation values that validation can observe.
 3. Flattened declaration order is pack order, then order within each pack, then
-   caller-appended expectations. `Report.Results[i]` matches that flattened list.
-4. A composed suite must match the identical hand-flattened list field-for-field,
-   including policy fields and eligibility wrappers.
+   caller-appended expectations. `Report.Results[i]` matches that flattened
+   list.
+4. A composed suite must match the identical hand-flattened list
+   field-for-field, including policy fields and eligibility wrappers.
 
 Use `WithID` with caller-owned conventions such as reverse-domain or pack-prefix
 paths (`acme.orders.id.present`). Collision detection compares the final
@@ -378,7 +379,6 @@ shared by `*testing.T` and `*testing.B`.
 
 Both helpers accept the same options as `ValidateTable`.
 
-
 Pass a caller-owned `*sql.Tx` when several statements must use one transaction
 and isolation level. `gxsql` does not begin, commit, roll back, or close the
 transaction:
@@ -396,8 +396,8 @@ report, err := suite.ValidateTable(ctx, tx, gxsql.Table("orders"),
 ```
 
 Without a caller-owned transaction, a pooled `*sql.DB` may use different
-connections between statements. Avoid snapshot-consistency claims in that
-mode.
+connections between statements. Avoid snapshot-consistency claims in that mode.
+
 ## Database and Dialects
 
 `DB` is the narrow query interface that `ValidateTable` needs:

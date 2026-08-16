@@ -208,6 +208,10 @@ position, and cross-engine type families are out of scope for these builders.
 | `NotIn(vals ...any)` | Every value is outside `vals`; column `NULL` fails.                          |
 | `Unique()`           | No non-null value appears more than once; all rows in duplicate groups fail. |
 | `DistinctCount()`    | Starts a table-level count of distinct non-null values.                      |
+| `CompletenessRate()` | Starts a completeness-rate builder over scoped rows.                         |
+| `DuplicateRate()`    | Starts a duplicate-rate builder over scoped rows.                            |
+| `Frequency(value)`   | Starts a category-share builder for one value (nil means SQL `NULL`).        |
+| `DominantShare()`    | Starts a maximum category-share builder with deterministic tie facts.        |
 
 `IsNull` / `NotNull` are content checks over row values. For catalog nullability
 of a named column, use `ColumnNullability(...).Nullable()` / `NotNullable()`
@@ -226,6 +230,73 @@ Single-column `Unique()` ignores SQL `NULL` values: they do not participate in
 duplicate detection. `FailedCount` counts every row in each duplicate group, not
 the number of groups. Empty tables and empty scoped populations pass vacuously.
 Results use `KindUnique` and set `Result.Column` to the checked column.
+
+### Completeness and Duplicate Rates
+
+`CompletenessRate()` and `DuplicateRate()` return builders whose
+`GreaterOrEqual`, `LessOrEqual`, and `Between` methods compare a derived rate in
+`[0, 1]` against inclusive bounds. These are dedicated metric APIs: they do not
+rename or wrap `NotNull` / `Unique`, and they do not overload
+`Result.FailedPercent`.
+
+| Builder              | Numerator                                            | Denominator                                 | Kind                   |
+| -------------------- | ---------------------------------------------------- | ------------------------------------------- | ---------------------- |
+| `CompletenessRate()` | Non-`NULL` row count                                 | Scoped row count (SQL `NULL` rows included) | `KindCompletenessRate` |
+| `DuplicateRate()`    | Rows that participate in non-`NULL` duplicate groups | Scoped row count (SQL `NULL` rows included) | `KindDuplicateRate`    |
+
+`DuplicateRate` ignores SQL `NULL` when forming duplicate groups, matching the
+single-column uniqueness null policy, then divides by the full scoped row count.
+`NotNull` `FailedPercent` remains the share of rows that are SQL `NULL`.
+`Unique` / `Columns(...).Unique()` `FailedPercent` remains the share of scoped
+rows in duplicate groups under those builders' own denominators. Do not treat
+`1 - FailedPercent/100` as a completeness contract.
+
+Results are table-level: `RowDenominatorUnavailable`, `FailedPercent` stays at
+its zero value, and observations live in `Result.Facts.Completeness` or
+`Result.Facts.DuplicateRate` (`NonNullCount` or `DuplicateCount`, `TotalCount`,
+`Rate`, and either `ConfiguredBound` for single-sided checks or
+`ConfiguredLower` / `ConfiguredUpper` for `Between`). Empty scopes pass without
+divide-by-zero or `NaN`; count facts may be present while `Rate` stays absent.
+Samples and failed keys are not retained. `WithMaxFailedCount` and
+`MaxFailedPercent` are ineligible.
+
+```go
+gxsql.Column("email").CompletenessRate().GreaterOrEqual(0.99)
+gxsql.Column("email").DuplicateRate().LessOrEqual(0.05)
+```
+
+### Value Frequency and Dominant Share
+
+`Frequency(value any)` and `DominantShare()` return builders with the same
+`GreaterOrEqual` / `LessOrEqual` / `Between` rate comparisons in `[0, 1]`.
+
+`Frequency(value)` measures one category's share of scoped rows. Pass a concrete
+value for equality matching, or `nil` to select the SQL `NULL` category. `NULL`
+participates in the scoped denominator like any other category. Results use
+`KindValueFrequency` and publish `Result.Facts.Frequency` with `ConfiguredValue`
+/ `ConfiguredNull`, `ValueCount`, `TotalCount`, `Share`, and either
+`ConfiguredBound` for single-sided checks or `ConfiguredLower` /
+`ConfiguredUpper` for `Between`.
+
+`DominantShare()` measures the maximum category share. When several categories
+tie at that maximum, facts publish `TieCount` and do not select a representative
+value. Results use `KindDominantShare` and publish `Result.Facts.DominantShare`
+with `DominantCount`, `TotalCount`, `Share`, `TieCount`, and either
+`ConfiguredBound` for single-sided checks or `ConfiguredLower` /
+`ConfiguredUpper` for `Between`.
+
+Both shapes are table-level (`RowDenominatorUnavailable`). Empty scopes pass
+without `NaN`; frequency may publish zero counts with an absent `Share`, while
+dominant share may leave count/share facts absent when no category exists.
+Samples and failed keys are not retained. Count tolerance wrappers are
+ineligible. These builders are not membership checks: use `In` / `NotIn` when
+every row must belong to or avoid a value set.
+
+```go
+gxsql.Column("status").Frequency("ready").GreaterOrEqual(0.4)
+gxsql.Column("status").Frequency(nil).LessOrEqual(0.1)
+gxsql.Column("status").DominantShare().LessOrEqual(0.8)
+```
 
 ## Composite Columns
 
@@ -345,10 +416,67 @@ ordered numeric checks. Per-row comparisons treat SQL `NULL` as failing.
 | `AverageBetween(lo, hi float64)`        | The column average is in the inclusive range.                  |
 | `MinGreaterOrEqual(bound float64)`      | The column minimum is at least the bound.                      |
 | `MaxLessOrEqual(bound float64)`         | The column maximum is at most the bound.                       |
+| `SumBetween(lo, hi any)`                | The column `SUM` is in the inclusive range.                    |
+| `StdDevBetween(lo, hi float64)`         | Population `STDDEV_POP` is in the inclusive range.             |
 | `RatioEqual(right string, bound int64)` | Integer-only algebraic `value == right * bound` (not SQL `/`). |
 
 The aggregate methods are table-level checks. They pass vacuously when the
-column has no non-null numeric value.
+column has no non-null numeric value. Quantile builders are not provided. Shared
+multi-aggregate execution is not provided: each aggregate expectation evaluates
+independently in declaration order.
+
+### Sum Bounds
+
+`SumBetween(lo, hi)` requires `SUM(column)` to lie in the inclusive range. SQL
+`NULL` values are excluded from the sum. Empty or all-`NULL` input passes with
+an **absent** observed sum fact (pointer nil)—absence is not encoded as zero and
+never as `NaN`.
+
+| Builder path            | Observation path           | `Exactness` label | Facts                                                           |
+| ----------------------- | -------------------------- | ----------------- | --------------------------------------------------------------- |
+| `Int(...).SumBetween`   | Exact integer `SUM`        | `exact_integer`   | `Observed`, `ConfiguredLower`, `ConfiguredUpper`                |
+| `Float(...).SumBetween` | Documented `float64` `SUM` | `float64`         | `ObservedFloat`, `ConfiguredFloatLower`, `ConfiguredFloatUpper` |
+
+Results use `KindSumBetween` (`sum_between`), set `Result.Column`, use
+`RowDenominatorUnavailable`, and publish nested `Result.Facts.Sum`. Integer
+bounds must be integers; float bounds must be finite; `lo > hi` fails preflight.
+Engine overflow on the integer path, or a non-finite floating sum, is a
+`CategoryDatabase` execution error—never a silent wrapped pass. gxsql does not
+claim cross-engine float bit-identity, and default builders are exact (no
+approximate sum mode).
+
+```go
+gxsql.Int("amount").SumBetween(0, 1_000_000)
+gxsql.Float("amount").SumBetween(0.0, 1_000_000.0)
+```
+
+### Population Standard Deviation
+
+`StdDevBetween(lo, hi float64)` requires the **population** standard deviation
+of non-`NULL` values to lie in the inclusive range. The algorithm label is
+`STDDEV_POP` with exactness `exact_population`. Results use
+`KindPopulationStdDevBetween` (`population_stddev_between`), set
+`RowDenominatorUnavailable`, and publish `Result.Facts.PopulationStdDev`
+(`Observed`, `ConfiguredLower`, `ConfiguredUpper`, `Algorithm`, `Exactness`).
+Empty or all-`NULL` input passes with an absent observation (never `NaN`).
+
+Dialects advertise support through `AggregateMetricsDialect`. Built-in support:
+
+| Dialect    | Population `STDDEV_POP` |
+| ---------- | ----------------------- |
+| `Postgres` | supported               |
+| `DuckDB`   | supported               |
+| `MySQL`    | supported               |
+| `SQLite`   | unsupported             |
+
+Unsupported dialects fail closed at suite preflight with `CategoryUnsupported`
+and `UnsupportedCapabilityError` naming kind `population_stddev_between`, the
+dialect, and capability `aggregate.population_stddev`. No SQL runs. There is no
+sample-standard-deviation builder and no quantile builder on this path.
+
+```go
+gxsql.Float("amount").StdDevBetween(0.0, 25.0)
+```
 
 `RatioEqual` is available only from `Int(...)`. `Float(...).RatioEqual` fails
 preflight. A row passes only when both operands are non-`NULL`, the right-hand

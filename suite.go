@@ -234,6 +234,18 @@ func (s *Suite) ValidateTable(
 			})
 		}
 	}
+	for i, exp := range s.expectations {
+		if !requiresPopulationStdDev(exp) || pf.hasIssueAt(i) {
+			continue
+		}
+		if err := populationStdDevCapabilityError(expectationKind(exp), cfg.dialect); err != nil {
+			pf.issues = append(pf.issues, PreflightIssue{
+				Index: i,
+				ID:    expectationID(exp),
+				Err:   err,
+			})
+		}
+	}
 	if cfg.hasScope {
 		for i, exp := range s.expectations {
 			if !isStructuralExpectation(exp) || pf.hasIssueAt(i) {

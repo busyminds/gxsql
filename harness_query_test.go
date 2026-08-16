@@ -3,6 +3,7 @@ package gxsql
 import (
 	"database/sql/driver"
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -12,7 +13,8 @@ import (
 var (
 	countRe         = regexp.MustCompile(`(?is)^SELECT\s+COUNT\(\*\)\s+FROM\s+(.+?)(?:\s+WHERE\s+(.+))?$`)
 	countDistinctRe = regexp.MustCompile(`(?is)^SELECT\s+COUNT\(DISTINCT\s+(.+?)\)\s+FROM\s+(.+?)(?:\s+WHERE\s+(.+))?$`)
-	aggRe           = regexp.MustCompile(`(?is)^SELECT\s+(AVG|MIN|MAX)\((.+?)\)\s+FROM\s+(.+?)(?:\s+WHERE\s+(.+))?$`)
+	groupCountRe    = regexp.MustCompile(`(?is)^SELECT\s+(.+?),\s*COUNT\(\*\)\s+FROM\s+(.+?)(?:\s+WHERE\s+(.+?))?\s+GROUP\s+BY\s+(.+)$`)
+	aggRe           = regexp.MustCompile(`(?is)^SELECT\s+(AVG|MIN|MAX|SUM|STDDEV_POP)\((.+?)\)\s+FROM\s+(.+?)(?:\s+WHERE\s+(.+))?$`)
 	selectRe        = regexp.MustCompile(`(?is)^SELECT\s+(.+?)\s+FROM\s+(.+?)(?:\s+WHERE\s+(.+?))?(?:\s+ORDER\s+BY\s+(.+?))?(?:\s+LIMIT\s+(.+))?$`)
 	zeroRowStarRe   = regexp.MustCompile(`(?is)^SELECT\s+\*\s+FROM\s+(.+?)\s+WHERE\s+1\s*=\s*0$`)
 	subUniqueRe     = regexp.MustCompile(
@@ -81,6 +83,40 @@ func executeHarnessQuery(query string, args []any, tables map[string][]map[strin
 		n := distinctCountColumn(table, col)
 		return []string{"count"}, [][]driver.Value{{int64(n)}}, nil
 	}
+	if m := groupCountRe.FindStringSubmatch(q); m != nil {
+		col := unquoteIdent(stripQualification(m[1]))
+		table, err := resolveTable(m[2], tables)
+		if err != nil {
+			return nil, nil, err
+		}
+		where := strings.TrimSpace(m[3])
+		type group struct {
+			value any
+			count int64
+		}
+		groups := make(map[string]*group)
+		order := make([]string, 0)
+		for _, row := range table {
+			if where != "" && !rowMatchesWhere(where, args, row, m[2], table, tables) {
+				continue
+			}
+			value := row[col]
+			key := fmt.Sprintf("%T:%v", value, value)
+			item, ok := groups[key]
+			if !ok {
+				item = &group{value: value}
+				groups[key] = item
+				order = append(order, key)
+			}
+			item.count++
+		}
+		rows := make([][]driver.Value, 0, len(order))
+		for _, key := range order {
+			item := groups[key]
+			rows = append(rows, []driver.Value{item.value, item.count})
+		}
+		return []string{col, "count"}, rows, nil
+	}
 
 	if m := aggRe.FindStringSubmatch(q); m != nil {
 		agg := strings.ToUpper(m[1])
@@ -101,6 +137,11 @@ func executeHarnessQuery(query string, args []any, tables map[string][]map[strin
 		}
 		if timeVal, ok := aggregateTimeColumn(table, col, agg); ok {
 			return []string{strings.ToLower(agg)}, [][]driver.Value{{timeVal}}, nil
+		}
+		if agg == "SUM" {
+			if val, ok := aggregateIntegerColumn(table, col); ok {
+				return []string{"sum"}, [][]driver.Value{{val}}, nil
+			}
 		}
 		val, ok := aggregateColumn(table, col, agg)
 		if !ok {
@@ -822,6 +863,58 @@ func distinctCountColumn(rows []map[string]any, col string) int {
 	return len(seen)
 }
 
+func aggregateIntegerColumn(rows []map[string]any, col string) (int64, bool) {
+	var total int64
+	seen := false
+	for _, row := range rows {
+		value := row[col]
+		if value == nil {
+			continue
+		}
+		var n int64
+		switch value := value.(type) {
+		case int:
+			n = int64(value)
+		case int8:
+			n = int64(value)
+		case int16:
+			n = int64(value)
+		case int32:
+			n = int64(value)
+		case int64:
+			n = value
+		case uint:
+			if uint64(value) > uint64(^uint64(0)>>1) {
+				return 0, false
+			}
+			n = int64(value)
+		case uint8:
+			n = int64(value)
+		case uint16:
+			n = int64(value)
+		case uint32:
+			if uint64(value) > uint64(^uint64(0)>>1) {
+				return 0, false
+			}
+			n = int64(value)
+		case uint64:
+			if value > uint64(^uint64(0)>>1) {
+				return 0, false
+			}
+			n = int64(value)
+		default:
+			return 0, false
+		}
+		if (n > 0 && total > int64(^uint64(0)>>1)-n) ||
+			(n < 0 && total < -int64(^uint64(0)>>1)-1-n) {
+			return 0, false
+		}
+		total += n
+		seen = true
+	}
+	return total, seen
+}
+
 func aggregateColumn(rows []map[string]any, col, agg string) (float64, bool) {
 	var vals []float64
 	for _, row := range rows {
@@ -839,6 +932,24 @@ func aggregateColumn(rows []map[string]any, col, agg string) (float64, bool) {
 			sum += v
 		}
 		return sum / float64(len(vals)), true
+	case "SUM":
+		sum := 0.0
+		for _, v := range vals {
+			sum += v
+		}
+		return sum, true
+	case "STDDEV_POP":
+		mean := 0.0
+		for _, v := range vals {
+			mean += v
+		}
+		mean /= float64(len(vals))
+		var variance float64
+		for _, v := range vals {
+			delta := v - mean
+			variance += delta * delta
+		}
+		return math.Sqrt(variance / float64(len(vals))), true
 	case "MIN":
 		m := vals[0]
 		for _, v := range vals[1:] {

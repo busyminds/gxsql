@@ -97,6 +97,22 @@ const (
 	// KindMaxLessOrEqual marks an expectation from NumberColumn.MaxLessOrEqual.
 	KindMaxLessOrEqual ExpectationKind = "max_less_or_equal"
 
+	// KindSumBetween marks an expectation from NumberColumn.SumBetween.
+	KindSumBetween ExpectationKind = "sum_between"
+	// KindPopulationStdDevBetween marks a population standard-deviation bound.
+	KindPopulationStdDevBetween ExpectationKind = "population_stddev_between"
+	// KindCompletenessRate marks a scoped non-NULL rate expectation. Its facts
+	// are distinct from KindNotNull FailedPercent.
+	KindCompletenessRate ExpectationKind = "completeness_rate"
+	// KindDuplicateRate marks a scoped duplicate-row rate expectation. Its facts
+	// are distinct from KindUnique and KindCompositeUnique FailedPercent.
+	KindDuplicateRate ExpectationKind = "duplicate_rate"
+	// KindValueFrequency marks a configured category frequency expectation.
+	KindValueFrequency ExpectationKind = "value_frequency"
+	// KindDominantShare marks a dominant-category share expectation. Tie facts
+	// publish the maximum share and tie count without selecting a value.
+	KindDominantShare ExpectationKind = "dominant_share"
+
 	// KindTimestampInWindow marks an expectation from TimestampColumn.InWindow.
 	KindTimestampInWindow ExpectationKind = "timestamp_in_window"
 	// KindTimestampFreshSince marks an expectation from TimestampColumn.FreshSince.

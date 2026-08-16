@@ -607,6 +607,57 @@ func queryAggregateFloatWithArgs(
 	return v.Float64, true, query, args, nil
 }
 
+// queryAggregateIntWithArgs runs an integer aggregate and scans its exact
+// driver integer result. ok is false when SQL returns NULL (empty/all-NULL
+// input).
+func queryAggregateIntWithArgs(
+	ctx context.Context,
+	db DB,
+	table TableRef,
+	opts evalOptions,
+	column, agg string,
+) (observed int64, ok bool, query string, args []any, err error) {
+	tbl, err := renderTable(opts.dialect, table)
+	if err != nil {
+		return 0, false, "", nil, categorizeRenderError(err)
+	}
+	col, err := quoteIdent(opts.dialect, column)
+	if err != nil {
+		return 0, false, "", nil, categorizeRenderError(err)
+	}
+	scopePred, err := composeRowPredicateWithScope(opts.scope, rowPredicate{}, opts.dialect)
+	if err != nil {
+		return 0, false, "", nil, categorizeRenderError(err)
+	}
+	query = fmt.Sprintf("SELECT %s(%s) FROM %s", agg, col, tbl)
+	if scopePred.where != "" {
+		query += " WHERE " + scopePred.where
+	}
+	args = append([]any(nil), scopePred.args...)
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return 0, false, query, args, categorizeExecutionError(ctx, err)
+	}
+	var value sql.NullInt64
+	if !rows.Next() {
+		if err := finishRowsRead(ctx, rows); err != nil {
+			return 0, false, query, args, err
+		}
+		return 0, false, query, args, categorizeScanError(ctx, sql.ErrNoRows)
+	}
+	if err := rows.Scan(&value); err != nil {
+		_ = rows.Close()
+		return 0, false, query, args, categorizeScanError(ctx, err)
+	}
+	if err := finishRowsRead(ctx, rows); err != nil {
+		return 0, false, query, args, err
+	}
+	if !value.Valid {
+		return 0, false, query, args, nil
+	}
+	return value.Int64, true, query, args, nil
+}
+
 // queryAggregateTimeWithArgs runs SELECT <agg>(column) over the scoped table and
 // scans a nullable timestamp. ok is false when the aggregate is SQL NULL
 func queryAggregateTimeWithArgs(

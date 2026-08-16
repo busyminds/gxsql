@@ -55,10 +55,10 @@ built-in set are not part of the published CI matrix; do not document or
 implement them unless explicitly in scope.
 
 `Expectation` is **sealed** — build expectations only via `RowCount`,
-`RequiredColumns`, `ExactColumns`, `Column`, `Int`, `Float`, `String`,
-`Timestamp`, and `CustomCount` builders. Narrow one rule with
-`When(TrustedEligibility(...), exp)`. Do not implement `Expectation` outside
-package `gxsql`.
+`RequiredColumns`, `ExactColumns`, `ColumnNullability`, `ColumnType`, `Column`,
+`Int`, `Float`, `String`, `Timestamp`, and `CustomCount` builders. Narrow one
+rule with `When(TrustedEligibility(...), exp)`. Do not implement `Expectation`
+outside package `gxsql`.
 
 ## Validation Model
 

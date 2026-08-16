@@ -111,8 +111,8 @@ type rejectsScope interface {
 }
 
 // isStructuralExpectation reports whether exp is a structural column contract
-// (RequiredColumns / ExactColumns), including when wrapped by WithID, WithPolicy,
-// WithMaxFailedCount, or When.
+// (RequiredColumns / ExactColumns / ColumnNullability / ColumnType), including
+// when wrapped by WithID, WithPolicy, WithMaxFailedCount, or When.
 func isStructuralExpectation(exp Expectation) bool {
 	_, ok := unwrapExpectation(exp).(rejectsScope)
 	return ok

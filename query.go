@@ -20,12 +20,16 @@ func finishRowsRead(ctx context.Context, rows *sql.Rows) error {
 	}
 }
 
-// discoverTableColumns runs a read-only zero-row probe and returns column names
-// in driver discovery order. It never scans row values or issues schema writes.
-// The returned query string is suitable for CaptureQueryDiagnostics.
-func discoverTableColumns(
+// withZeroRowDiscovery runs the shared read-only structural probe
+// SELECT * FROM <quoted target> WHERE 1 = 0. useRows must consume the open
+// rows (Columns or ColumnTypes). The helper closes rows after useRows returns,
+// including when useRows returns an error. Observer events use
+// QueryCategoryStructuralDiscovery for the attempted probe. The returned query
+// string is suitable for CaptureQueryDiagnostics.
+func withZeroRowDiscovery(
 	ctx context.Context, db DB, table TableRef, opts evalOptions,
-) (columns []string, query string, err error) {
+	useRows func(*sql.Rows) error,
+) (query string, err error) {
 	var start time.Time
 	attempted := false
 	defer func() {
@@ -34,31 +38,49 @@ func discoverTableColumns(
 				start, opts.checkID, opts.checkKind,
 				QueryCategoryStructuralDiscovery, err,
 			); observerErr != nil {
-				columns = nil
 				err = observerErr
 			}
 		}
 	}()
 	tbl, err := renderTable(opts.dialect, table)
 	if err != nil {
-		return nil, "", categorizeRenderError(err)
+		return "", categorizeRenderError(err)
 	}
 	query = "SELECT * FROM " + tbl + " WHERE 1 = 0"
 	start = time.Now()
 	attempted = true
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
-		return nil, query, categorizeExecutionError(ctx, err)
+		return query, categorizeExecutionError(ctx, err)
 	}
-	names, err := rows.Columns()
-	if err != nil {
+	if err = useRows(rows); err != nil {
 		_ = rows.Close()
-		return nil, query, categorizeScanError(ctx, err)
+		return query, err
 	}
-	if err := finishRowsRead(ctx, rows); err != nil {
+	if err = finishRowsRead(ctx, rows); err != nil {
+		return query, err
+	}
+	return query, nil
+}
+
+// discoverTableColumns runs a read-only zero-row probe and returns column names
+// in driver discovery order. It never scans row values or issues schema writes.
+// The returned query string is suitable for CaptureQueryDiagnostics.
+func discoverTableColumns(
+	ctx context.Context, db DB, table TableRef, opts evalOptions,
+) (columns []string, query string, err error) {
+	query, err = withZeroRowDiscovery(ctx, db, table, opts, func(rows *sql.Rows) error {
+		names, e := rows.Columns()
+		if e != nil {
+			return categorizeScanError(ctx, e)
+		}
+		columns = append([]string(nil), names...)
+		return nil
+	})
+	if err != nil {
 		return nil, query, err
 	}
-	return append([]string(nil), names...), query, nil
+	return columns, query, nil
 }
 
 // queryScalarInt scans one integer. NULL is coerced to 0; callers must use it

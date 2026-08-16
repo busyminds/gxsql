@@ -51,10 +51,12 @@ They do not apply to custom-count or reconcile-count results.
 `Success` only and preserve raw observations. Empty evaluated populations pass
 without division by zero or `NaN` and are not tolerated. Scope remains the
 evaluated population for all raw counts. Table-level, aggregate, distinct-count,
-row-count, custom-count, reconcile-count, and structural column wrappers fail
-preflight. Execution and configuration errors keep `Success: false` and
-`Tolerated: false`; non-advisory policy failures gate, while warning/info
-failures remain queryable.
+row-count, custom-count, reconcile-count, and structural column wrappers
+(including catalog nullability and reported-type contracts) fail preflight.
+Execution and configuration errors keep `Success: false` and `Tolerated:
+false`; non-advisory policy failures gate, while warning/info failures remain
+queryable. Catalog schema contracts also use `RowDenominatorUnavailable`, emit
+no samples or failed keys, and remain count-tolerance-ineligible.
 
 `RowKey` is `[]any` containing caller-supplied `WithKey` values in the same
 column order.
@@ -107,9 +109,18 @@ appears only as `Facts.Reference.ParentFilterID`.
   `ObservedTimePresent` is a `*bool`: nil when freshness does not apply, pointer
   false for explicit absence, and pointer true when `ObservedTime` is set.
 - `RequiredColumns` lists expected structural column names in declaration order.
-- `MissingColumns` lists absent expected names in declaration order.
+- `MissingColumns` lists absent expected names in declaration order for name
+  contracts and for catalog nullability/type contracts when the checked column
+  is absent.
 - `UnexpectedColumns` lists unexpected discovered names in discovery order for
   `ExactColumns` failures.
+- `ConfiguredNullability` and `ObservedNullability` hold catalog nullability
+  claims and observations for `KindColumnNullability` as `CatalogNullability`
+  values `nullable`, `not_nullable`, or `unknown`. Observed unknown never
+  yields a passing policy result.
+- `ConfiguredReportedType` and `ObservedReportedType` hold the caller-configured
+  and driver-reported type spellings for `KindColumnType`. Comparison is
+  byte-for-byte; missing columns omit observed type rather than inventing one.
 
 Built-in expectations populate threshold and mapping fields at construction
 time. Do not encode composite tuples as comma-separated `Column` text.
@@ -130,6 +141,14 @@ unwraps its issue errors.
 `ErrCategoryInvalidConfig`, `ErrCategoryUnsupported`, `ErrCategoryRendering`,
 `ErrCategoryDatabase`, `ErrCategoryScan`, `ErrCategoryContext`, or
 `ErrCategoryObserver`.
+
+Schema-contract capability refusals use `UnsupportedCapabilityError` under
+`CategoryUnsupported` and name the expectation kind, dialect, and missing
+capability (`nullability` or `exact_reported_type`). `ColumnNullability` on
+`Postgres`, `DuckDB`, and `SQLite` fails that way at preflight. When a dialect
+advertises nullability (`MySQL`) but `Rows.ColumnTypes` cannot resolve it for a
+column, `UnknownMetadataError` is returned under the same category and never
+becomes a passing policy result. Use `errors.As` to inspect those typed errors.
 
 ## Display Output
 

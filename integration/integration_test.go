@@ -288,6 +288,7 @@ func setupSQLite(t *testing.T, db *sql.DB) {
 		`CREATE TABLE structural_cols (id INTEGER, event_time TIMESTAMP, payload TEXT)`,
 		`CREATE TABLE structural_extra (id INTEGER, event_time TIMESTAMP, payload TEXT, note TEXT)`,
 		`CREATE TABLE structural_case (id INTEGER, "EventTime" TIMESTAMP, payload TEXT)`,
+		`CREATE TABLE schema_contract (id INTEGER NOT NULL, email TEXT, score REAL, payload BLOB)`,
 	} {
 		if _, err := db.Exec(query); err != nil {
 			t.Fatalf("SQLite schema: %v", err)
@@ -310,6 +311,7 @@ func setupDuckDB(t *testing.T, db *sql.DB) {
 		`DROP TABLE IF EXISTS structural_cols`,
 		`DROP TABLE IF EXISTS structural_extra`,
 		`DROP TABLE IF EXISTS structural_case`,
+		`DROP TABLE IF EXISTS schema_contract`,
 		`SET TimeZone='UTC'`,
 	} {
 		if _, err := db.Exec(query); err != nil {
@@ -325,6 +327,7 @@ func setupDuckDB(t *testing.T, db *sql.DB) {
 		`CREATE TABLE structural_cols (id BIGINT, event_time TIMESTAMP, payload VARCHAR)`,
 		`CREATE TABLE structural_extra (id BIGINT, event_time TIMESTAMP, payload VARCHAR, note VARCHAR)`,
 		`CREATE TABLE structural_case (id BIGINT, "EventTime" TIMESTAMP, payload VARCHAR)`,
+		`CREATE TABLE schema_contract (id BIGINT NOT NULL, email VARCHAR, score DOUBLE, payload BLOB)`,
 	} {
 		if _, err := db.Exec(query); err != nil {
 			t.Fatalf("DuckDB schema: %v", err)
@@ -338,7 +341,7 @@ func setupDuckDB(t *testing.T, db *sql.DB) {
 
 func setupPostgres(t *testing.T, db *sql.DB) {
 	t.Helper()
-	if _, err := db.Exec(`DROP TABLE IF EXISTS public.users, public.empty_users, public.customers, public.cross_column_rows, public.temporal_rows, public.structural_cols, public.structural_extra, public.structural_case`); err != nil {
+	if _, err := db.Exec(`DROP TABLE IF EXISTS public.users, public.empty_users, public.customers, public.cross_column_rows, public.temporal_rows, public.structural_cols, public.structural_extra, public.structural_case, public.schema_contract`); err != nil {
 		t.Fatalf("PostgreSQL cleanup: %v", err)
 	}
 	if _, err := db.Exec(`SET TIME ZONE 'UTC'`); err != nil {
@@ -353,6 +356,7 @@ func setupPostgres(t *testing.T, db *sql.DB) {
 		`CREATE TABLE public.structural_cols (id BIGINT, event_time TIMESTAMP WITH TIME ZONE, payload TEXT)`,
 		`CREATE TABLE public.structural_extra (id BIGINT, event_time TIMESTAMP WITH TIME ZONE, payload TEXT, note TEXT)`,
 		`CREATE TABLE public.structural_case (id BIGINT, "EventTime" TIMESTAMP WITH TIME ZONE, payload TEXT)`,
+		`CREATE TABLE public.schema_contract (id BIGINT NOT NULL, email TEXT, score DOUBLE PRECISION, payload BYTEA)`,
 	} {
 		if _, err := db.Exec(query); err != nil {
 			t.Fatalf("PostgreSQL schema: %v", err)
@@ -363,7 +367,7 @@ func setupPostgres(t *testing.T, db *sql.DB) {
 	insertCrossColumnFixtures(t, db, "$", "public.cross_column_rows")
 	insertTemporalFixtures(t, db, "$", "public.temporal_rows")
 	t.Cleanup(func() {
-		_, _ = db.Exec(`DROP TABLE IF EXISTS public.users, public.empty_users, public.customers, public.cross_column_rows, public.temporal_rows, public.structural_cols, public.structural_extra, public.structural_case`)
+		_, _ = db.Exec(`DROP TABLE IF EXISTS public.users, public.empty_users, public.customers, public.cross_column_rows, public.temporal_rows, public.structural_cols, public.structural_extra, public.structural_case, public.schema_contract`)
 	})
 }
 
@@ -378,6 +382,7 @@ func setupMySQL(t *testing.T, db *sql.DB) {
 		`DROP TABLE IF EXISTS structural_cols`,
 		`DROP TABLE IF EXISTS structural_extra`,
 		`DROP TABLE IF EXISTS structural_case`,
+		`DROP TABLE IF EXISTS schema_contract`,
 		`DROP TABLE IF EXISTS utf8_char_length`,
 		`SET time_zone = '+00:00'`,
 		`CREATE TABLE customers (tenant_id VARCHAR(255) NOT NULL, id BIGINT NOT NULL, status VARCHAR(32) NOT NULL, PRIMARY KEY (tenant_id, id)) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
@@ -388,6 +393,7 @@ func setupMySQL(t *testing.T, db *sql.DB) {
 		`CREATE TABLE structural_cols (id BIGINT, event_time DATETIME(6), payload TEXT) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
 		`CREATE TABLE structural_extra (id BIGINT, event_time DATETIME(6), payload TEXT, note TEXT) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
 		"CREATE TABLE structural_case (id BIGINT, `EventTime` DATETIME(6), payload TEXT) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin",
+		`CREATE TABLE schema_contract (id BIGINT NOT NULL, email TEXT, score DOUBLE, payload BLOB) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
 		`CREATE TABLE utf8_char_length (id BIGINT PRIMARY KEY, name VARCHAR(255)) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
 	} {
 		if _, err := db.Exec(query); err != nil {
@@ -410,6 +416,7 @@ func setupMySQL(t *testing.T, db *sql.DB) {
 		_, _ = db.Exec(`DROP TABLE IF EXISTS structural_cols`)
 		_, _ = db.Exec(`DROP TABLE IF EXISTS structural_extra`)
 		_, _ = db.Exec(`DROP TABLE IF EXISTS structural_case`)
+		_, _ = db.Exec(`DROP TABLE IF EXISTS schema_contract`)
 		_, _ = db.Exec(`DROP TABLE IF EXISTS utf8_char_length`)
 	})
 }

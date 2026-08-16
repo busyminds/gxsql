@@ -346,3 +346,55 @@ func unsupportedCapabilityError(kind ExpectationKind, d Dialect, capability stri
 		},
 	}
 }
+
+// UnknownMetadataError identifies a metadata claim the active dialect advertises
+// but could not resolve for a specific column (for example unknown nullability).
+// It is returned wrapped as [CategoryUnsupported] and never yields a passing
+// policy result. Use errors.As to inspect Kind, Dialect, Column, and Capability.
+type UnknownMetadataError struct {
+	// Kind is the expectation kind that required the metadata.
+	Kind ExpectationKind
+	// Dialect is a stable label for the active dialect (for example "sqlite").
+	Dialect string
+	// Column is the column whose metadata was unknown.
+	Column string
+	// Capability is the unresolved capability name (for example "nullability").
+	Capability string
+}
+
+// Error describes the unknown metadata without a gxsql: prefix; callers
+// typically observe this through [CategorizedError].
+func (e *UnknownMetadataError) Error() string {
+	if e == nil {
+		return "unknown metadata"
+	}
+	kind := string(e.Kind)
+	if kind == "" {
+		kind = "expectation"
+	}
+	dialect := e.Dialect
+	if dialect == "" {
+		dialect = "<unknown>"
+	}
+	column := e.Column
+	if column == "" {
+		column = "<unknown>"
+	}
+	capability := e.Capability
+	if capability == "" {
+		capability = "<unknown>"
+	}
+	return fmt.Sprintf("%s unknown %s for column %s on dialect %s", kind, capability, column, dialect)
+}
+
+func unknownMetadataError(kind ExpectationKind, d Dialect, column, capability string) error {
+	return &CategorizedError{
+		Category: CategoryUnsupported,
+		Err: &UnknownMetadataError{
+			Kind:       kind,
+			Dialect:    dialectLabel(d),
+			Column:     column,
+			Capability: capability,
+		},
+	}
+}

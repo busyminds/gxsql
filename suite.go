@@ -221,6 +221,19 @@ func (s *Suite) ValidateTable(
 			})
 		}
 	}
+	for i, exp := range s.expectations {
+		kind, claim, ok := requiresSchemaMetadataClaim(exp)
+		if !ok || pf.hasIssueAt(i) {
+			continue
+		}
+		if err := schemaMetadataCapabilityError(kind, cfg.dialect, claim); err != nil {
+			pf.issues = append(pf.issues, PreflightIssue{
+				Index: i,
+				ID:    expectationID(exp),
+				Err:   err,
+			})
+		}
+	}
 	if cfg.hasScope {
 		for i, exp := range s.expectations {
 			if !isStructuralExpectation(exp) || pf.hasIssueAt(i) {

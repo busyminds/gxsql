@@ -181,6 +181,14 @@ type ExportedFacts struct {
 	// UnexpectedColumns lists discovered names absent from the expected set,
 	// in discovery order.
 	UnexpectedColumns []string `json:"unexpected_columns,omitempty"`
+	// ConfiguredNullability is the caller-configured catalog nullability claim.
+	ConfiguredNullability CatalogNullability `json:"configured_nullability,omitempty"`
+	// ObservedNullability is the driver-/catalog-reported nullability.
+	ObservedNullability CatalogNullability `json:"observed_nullability,omitempty"`
+	// ConfiguredReportedType is the caller-configured exact reported type spelling.
+	ConfiguredReportedType string `json:"configured_reported_type,omitempty"`
+	// ObservedReportedType is the driver-/catalog-reported type name.
+	ObservedReportedType string `json:"observed_reported_type,omitempty"`
 }
 
 // ExportedComparisonFacts is the JSON form of ComparisonFacts.
@@ -693,6 +701,22 @@ func exportFacts(facts ResultFacts) (*ExportedFacts, error) {
 	}
 	if len(facts.UnexpectedColumns) > 0 {
 		out.UnexpectedColumns = append([]string(nil), facts.UnexpectedColumns...)
+		has = true
+	}
+	if facts.ConfiguredNullability != "" {
+		out.ConfiguredNullability = facts.ConfiguredNullability
+		has = true
+	}
+	if facts.ObservedNullability != "" {
+		out.ObservedNullability = facts.ObservedNullability
+		has = true
+	}
+	if facts.ConfiguredReportedType != "" {
+		out.ConfiguredReportedType = facts.ConfiguredReportedType
+		has = true
+	}
+	if facts.ObservedReportedType != "" {
+		out.ObservedReportedType = facts.ObservedReportedType
 		has = true
 	}
 	if !has {

@@ -81,7 +81,8 @@ func assertScopedQueries(t *testing.T, db *recordingDB, scopeColumn string, time
 // the baseline columns plus paid_cents, invoice_cents, start_at, end_at,
 // actual_units, and planned_units. ParentTable is the schema-qualified
 // customers parent used by relational key integrity checks and must expose a
-// status column for parent-filter include/exclude coverage.
+// status column for parent-filter include/exclude coverage. Integration setups
+// must also provide schema_contract for catalog type/nullability contracts.
 type Config struct {
 	DB          gxsql.DB
 	Dialect     gxsql.Dialect
@@ -751,6 +752,7 @@ func Run(t *testing.T, cfg Config) {
 	runCrossColumnRowInvariants(t, cfg)
 	runTemporalAndFreshness(t, cfg)
 	runStructuralColumnContracts(t, cfg)
+	runSchemaContracts(t, cfg)
 	runPatternChecks(t, cfg)
 }
 

@@ -16,7 +16,8 @@ var identRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 //
 // Optional capabilities use separate interfaces rather than widening Dialect.
 // Regex support is advertised through [RegexDialect]; dialects that omit it
-// fail [StringColumn.Regex] closed at suite preflight.
+// fail [StringColumn.Regex] closed at suite preflight. Catalog nullability and
+// exact reported-type contracts are advertised through [SchemaMetadataDialect].
 type Dialect interface {
 	QuoteIdent(name string) (string, error)
 	Placeholder(n int) string

@@ -65,9 +65,10 @@ Structured facts publish:
   absent from the expected set, in discovery order
 
 These checks do not validate column types, nullability, defaults, or ordinal
-position. `WithScope` is incompatible: pairing either expectation with
-`WithScope` fails `ValidateTable` preflight rather than ignoring scope. Run a
-separate structural suite before content validation when shape fail-fast
+position. Use the schema contracts below for catalog nullability and exact
+reported-type claims. `WithScope` is incompatible: pairing either expectation
+with `WithScope` fails `ValidateTable` preflight rather than ignoring scope. Run
+a separate structural suite before content validation when shape fail-fast
 matters:
 
 ```go
@@ -79,6 +80,121 @@ report, err := structure.ValidateTable(ctx, db, gxsql.Table("ingest_events"),
     gxsql.WithDialect(gxsql.Postgres()),
 )
 ```
+
+## Schema Contracts
+
+Catalog nullability and exact reported-type contracts extend the structural
+family beyond name presence. They gate on driver-reported metadata from a
+read-only zero-row probe plus `database/sql.Rows.ColumnTypes`, not on sampled
+row values. gxsql does not invent a universal SQL type system or silently map
+type names across engines.
+
+### Catalog Nullability
+
+`ColumnNullability(name string) ColumnNullabilityBuilder` starts a catalog
+nullability contract for one validated identifier.
+
+| Method          | Policy                                                              |
+| --------------- | ------------------------------------------------------------------- |
+| `NotNullable()` | The column is advertised `NOT NULL` by `Rows.ColumnTypes` metadata. |
+| `Nullable()`    | The column is advertised NULL-capable by `Rows.ColumnTypes` metadata. |
+
+These assert **catalog** nullability. They do not replace content
+`Column(...).NotNull()` / `IsNull()`, which still measure current-row NULL
+rates. A catalog pass does not satisfy a content null check, and a content pass
+does not prove catalog nullability.
+
+Results use `KindColumnNullability` (`column_nullability`), set `Result.Column`
+to the checked name, and use `RowDenominatorUnavailable`. Structured facts
+publish `ConfiguredNullability` and, when the column is present,
+`ObservedNullability` as `CatalogNullability` values `nullable`,
+`not_nullable`, or `unknown`.
+
+### Exact Reported Type
+
+`ColumnType(name string) ColumnTypeBuilder` starts an exact reported-type
+contract. `ReportedAs(typeName string)` requires the driver-reported
+type name to equal `typeName` **byte-for-byte**. gxsql does not lowercase,
+uppercase, trim modifiers, or equate dialect synonyms (`INTEGER` vs `INT` vs
+`INT4`). Callers must supply the exact spelling their selected dialect and
+driver report through `ColumnType.DatabaseTypeName()`.
+
+Results use `KindColumnType` (`column_type`), set `Result.Column` to the checked
+name, and use `RowDenominatorUnavailable`. Facts publish
+`ConfiguredReportedType` and, when the column is present,
+`ObservedReportedType`. Cross-engine type equality is not promised.
+
+```go
+structure := gxsql.NewSuite(
+    gxsql.RequiredColumns("id", "email"),
+    gxsql.ColumnNullability("email").NotNullable(), // MySQL-advertised nullability
+    gxsql.ColumnType("id").ReportedAs("BIGINT"),   // dialect-exact spelling
+)
+report, err := structure.ValidateTable(ctx, db, gxsql.Table("users"),
+    gxsql.WithDialect(gxsql.MySQL()),
+)
+```
+
+### Table-Level Semantics
+
+Both builders are table-level structural contracts:
+
+- Discovery uses `SELECT * FROM <quoted target> WHERE 1 = 0` followed by
+  `Rows.ColumnTypes()`. The probe never scans row values and never writes
+  schema.
+- Column names still compare byte-for-byte against driver-reported spellings.
+- Results never retain samples or failed keys. `WithKey`, sample caps, and
+  `SummaryOnly()` add nothing.
+- `WithMaxFailedCount` and `MaxFailedPercent` are ineligible; wrapping either
+  builder fails preflight.
+- `WithScope` is incompatible and fails `ValidateTable` preflight.
+- `When(...)` eligibility is rejected for structural expectations at preflight.
+
+### Missing Columns and Fail-Closed Behavior
+
+When the named column is absent after successful discovery, the result is an
+ordinary table-level **policy** failure: `Success == false`,
+`Facts.MissingColumns` lists that column, and observed nullability/type fields
+are not invented. Missing-column misses are not treated as type or nullability
+matches.
+
+Unsupported claims fail closed before discovery SQL:
+
+- Dialects that omit `SchemaMetadataDialect`, or that advertise
+  `Nullability: false` / `ExactReportedType: false` for the requested claim,
+  fail suite preflight with `CategoryUnsupported` and
+  `UnsupportedCapabilityError` naming kind, dialect, and missing capability
+  (`nullability` or `exact_reported_type`). No discovery SQL runs.
+  `ColumnNullability` therefore refuses at preflight on `Postgres`, `DuckDB`,
+  and `SQLite`.
+- When a dialect advertises nullability support (`MySQL`) but
+  `ColumnType.Nullable()` returns unknown (`ok == false`), evaluation fails
+  closed with `CategoryUnsupported` and `UnknownMetadataError` naming kind,
+  dialect, column, and capability `nullability`. That outcome never becomes a
+  passing policy result. Under `ContinueOnError`, the slot keeps
+  `ObservedNullability: unknown` with `Result.Err` set.
+- Metadata lookup, render, and inaccessible-target failures remain typed
+  execution or preflight errors, not policy mismatches.
+
+### Per-Dialect `Rows.ColumnTypes` Capability Matrix
+
+Built-in dialects advertise schema-metadata claims through
+`SchemaMetadataDialect`. Discovery reads `Rows.ColumnTypes()` after the
+zero-row probe. Advertised support means gxsql trusts affirmative metadata
+from the conformance-supported driver; `ok == false` fails closed. Drivers
+outside that support matrix are not covered by the built-in capability claim.
+
+| Dialect    | Catalog nullability | Exact reported type | Metadata source for advertised claims |
+| ---------- | ------------------- | ------------------- | ------------------------------------- |
+| `MySQL`    | supported           | supported           | `Rows.ColumnTypes` (`Nullable`, `DatabaseTypeName`) |
+| `Postgres` | unsupported         | supported           | Type via `Rows.ColumnTypes` (`DatabaseTypeName`); nullability refused at preflight (`pgx` omits `ColumnTypeNullable`) |
+| `DuckDB`   | unsupported         | supported           | Type via `Rows.ColumnTypes` (`DatabaseTypeName`); nullability refused at preflight (`Nullable` returns `ok == false`) |
+| `SQLite`   | unsupported         | supported           | Type via `Rows.ColumnTypes` (`DatabaseTypeName`); nullability refused at preflight (untruthful `Nullable`) |
+
+Only `MySQL` advertises catalog nullability through `Rows.ColumnTypes`. Exact
+reported-type claims remain available on every built-in dialect; supply the
+driver-reported spelling for that engine. Precision/scale identity, ordinal
+position, and cross-engine type families are out of scope for these builders.
 
 ## Generic Columns
 
@@ -92,6 +208,10 @@ report, err := structure.ValidateTable(ctx, db, gxsql.Table("ingest_events"),
 | `NotIn(vals ...any)` | Every value is outside `vals`; column `NULL` fails.                          |
 | `Unique()`           | No non-null value appears more than once; all rows in duplicate groups fail. |
 | `DistinctCount()`    | Starts a table-level count of distinct non-null values.                      |
+
+`IsNull` / `NotNull` are content checks over row values. For catalog
+nullability of a named column, use `ColumnNullability(...).Nullable()` /
+`NotNullable()` instead.
 
 `In` and `NotIn` require at least one non-nil value. Empty lists and nil entries
 are configuration errors. Each value becomes a bound placeholder; see
@@ -534,7 +654,7 @@ percentage in `[0, 100]`. A denominator-available result passes when
 evaluated populations pass and are not tolerated. Per-row, uniqueness, and
 referential-integrity expectations qualify, including parent-filtered
 references. Table-level, aggregate, distinct-count, row-count, custom-count,
-reconcile-count, and structural column declarations fail preflight. A second
+reconcile-count, and structural column declarations (including catalog nullability and reported-type contracts) fail preflight. A second
 tolerance form in one decorated expectation also fails preflight.
 
 `WithMaxFailedCount(max int, exp Expectation)` remains the inclusive
@@ -575,7 +695,8 @@ scope are subject to the rule; it does not replace `WithScope`. See
 Supported shapes: ordinary per-row (row-denominator), uniqueness, composite
 uniqueness, and referential integrity (including parent-filtered references).
 Table-level, aggregate, distinct-count, custom-count, reconcile-count, and
-structural expectations reject eligibility at `ValidateTable` preflight. Nested
+structural expectations (including catalog nullability and reported-type
+contracts) reject eligibility at `ValidateTable` preflight. Nested
 `When` wrappers are configuration errors.
 
 Eligible rows define `Total` and the denominator for percentages and tolerance.

@@ -106,6 +106,12 @@ const (
 	KindRequiredColumns ExpectationKind = "required_columns"
 	// KindExactColumns marks an expectation from ExactColumns.
 	KindExactColumns ExpectationKind = "exact_columns"
+	// KindColumnNullability marks a catalog nullability contract from
+	// ColumnNullability(...).Nullable / NotNullable.
+	KindColumnNullability ExpectationKind = "column_nullability"
+	// KindColumnType marks an exact reported-type contract from
+	// ColumnType(...).ReportedAs.
+	KindColumnType ExpectationKind = "column_type"
 
 	// KindReconcileCountsEqual marks an expectation from ReconcileCounts().Equal.
 	KindReconcileCountsEqual ExpectationKind = "reconcile_counts_equal"

@@ -95,7 +95,35 @@ type ResultFacts struct {
 	// UnexpectedColumns lists discovered names absent from the expected set,
 	// in discovery order. Empty when unset or none unexpected.
 	UnexpectedColumns []string
+
+	// ConfiguredNullability is the caller-configured catalog nullability claim
+	// for [KindColumnNullability]. Empty when unset.
+	ConfiguredNullability CatalogNullability
+	// ObservedNullability is the driver-/catalog-reported nullability for
+	// [KindColumnNullability]. May be [CatalogNullabilityUnknown]. Empty when
+	// unset or the column was missing.
+	ObservedNullability CatalogNullability
+	// ConfiguredReportedType is the caller-configured exact reported type
+	// spelling for [KindColumnType]. Empty when unset.
+	ConfiguredReportedType string
+	// ObservedReportedType is the driver-/catalog-reported type name for
+	// [KindColumnType]. Empty when unset or the column was missing.
+	ObservedReportedType string
 }
+
+// CatalogNullability is a driver-/catalog-reported nullability observation or
+// caller claim. It is not a row-value null check.
+type CatalogNullability string
+
+const (
+	// CatalogNullabilityNullable marks a column advertised as NULL-capable.
+	CatalogNullabilityNullable CatalogNullability = "nullable"
+	// CatalogNullabilityNotNullable marks a column advertised as NOT NULL.
+	CatalogNullabilityNotNullable CatalogNullability = "not_nullable"
+	// CatalogNullabilityUnknown marks nullability the dialect/driver could not
+	// report. Catalog nullability contracts fail closed on unknown.
+	CatalogNullabilityUnknown CatalogNullability = "unknown"
+)
 
 // ComparisonFacts identifies the operands and fixed relationship of a direct
 // same-row comparison.

@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -23,6 +24,7 @@ func (fakeDriver) Open(string) (driver.Conn, error) {
 	harnessMu.Lock()
 	tables := harnessTables
 	schemas := harnessSchemas
+	columnTypes := harnessColumnTypes
 	harnessMu.Unlock()
 	if tables == nil && schemas == nil {
 		return nil, fmt.Errorf("gxsqltest: no harness data configured")
@@ -35,12 +37,17 @@ func (fakeDriver) Open(string) (driver.Conn, error) {
 	for k, v := range schemas {
 		sc[k] = append([]string(nil), v...)
 	}
-	return &fakeConn{tables: cp, schemas: sc}, nil
+	ct := make(map[string][]harnessColumnMeta, len(columnTypes))
+	for k, v := range columnTypes {
+		ct[k] = append([]harnessColumnMeta(nil), v...)
+	}
+	return &fakeConn{tables: cp, schemas: sc, columnTypes: ct}, nil
 }
 
 type fakeConn struct {
-	tables  map[string][]map[string]any
-	schemas map[string][]string
+	tables      map[string][]map[string]any
+	schemas     map[string][]string
+	columnTypes map[string][]harnessColumnMeta
 }
 
 func (c *fakeConn) Prepare(string) (driver.Stmt, error) {
@@ -58,17 +65,62 @@ func (c *fakeConn) QueryContext(_ context.Context, query string, nargs []driver.
 	for i, nv := range nargs {
 		args[i] = nv.Value
 	}
-	cols, rows, err := executeHarnessQuery(query, args, c.tables, c.schemas)
+	cols, rows, table, err := executeHarnessQueryWithTable(query, args, c.tables, c.schemas)
 	if err != nil {
 		return nil, err
 	}
-	return &fakeRows{columns: cols, rows: rows}, nil
+	return &fakeRows{
+		columns:     cols,
+		rows:        rows,
+		columnTypes: resolveHarnessColumnTypes(table, cols, c.columnTypes),
+	}, nil
+}
+
+// executeHarnessQueryWithTable is a test-only wrapper that preserves
+// executeHarnessQuery behavior and also returns the queried table identity
+// derived from the same query parsing, not from column names.
+func executeHarnessQueryWithTable(query string, args []any, tables map[string][]map[string]any, schemas map[string][]string) ([]string, [][]driver.Value, string, error) {
+	cols, rows, err := executeHarnessQuery(query, args, tables, schemas)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return cols, rows, harnessQueriedTable(query, tables, schemas), nil
+}
+
+// harnessQueriedTable mirrors executeHarnessQuery's match order and FROM
+// capture groups, then resolves via resolveTableName.
+func harnessQueriedTable(query string, tables map[string][]map[string]any, schemas map[string][]string) string {
+	q := collapseSpaces(query)
+	var ref string
+	switch {
+	case zeroRowStarRe.MatchString(q):
+		ref = zeroRowStarRe.FindStringSubmatch(q)[1]
+	case strings.Contains(strings.ToUpper(q), "COUNT(CASE WHEN"):
+		// executeSharedScalarCountQuery path: table not needed for ColumnTypes.
+		return ""
+	case countRe.MatchString(q):
+		ref = countRe.FindStringSubmatch(q)[1]
+	case countDistinctRe.MatchString(q):
+		ref = countDistinctRe.FindStringSubmatch(q)[2]
+	case aggRe.MatchString(q):
+		ref = aggRe.FindStringSubmatch(q)[3]
+	case selectRe.MatchString(q):
+		ref = selectRe.FindStringSubmatch(q)[2]
+	default:
+		return ""
+	}
+	name, err := resolveTableName(ref, tables, schemas)
+	if err != nil {
+		return ""
+	}
+	return name
 }
 
 type fakeRows struct {
-	columns []string
-	rows    [][]driver.Value
-	idx     int
+	columns     []string
+	rows        [][]driver.Value
+	columnTypes []harnessColumnMeta
+	idx         int
 }
 
 func (r *fakeRows) Columns() []string { return r.columns }
@@ -84,10 +136,35 @@ func (r *fakeRows) Next(dest []driver.Value) error {
 	return nil
 }
 
+func (r *fakeRows) ColumnTypeDatabaseTypeName(index int) string {
+	if index < 0 || index >= len(r.columnTypes) {
+		return ""
+	}
+	return r.columnTypes[index].DatabaseTypeName
+}
+
+func (r *fakeRows) ColumnTypeNullable(index int) (nullable, ok bool) {
+	if index < 0 || index >= len(r.columnTypes) {
+		return false, false
+	}
+	if r.columnTypes[index].Nullable == nil {
+		return false, false
+	}
+	return *r.columnTypes[index].Nullable, true
+}
+
+// harnessColumnMeta models driver-reported ColumnTypes metadata for one column.
+type harnessColumnMeta struct {
+	Name             string
+	DatabaseTypeName string
+	Nullable         *bool // nil means unknown (ok=false)
+}
+
 var (
-	harnessMu      sync.Mutex
-	harnessTables  map[string][]map[string]any
-	harnessSchemas map[string][]string
+	harnessMu          sync.Mutex
+	harnessTables      map[string][]map[string]any
+	harnessSchemas     map[string][]string
+	harnessColumnTypes map[string][]harnessColumnMeta
 )
 
 func setHarnessData(t *testing.T, tables map[string][]map[string]any) {
@@ -115,6 +192,53 @@ func setHarnessColumns(t *testing.T, schemas map[string][]string) {
 		harnessMu.Unlock()
 	})
 }
+
+// setHarnessColumnTypes configures Rows.ColumnTypes metadata for SELECT *
+// discovery probes. When provided, names also populate harnessSchemas so name
+// discovery stays consistent. Nullable nil means unknown nullability.
+func setHarnessColumnTypes(t *testing.T, meta map[string][]harnessColumnMeta) {
+	t.Helper()
+	schemas := make(map[string][]string, len(meta))
+	for table, cols := range meta {
+		names := make([]string, len(cols))
+		for i, col := range cols {
+			names[i] = col.Name
+		}
+		schemas[table] = names
+	}
+	harnessMu.Lock()
+	harnessColumnTypes = meta
+	harnessSchemas = schemas
+	harnessMu.Unlock()
+	t.Cleanup(func() {
+		harnessMu.Lock()
+		harnessColumnTypes = nil
+		harnessSchemas = nil
+		harnessMu.Unlock()
+	})
+}
+
+func resolveHarnessColumnTypes(table string, cols []string, byTable map[string][]harnessColumnMeta) []harnessColumnMeta {
+	if len(cols) == 0 {
+		return nil
+	}
+	byName := make(map[string]harnessColumnMeta, len(byTable[table]))
+	for _, meta := range byTable[table] {
+		byName[meta.Name] = meta
+	}
+	out := make([]harnessColumnMeta, len(cols))
+	for i, name := range cols {
+		if meta, ok := byName[name]; ok {
+			out[i] = meta
+			out[i].Name = name
+			continue
+		}
+		out[i] = harnessColumnMeta{Name: name}
+	}
+	return out
+}
+
+func boolPtr(v bool) *bool { return &v }
 
 func openHarnessDB(t *testing.T) *sql.DB {
 	t.Helper()

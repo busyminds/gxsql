@@ -116,9 +116,14 @@
 // execution or preflight error (for example [CategoryDatabase]), not a failed
 // structural result. Empty expected lists and duplicate or invalid identifiers
 // fail preflight. [WithScope] is incompatible and is rejected at ValidateTable
-// preflight rather than ignored. These checks do not validate column types,
-// nullability, or ordinal position. Prefer a separate structural suite before
-// content validation when shape fail-fast matters:
+// preflight rather than ignored. Name contracts do not validate types,
+// nullability, or ordinal position. Use [ColumnNullability] and [ColumnType]
+// for capability-gated catalog contracts. They use the same read-only zero-row
+// probe plus [database/sql.Rows.ColumnTypes], compare exact driver-reported
+// type names, and fail closed when the selected dialect or driver cannot
+// provide the requested metadata. Catalog contracts remain table-level and
+// cannot run under [WithScope] or row-tolerance policies. Prefer a separate
+// structural suite before content validation when shape fail-fast matters:
 //
 //	structure := gxsql.NewSuite(
 //		gxsql.RequiredColumns("id", "event_time", "payload"),

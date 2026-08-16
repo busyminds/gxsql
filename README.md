@@ -315,6 +315,22 @@ never retain samples or failed keys. These builders do not validate types,
 nullability, or ordinal position. `WithScope` is incompatible and fails
 preflight; run structural checks in a separate unscoped suite.
 
+For catalog contracts, use `ColumnNullability` and `ColumnType`:
+
+```go
+schema := gxsql.NewSuite(
+    gxsql.ColumnNullability("email").Nullable(),
+    gxsql.ColumnType("id").ReportedAs("BIGINT"),
+)
+```
+
+These contracts use `Rows.ColumnTypes()` after the same zero-row probe. Type
+names compare byte-for-byte with driver-reported spellings; gxsql does not
+equate type names across dialects. Nullability is advertised only by dialects
+with a supported metadata path. Unsupported or unknown metadata fails closed.
+Catalog contracts are table-level and do not replace content `NotNull` or
+`IsNull` checks.
+
 ## Custom Count Checks
 
 Use `TrustedCountQuery` and `CustomCount` when a built-in expectation cannot

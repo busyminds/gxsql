@@ -12,8 +12,9 @@ result has `Err` and later expectations still run. IDs are never derived from
 `Result.Name`.
 
 `ExpectationKind` is the stable category of a built-in expectation. The `Kind*`
-constants cover row-count, structural column, per-row predicate, distinct-count,
-aggregate, temporal, and reconcile builders; `KindReconcileCountsEqual`
+constants cover row-count, structural column, catalog nullability and reported
+type, per-row predicate, distinct-count, aggregate, temporal, and reconcile
+builders; `KindReconcileCountsEqual`
 (`reconcile_counts_equal`) marks dual `COUNT(*)` equality from
 `ReconcileCounts(...).Equal()`. `KindCustom` marks custom counts from
 `CustomCount`. Other expectations may still use `KindCustom` when built-in
@@ -25,6 +26,15 @@ Structural column results use `KindRequiredColumns` (`required_columns`) or
 `missing_columns` / `unexpected_columns` facts under `gxsql.report.v1`, keep
 `RowDenominatorUnavailable`, and never export samples or failed keys. `WithKey`,
 sample caps, and `SummaryOnly()` do not change that shape.
+
+Catalog nullability results use `KindColumnNullability` (`column_nullability`)
+and export `configured_nullability` / `observed_nullability` plus
+`missing_columns` when the named column is absent. Exact reported-type results
+use `KindColumnType` (`column_type`) and export `configured_reported_type` /
+`observed_reported_type`, also with `missing_columns` on absence. Both keep
+`RowDenominatorUnavailable`, never export samples or failed keys, and remain
+ineligible for count tolerance. Default export still omits discovery SQL and
+bound arguments.
 
 Reconcile-count results use `KindReconcileCountsEqual` and export
 `facts.reconcile` with left and right targets, observed counts, relationship
@@ -105,10 +115,10 @@ guidance. `IncludeCapturedDiagnostics()` or `IncludeCapturedArguments()`
 deliberately opts into sensitive SQL diagnostics; use those options only with
 appropriate redaction.
 
-`RequiredColumns` and `ExactColumns` cannot run under `WithScope`. Pairing
-either expectation with `WithScope` fails `ValidateTable` preflight before
-discovery SQL. Run a separate unscoped structural suite when you need shape
-checks before scoped content validation.
+`RequiredColumns`, `ExactColumns`, `ColumnNullability`, and `ColumnType`
+contracts cannot run under `WithScope`. Pairing any of them with `WithScope`
+fails `ValidateTable` preflight before discovery SQL. Run a separate unscoped
+structural suite when you need shape checks before scoped content validation.
 
 Production callers should validate with a context deadline and a database role
 restricted to read-only validation access. Export itself is encoding-only, but
@@ -159,7 +169,7 @@ A redactor error or panic fails export closed.
 | `ExportedScope`           | Optional stable caller scope identity as `scope.id`; predicate and bound values are not included.                                                                                                                                                                                                                  |
 | `ExportedResult`          | Identity, verdicts, optional `tolerated`, counts, facts, caps, opted-in diagnostics, and categorized errors.                                                                                                                                                                                                       |
 | `ExportedCounts`          | Optional total, failed count, and failed percentage.                                                                                                                                                                                                                                                               |
-| `ExportedFacts`           | Observations and configured thresholds, including optional `configured_max_failed_count`, `configured_max_failed_percent`, temporal `configured_time_*` / `observed_time` fields, `key_columns`, `comparison`, `ratio`, `reference`, `reconcile`, and structural `required_columns` / `missing_columns` / `unexpected_columns`. |
+| `ExportedFacts`           | Observations and configured thresholds, including optional `configured_max_failed_count`, `configured_max_failed_percent`, temporal `configured_time_*` / `observed_time` fields, `key_columns`, `comparison`, `ratio`, `reference`, `reconcile`, structural `required_columns` / `missing_columns` / `unexpected_columns`, and schema-contract `configured_nullability` / `observed_nullability` / `configured_reported_type` / `observed_reported_type`. |
 | `ExportedComparisonFacts` | Same-row comparison operands and relationship.                                                                                                                                                                                                                                                                     |
 | `ExportedRatioFacts`      | Same-row ratio operands and integral bound.                                                                                                                                                                                                                                                                        |
 | `ExportedReferenceFacts`  | Structured local-to-parent mapping (`local_columns`, parent target, `parent_columns`, optional `parent_filter_id`) for reference results.                                                                                                                                                                           |
@@ -192,6 +202,23 @@ appear as `unexpected_columns` in driver discovery order. Empty difference lists
 are omitted. Default export still omits samples, failed keys, and query
 diagnostics; column-name facts are not row diagnostics and follow the ordinary
 facts path under `gxsql.report.v1`.
+
+## Schema Contract Facts
+
+Catalog nullability and exact reported-type results export configured and
+observed schema facts only. They never export row values. Nullability results
+emit `configured_nullability` and, when discovery found the column,
+`observed_nullability` (`nullable`, `not_nullable`, or `unknown`). Type results
+emit `configured_reported_type` and, when found, `observed_reported_type` using
+the exact driver-reported `DatabaseTypeName` spelling. Absent columns publish
+`missing_columns` with the checked name and omit invented observations.
+
+Default `ExportReport` remains encode-only and privacy-safe: samples, failed
+keys, discovery SQL, and bound arguments stay omitted unless callers opt into
+captured diagnostics with the existing redaction path. Identifier-bearing query
+text, when opted in, still follows current redactors and length caps.
+`WithScope` remains incompatible with these contracts, so scoped predicate text
+is never part of their evaluation or export surface.
 
 ## Reference and Reconcile Facts
 

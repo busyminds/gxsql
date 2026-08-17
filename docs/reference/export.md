@@ -144,6 +144,8 @@ the scoped validation immediately before it still executes database queries.
 
 ```go
 exported, err := gxsql.ExportReport(report,
+    gxsql.WithDataTime(partitionStart),
+    gxsql.WithEvaluationTime(time.Now().UTC()),
     gxsql.IncludeSamples(),
 )
 ```
@@ -161,8 +163,19 @@ them. `CaptureQueryDiagnostics()` at validate time plus
 are the only paths that may retain rendered custom-count SQL or arguments, and
 they remain subject to redactors.
 
+Caller-owned `WithDataTime` and `WithEvaluationTime` set optional top-level
+`ExportedReport.DataTime` / `EvaluationTime` (`*time.Time`; JSON
+`data_time` / `evaluation_time`). Non-zero values are normalized to UTC copies
+and encode as RFC3339Nano via `encoding/json`; zero values omit the JSON field.
+`ExportReport(report)` with no time options remains byte-compatible with
+existing goldens. gxsql does not infer either clock during `ValidateTable`.
+Evaluation-time is supplied only by `WithEvaluationTime`; Spec 03 observer
+duration is not evaluation-time and is not a history clock.
+
 | `ExportOption`                 | Effect                                                                                                                      |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `WithDataTime(t)`              | Sets caller-owned business/as-of time (`data_time`). Zero omits the field.                                                  |
+| `WithEvaluationTime(t)`        | Sets caller-owned validation/export time (`evaluation_time`). Zero omits the field.                                         |
 | `IncludeSamples()`             | Exports normalized `SampleValues` and cap metadata when failures exist.                                                     |
 | `IncludeFailedKeys()`          | Exports normalized report-retained `FailedKeys` and cap metadata when failures exist. Not a complete retrieval path.        |
 | `IncludeCapturedDiagnostics()` | Exports redacted, length-capped SQL captured with `CaptureQueryDiagnostics()`.                                              |
@@ -178,7 +191,7 @@ A redactor error or panic fails export closed.
 
 | Type                            | JSON Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ExportedReport`                | Schema version, optional target/scope, and declaration-ordered results.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `ExportedReport`                | Schema version, optional caller-owned `data_time` / `evaluation_time`, optional target/scope, and declaration-ordered results.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `ExportedTarget`                | Optional schema and table name.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `ExportedScope`                 | Optional stable caller scope identity as `scope.id`; predicate and bound values are not included.                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `ExportedResult`                | Identity, verdicts, optional `tolerated`, counts, facts, caps, opted-in diagnostics, and categorized errors.                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -195,11 +208,44 @@ A redactor error or panic fails export closed.
 | `ExportedReconcileFacts`        | Dual-side reconcile mapping (`left`, `right`, observed counts, `relationship`, optional `left_scope_id` / `secondary_filter_id`).                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `ExportedCaps`                  | Returned and truncated flags for opted-in samples and keys.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `ExportedDiagnostics`           | Opted-in redacted SQL, optional arguments, and truncation flags.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `ExportedError`                 | Stable error category and export-safe message.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `ExportedError`                 | Stable error category and export-safe message (`gxsql: <category>`; raw error text is not exported).                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 `PolicyVerdict` is `pass`, `fail`, or `unevaluated`. `unevaluated` is used when
 the source `Result` has `Err`. `ExecutionOutcome` distinguishes a successful
 execution, policy failure, execution failure, and configuration failure.
+
+## History Helpers
+
+`MeasurementRecordsFromExport(report ExportedReport) ([]MeasurementRecord, error)`
+maps an encode-only export into privacy-safe history snapshots for caller-owned
+storage. Every result must carry a non-blank unique `id`; blank and duplicate
+IDs fail with `CategoryInvalidConfig`.
+
+| Type / API                     | Role                                                                                          |
+| ------------------------------ | --------------------------------------------------------------------------------------------- |
+| `MeasurementKey`               | Lookup key: `ResultID` plus optional `Kind`, `ScopeID`, `TargetSchema`, `TargetTable`.       |
+| `MeasurementRecord`            | Privacy-safe snapshot: identity, times, verdicts, tags, counts, facts, and errors.            |
+| `BaselineStore`                | Caller-implemented `Get(ctx, key) ([]MeasurementRecord, error)` lookup shape only.            |
+| `MeasurementRecordsFromExport` | Maps report-level target/scope/times onto each record; never copies samples/keys/diagnostics. |
+
+`ResultID` is the primary join field. Kind, scope id, and target schema/table
+are included on `MeasurementKey` as optional series/conflict checks when set;
+empty optional fields do not constrain a caller-owned store. Do not join renamed
+targets silently. Report-level `DataTime` / `EvaluationTime` are copied onto
+each `MeasurementRecord` when present; evaluation-time comes only from
+caller-owned `WithEvaluationTime` (Spec 03 observer duration is not
+evaluation-time). ContinueOnError slots keep `PolicyVerdictUnevaluated` with a
+distinct `ExecutionOutcome` rather than a policy failure. History mapping
+retains categorized `errors[]` while applying export-safe messages
+(`gxsql: <category>`); it does not pass through arbitrary `Message` text from a
+hand-built DTO. Existing structured `Facts` are the metric comparison shape;
+category and share stay inside nested facts such as `facts.frequency`.
+
+`WithID` remains the existing optional API. The mapper rejects blank and
+duplicate export IDs. gxsql does not persist, window, compare, or enforce
+baselines, and ships no storage implementation, scheduler, or anomaly helper.
+Callers own append and lookup. Encode JSON with `json.Marshal`; there is no
+public decoder.
 
 ## Broader Metric Facts
 

@@ -108,9 +108,24 @@ that mode as snapshot-consistent.
 | `WithKey(...)`         | Off                        | Loads caller-selected failing row identities.              |
 | `SummaryOnly()`        | Implicit without `WithKey` | Does not load failed-row keys.                             |
 
-Use `WithKey` when failure rates are low or an operator needs specific rows for
-remediation. Prefer summary-only results for widespread failures on large
-tables. Unbounded failed-key retention can consume unbounded process memory.
+Use `WithKey` when failure rates are low or an operator needs a bounded sample
+of identities on the report. Prefer `SummaryOnly()` for widespread failures on
+large tables, then call `FailingKeys` for complete streaming remediation.
+`WithFailedKeysCap(0)` retains every key in report memory; it is not a
+streaming contract.
+
+For large failure sets, keep the report bounded with `SummaryOnly()` and
+`WithKey(...)`, then call `FailingKeys` with one result selector
+(`ForResultID`, `ForResultIndex`, or an unambiguous `ForKind`) plus
+`WithDialect`. Pass the same validated `TableRef`; retrieval binds to that
+plan-stored target, so mutating `Report.Target` cannot redirect it. Scope is
+already bound from `ValidateTable`—omit `WithScope` on retrieval, or pass a
+matching one only as a compatibility check; mismatched or extra `WithScope` is
+rejected. Always `Close` the iterator and inspect `Err` after `Next` returns
+false; terminal paths close rows and can surface observer errors. The iterator
+streams complete identities in key-column order (`NULL` → `nil`) and does not
+add them to the report. Core issues only read SQL; caller-owned adapters own
+any sink writes. See [Results and Remediation](results.md).
 
 ## Record a Baseline
 

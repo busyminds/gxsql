@@ -164,7 +164,7 @@ they remain subject to redactors.
 | `ExportOption`                 | Effect                                                                                                                      |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
 | `IncludeSamples()`             | Exports normalized `SampleValues` and cap metadata when failures exist.                                                     |
-| `IncludeFailedKeys()`          | Exports normalized `FailedKeys` and cap metadata when failures exist.                                                       |
+| `IncludeFailedKeys()`          | Exports normalized report-retained `FailedKeys` and cap metadata when failures exist. Not a complete retrieval path.        |
 | `IncludeCapturedDiagnostics()` | Exports redacted, length-capped SQL captured with `CaptureQueryDiagnostics()`.                                              |
 | `IncludeCapturedArguments()`   | Exports normalized, count-capped arguments with captured SQL; also requires `CaptureQueryDiagnostics()`.                    |
 | `WithQueryRedactor(fn)`        | Applies `fn` after identifier redaction and initial SQL truncation; its output is truncated again. It must return a string. |

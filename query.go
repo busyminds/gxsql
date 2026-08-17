@@ -243,6 +243,7 @@ func evalPerRow(
 
 	res := perRowResult(kind, column, displayName, total, failed, facts)
 	captureDiagnostics(&res, opts, failQuery, failArgs)
+	attachFailureKeyPlan(&res, table, tbl, "", failPred, opts.scope, opts.dialect)
 	if failed == 0 {
 		return res, nil
 	}

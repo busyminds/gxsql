@@ -80,6 +80,11 @@ arguments. Opt in to each class separately:
 | `IncludeCapturedDiagnostics()` | `CaptureQueryDiagnostics()` during validation | Exports redacted, length-capped SQL.             |
 | `IncludeCapturedArguments()`   | `CaptureQueryDiagnostics()` during validation | Also exports normalized, count-capped arguments. |
 
+`IncludeFailedKeys()` exports only keys retained on the report (still subject to
+`WithFailedKeysCap`). It is not complete failure retrieval. For the full
+failing identity set, call `FailingKeys` at runtime; see
+[Results and Remediation](results.md).
+
 Use `WithQueryRedactor`, `WithArgsRedactor`, `WithSampleRedactor`, and
 `WithKeyRedactor` for custom redaction. Any redactor error or panic fails export
 without returning a partial data transfer object.

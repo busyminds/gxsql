@@ -63,6 +63,7 @@ func (e uniqueExpectation) evaluateSQL(
 
 	res := perRowResult(KindUnique, e.column, e.Name(), total, failed, ResultFacts{})
 	captureDiagnostics(&res, opts, failQuery, failArgs)
+	attachFailureKeyPlan(&res, table, tbl, "", failPred, opts.scope, opts.dialect)
 	if failed == 0 {
 		return res, nil
 	}
@@ -176,6 +177,7 @@ func (e compositeUniqueExpectation) evaluateSQL(
 
 	res := perRowResult(KindCompositeUnique, "", e.Name(), total, failed, facts)
 	captureDiagnostics(&res, opts, failQuery, failArgs)
+	attachFailureKeyPlan(&res, table, tbl, "", failPred, opts.scope, opts.dialect)
 	if failed == 0 {
 		return res, nil
 	}

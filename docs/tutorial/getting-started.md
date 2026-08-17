@@ -163,10 +163,12 @@ if err := report.Err(); err != nil {
 Use `gxsql.SQLite()`, `gxsql.DuckDB()`, or `gxsql.MySQL()` for those engines.
 
 `WithKey("id")` retains the identities of failing rows, up to the failed-key
-cap. Omit it when counts and sample values are enough. When neither `WithKey`
+cap. For complete remediation without growing report memory, use
+`SummaryOnly()` with `WithKey("id")`, then stream identities with `FailingKeys`.
+Omit `WithKey` when counts and sample values are enough. When neither `WithKey`
 nor `SummaryOnly()` is supplied, `ValidateTable` uses summary-only mode
 internally. See [results and remediation](../concepts/results.md) for retention
-controls.
+and streaming controls.
 
 ## Scope the Population
 

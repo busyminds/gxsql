@@ -288,6 +288,7 @@ func evalSharedScalarCountChunk(
 		res := perRowResult(plan.kind, plan.column, plan.name, total, counts[i], plan.facts)
 		res.ID = plan.id
 		captureDiagnostics(&res, opts, query, args)
+		attachFailureKeyPlan(&res, table, tbl, "", scopedFailPreds[i], opts.scope, opts.dialect)
 		if counts[i] > 0 {
 			planOpts := opts
 			planOpts.checkID = plan.id

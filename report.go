@@ -385,6 +385,7 @@ type Result struct {
 
 	shape       resultShape
 	diagnostics *resultDiagnostics
+	failureKeys *failureKeyPlan
 }
 
 // RowKey identifies a failing table row by caller-supplied key column values in
@@ -402,6 +403,11 @@ type Report struct {
 	// ScopeID identifies the validation scope. It is empty when validation is
 	// unscoped.
 	ScopeID string
+
+	// keyColumns retains [WithKey] column configuration from ValidateTable even
+	// when [SummaryOnly] kept FailedKeys empty, so a later [FailingKeys] call
+	// can reuse them when WithKey is omitted on retrieval.
+	keyColumns []string
 }
 
 // OK reports whether no result has a hard-gating failure. Warning and info

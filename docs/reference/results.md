@@ -65,7 +65,9 @@ failures remain queryable. Catalog schema contracts also use
 count-tolerance-ineligible.
 
 `RowKey` is `[]any` containing caller-supplied `WithKey` values in the same
-column order.
+column order. SQL `NULL` components appear as `nil`. Capped `FailedKeys` remain
+report diagnostics; complete streaming identity uses `FailingKeys` and never
+requires storing the full set on `Report` / `Result`.
 
 Composite uniqueness and referential integrity both report complete local
 `FailedCount` values under `RowDenominatorAvailable`: duplicate participating
@@ -199,7 +201,12 @@ keeps its tolerance marker. Treat this output as operator-facing text; prefer
 
 For remediation, walk `Report.Results` and read `Result.Tolerated`. Do not rely
 on `Failures()` alone: tolerated results have `Success: true` and are omitted
-from that slice while remaining in `Results`, display text, and JSON.
+from that slice while remaining in `Results`, display text, and JSON. For the
+complete failing identity set, call `FailingKeys` with `ForResultID`,
+`ForResultIndex`, or `ForKind`, the original validated `TableRef`, and
+`Close`/`Err` handling; do not scrape `String()` output, mutate
+`Report.Target` to retarget retrieval, or treat `IncludeFailedKeys` export as a
+complete retrieval path.
 
 ## Limits
 
@@ -213,4 +220,5 @@ from that slice while remaining in `Results`, display text, and JSON.
 
 `WithSampleCap`, `WithFailedKeysCap`, and the suite methods override the
 retention defaults. See [operational limits](../concepts/operations.md) for cost
-and privacy guidance.
+and privacy guidance, and [Results and Remediation](../concepts/results.md) for
+`FailingKeys` streaming retrieval.

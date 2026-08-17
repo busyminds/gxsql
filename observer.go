@@ -9,11 +9,14 @@ import (
 type QueryCategory string
 
 const (
-	QueryCategoryUnknown             QueryCategory = "unknown"
-	QueryCategoryTotalCount          QueryCategory = "total_count"
-	QueryCategoryFailureCount        QueryCategory = "failure_count"
-	QueryCategorySample              QueryCategory = "sample"
-	QueryCategoryFailedKeys          QueryCategory = "failed_keys"
+	QueryCategoryUnknown      QueryCategory = "unknown"
+	QueryCategoryTotalCount   QueryCategory = "total_count"
+	QueryCategoryFailureCount QueryCategory = "failure_count"
+	QueryCategorySample       QueryCategory = "sample"
+	QueryCategoryFailedKeys   QueryCategory = "failed_keys"
+	// QueryCategoryFailingKeys identifies complete failing-key retrieval
+	// statements issued by [FailingKeys], distinct from capped in-report keys.
+	QueryCategoryFailingKeys         QueryCategory = "failing_keys"
 	QueryCategoryAggregate           QueryCategory = "aggregate"
 	QueryCategoryDistinctCount       QueryCategory = "distinct_count"
 	QueryCategoryUniqueness          QueryCategory = "uniqueness"

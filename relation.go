@@ -158,6 +158,7 @@ func (e referenceExpectation) evaluateSQL(
 
 	res := perRowResult(KindReference, "", e.Name(), total, failed, facts)
 	captureDiagnostics(&res, opts, failQuery, failArgs)
+	attachFailureKeyPlan(&res, table, outerFrom, localAlias, failPred, opts.scope, opts.dialect)
 	if failed == 0 {
 		return res, nil
 	}

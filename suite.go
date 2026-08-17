@@ -57,6 +57,14 @@ type validateConfig struct {
 	observer               ObserverFunc
 	scope                  Scope
 	hasScope               bool
+
+	// FailingKeys result selectors. Exactly one must be set for retrieval.
+	failingKeysID       string
+	hasFailingKeysID    bool
+	failingKeysIndex    int
+	hasFailingKeysIndex bool
+	failingKeysKind     ExpectationKind
+	hasFailingKeysKind  bool
 }
 
 // WithScope limits every expectation to rows matching the trusted predicate.
@@ -96,12 +104,13 @@ func WithKey(columns ...string) Option {
 	}
 }
 
-// SummaryOnly disables complete failed-row identity and returns counts plus
-// capped samples only.
+// SummaryOnly disables failed-row key retention on [Result] and returns counts
+// plus capped samples only. When combined with [WithKey], key column names are
+// still retained on the [Report] so a later [FailingKeys] call can stream
+// complete identity without re-supplying WithKey.
 func SummaryOnly() Option {
 	return func(cfg *validateConfig) {
 		cfg.summaryOnly = true
-		cfg.keyColumns = nil
 	}
 }
 
@@ -185,11 +194,11 @@ func (s *Suite) ValidateTable(
 	if !cfg.summaryOnly && len(cfg.keyColumns) == 0 {
 		cfg.summaryOnly = true
 	}
-	if !cfg.summaryOnly {
-		for _, col := range cfg.keyColumns {
-			if err := validateIdent(col); err != nil {
-				return Report{}, newConfigError(err)
-			}
+	// Validate key columns whenever supplied, including SummaryOnly+WithKey so
+	// Report.keyColumns remains usable for a later [FailingKeys] call.
+	for _, col := range cfg.keyColumns {
+		if err := validateIdent(col); err != nil {
+			return Report{}, newConfigError(err)
 		}
 	}
 
@@ -395,5 +404,10 @@ func (s *Suite) ValidateTable(
 		scopeID = validatedScope.identity
 	}
 	target := table
-	return Report{Results: results, Target: &target, ScopeID: scopeID}, nil
+	return Report{
+		Results:    results,
+		Target:     &target,
+		ScopeID:    scopeID,
+		keyColumns: append([]string(nil), cfg.keyColumns...),
+	}, nil
 }

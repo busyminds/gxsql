@@ -125,12 +125,76 @@ Suite methods set defaults for future runs. Options override them for one run.
 | Option                 | Effect                                                       |
 | ---------------------- | ------------------------------------------------------------ |
 | `WithKey(columns...)`  | Requests failed-row identities for the supplied key columns. |
-| `WithFailedKeysCap(n)` | Caps identities; `0` retains all keys.                       |
+| `WithFailedKeysCap(n)` | Caps identities on `Result`; `0` retains all keys in memory. |
 | `WithSampleCap(n)`     | Caps sample values; `0` disables sample collection.          |
-| `SummaryOnly()`        | Does not load failed-row keys.                               |
+| `SummaryOnly()`        | Does not load failed-row keys onto `Result`.                 |
 
-Use `WithFailedKeysCap(0)` only when every failed identity is required and
-unbounded retention is acceptable.
+Use `WithFailedKeysCap(0)` only when every failed identity must sit on the
+report and unbounded retention is acceptable. Prefer `FailingKeys` when the
+complete set must leave the process without growing `Report` memory.
+
+## Stream Complete Failure Identity
+
+`FailedKeys` is a bounded diagnostic slice. Use `FailingKeys` when an adapter
+must process every failing identity without retaining the complete set in the
+report:
+
+```go
+report, err := suite.ValidateTable(ctx, db, table,
+    gxsql.WithDialect(gxsql.Postgres()),
+    gxsql.WithKey("id"),
+    gxsql.SummaryOnly(),
+)
+if err != nil {
+    return err
+}
+iter, err := gxsql.FailingKeys(ctx, db, table, report,
+    gxsql.ForResultID("orders.email.not-null"),
+    gxsql.WithDialect(gxsql.Postgres()),
+)
+if err != nil {
+    return err
+}
+defer iter.Close()
+for iter.Next() {
+    key := iter.Key()
+    // Write or join key in caller-owned code.
+    _ = key
+}
+if err := iter.Err(); err != nil {
+    return err
+}
+```
+
+`FailingKeys` re-runs the selected read-only failure predicate from the plan
+attached during `ValidateTable` and orders rows by the selected key columns.
+SQL `NULL` key components appear as `nil` in `RowKey`. It supports ordinary
+per-row, unique, composite-unique, and local referential-orphan checks;
+table-level shapes return `CategoryUnsupported`. Select exactly one result with
+`ForResultID`, `ForResultIndex`, or an unambiguous `ForKind`.
+
+Table and scope are bound at validation. The call-site table must match the
+original validated `TableRef` stored on that plan; mutating `Report.Target`
+cannot redirect retrieval. Suite scope and eligibility stay in the plan.
+Optional `WithScope` on `FailingKeys` is compatibility-only: omit it to reuse
+the bound plan; mismatched identity or extra `WithScope` on an unscoped report
+is rejected and never retargets the population.
+
+`Key` returns a copy. Callers must `Close` the iterator (idempotent). When
+`Next` returns false, inspect `Err`. Exhaustion, cancellation, scan, and close
+paths release underlying rows; context, scan, database, and observer failures
+surface through `Err` / `Close`. An attempted retrieval emits exactly one
+privacy-safe `QueryCategoryFailingKeys` observer event (no SQL/args). Use the
+same caller-owned transaction for validate and retrieve when snapshot
+consistency matters.
+
+`SummaryOnly` with `WithKey` suppresses report retention but preserves the
+key-column selection for retrieval; you may also pass `WithKey` on
+`FailingKeys`. Complete identity stays outside durable `Report` / `Result`.
+Default export and `String()` paths never dump the stream; `IncludeFailedKeys`
+exports only report-retained keys. Persistence and repair stay in application
+code. `WithFailedKeysCap(0)` remains unlimited in-memory retention, not
+streaming.
 
 ## Vacuous Passes
 

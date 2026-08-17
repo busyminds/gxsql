@@ -34,8 +34,8 @@ options override suite-level caps.
 | `WithDialect(d Dialect)`       | Selects the SQL renderer. Defaults to `Postgres()`.                                                                                                               |
 | `WithSampleCap(n int)`         | Overrides the maximum retained sample values; `0` disables sample collection.                                                                                     |
 | `WithFailedKeysCap(n int)`     | Overrides the maximum retained failed keys; `0` is unlimited in-report retention (not streaming).                                                                 |
-| `WithKey(columns ...string)`   | Retains supplied row-key columns and disables summary-only mode; with `SummaryOnly`, preserves columns for later `FailingKeys`. |
-| `SummaryOnly()`                | Suppresses failed-row identity retention; with `WithKey`, preserves key-column selection for later retrieval.                 |
+| `WithKey(columns ...string)`   | Retains supplied row-key columns and disables summary-only mode; with `SummaryOnly`, preserves columns for later `FailingKeys`.                                   |
+| `SummaryOnly()`                | Suppresses failed-row identity retention; with `WithKey`, preserves key-column selection for later retrieval.                                                     |
 | `ContinueOnError()`            | Records preflight and execution errors on results and continues.                                                                                                  |
 | `CaptureQueryDiagnostics()`    | Records SQL and arguments for optional export only.                                                                                                               |
 | `WithObserver(observer)`       | Emits synchronous privacy-safe `QueryEvent` values; observer panics abort with a typed observer error.                                                            |
@@ -49,16 +49,15 @@ scopes—always prevent evaluation.
 
 ### Complete Failure-Key Retrieval
 
-`FailingKeys(ctx, db, table, report, opts...)` returns a
-`FailureKeyIterator`. Select exactly one result with `ForResultID`,
-`ForResultIndex`, or an unambiguous `ForKind`; pass `WithDialect` and supply
-`WithKey` or reuse key columns retained from validation. The iterator exposes
-`Next`, `Key`, `Err`, and `Close`, orders keys deterministically, honors
-cancellation, re-runs the validate-time failure predicate as read-only SQL, and
-represents SQL `NULL` key components as `nil`. It supports ordinary per-row,
-unique, composite-unique, and local referential-orphan checks; other shapes
-return `CategoryUnsupported`. It does not mutate or retain the complete key set
-on `Report` / `Result`.
+`FailingKeys(ctx, db, table, report, opts...)` returns a `FailureKeyIterator`.
+Select exactly one result with `ForResultID`, `ForResultIndex`, or an
+unambiguous `ForKind`; pass `WithDialect` and supply `WithKey` or reuse key
+columns retained from validation. The iterator exposes `Next`, `Key`, `Err`, and
+`Close`, orders keys deterministically, honors cancellation, re-runs the
+validate-time failure predicate as read-only SQL, and represents SQL `NULL` key
+components as `nil`. It supports ordinary per-row, unique, composite-unique, and
+local referential-orphan checks; other shapes return `CategoryUnsupported`. It
+does not mutate or retain the complete key set on `Report` / `Result`.
 
 `table` must match the original validated `TableRef` stored on the selected
 result's retrieval plan. Mutating `Report.Target` cannot redirect retrieval.

@@ -12,11 +12,16 @@ import (
 // and TargetTable are optional conflict checks callers may use when selecting
 // prior records; empty optional fields do not constrain a caller-owned store.
 type MeasurementKey struct {
-	ResultID     string
-	Kind         ExpectationKind
-	ScopeID      string
+	// ResultID is the primary join field from [WithID].
+	ResultID string
+	// Kind is an optional expectation-kind conflict check.
+	Kind ExpectationKind
+	// ScopeID is an optional scope-identity conflict check.
+	ScopeID string
+	// TargetSchema is an optional schema conflict check.
 	TargetSchema string
-	TargetTable  string
+	// TargetTable is an optional table-name conflict check.
+	TargetTable string
 }
 
 // MeasurementRecord is one privacy-safe measurement snapshot suitable for
@@ -28,30 +33,50 @@ type MeasurementKey struct {
 // gxsql does not persist MeasurementRecord values. Callers own storage,
 // windowing, and any drift enforcement.
 type MeasurementRecord struct {
-	ResultID         string
-	Kind             ExpectationKind
-	ScopeID          string
-	TargetSchema     string
-	TargetTable      string
-	DataTime         *time.Time
-	EvaluationTime   *time.Time
-	Column           string
-	Severity         string
-	Description      string
-	Tags             []string
-	PolicyVerdict    PolicyVerdict
+	// ResultID is the stable expectation identifier from [WithID].
+	ResultID string
+	// Kind is the library-defined expectation kind.
+	Kind ExpectationKind
+	// ScopeID is the validation scope identity when scoped.
+	ScopeID string
+	// TargetSchema is the validated table schema when set.
+	TargetSchema string
+	// TargetTable is the validated table name.
+	TargetTable string
+	// DataTime is the caller-owned business/as-of time from the export.
+	DataTime *time.Time
+	// EvaluationTime is the caller-owned evaluation time from the export.
+	EvaluationTime *time.Time
+	// Column is the validated column when applicable.
+	Column string
+	// Severity is the policy severity name from the export.
+	Severity string
+	// Description is optional policy metadata from the export.
+	Description string
+	// Tags are normalized policy tags from the export.
+	Tags []string
+	// PolicyVerdict is the exported policy state.
+	PolicyVerdict PolicyVerdict
+	// ExecutionOutcome classifies how validation ran for this result.
 	ExecutionOutcome ExecutionOutcome
-	Tolerated        bool
-	RowDenominator   RowDenominator
-	Counts           *ExportedCounts
-	Facts            *ExportedFacts
-	Errors           []ExportedError
+	// Tolerated reports whether a nonzero raw failure passed an allowance.
+	Tolerated bool
+	// RowDenominator states whether counts describe rows.
+	RowDenominator RowDenominator
+	// Counts holds privacy-safe count fields when present.
+	Counts *ExportedCounts
+	// Facts holds structured observations and configured thresholds.
+	Facts *ExportedFacts
+	// Errors holds export-safe error records for unevaluated slots.
+	Errors []ExportedError
 }
 
 // BaselineStore is the caller-implemented lookup shape for prior measurements.
 // Core validation never requires an implementation. Window selection, append,
 // and enforcement remain outside gxsql.
 type BaselineStore interface {
+	// Get returns prior [MeasurementRecord] values for key. Callers define
+	// matching, windowing, and empty-result behavior.
 	Get(ctx context.Context, key MeasurementKey) ([]MeasurementRecord, error)
 }
 

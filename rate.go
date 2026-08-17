@@ -23,14 +23,29 @@ func (c ColumnBuilder) DuplicateRate() rateMetricBuilder {
 	return rateMetricBuilder{column: c.column}
 }
 
+// GreaterOrEqual returns a table-level expectation that the rate is >= bound.
+// bound must be finite and in [0, 1]; invalid bounds fail suite preflight.
+// An empty scoped population passes vacuously. Results use
+// [RowDenominatorUnavailable] and publish [ResultFacts.Completeness] or
+// [ResultFacts.DuplicateRate].
 func (b rateMetricBuilder) GreaterOrEqual(bound float64) Expectation {
 	return rateExpectation{column: b.column, completeness: b.completeness, op: ">=", lo: bound, hi: bound}
 }
 
+// LessOrEqual returns a table-level expectation that the rate is <= bound.
+// bound must be finite and in [0, 1]; invalid bounds fail suite preflight.
+// An empty scoped population passes vacuously. Results use
+// [RowDenominatorUnavailable] and publish [ResultFacts.Completeness] or
+// [ResultFacts.DuplicateRate].
 func (b rateMetricBuilder) LessOrEqual(bound float64) Expectation {
 	return rateExpectation{column: b.column, completeness: b.completeness, op: "<=", lo: bound, hi: bound}
 }
 
+// Between returns a table-level expectation that the rate lies in [lo, hi]
+// inclusive. Bounds must be finite and in [0, 1] with lo <= hi; invalid bounds
+// fail suite preflight. An empty scoped population passes vacuously. Results
+// use [RowDenominatorUnavailable] and publish [ResultFacts.Completeness] or
+// [ResultFacts.DuplicateRate].
 func (b rateMetricBuilder) Between(lo, hi float64) Expectation {
 	return rateExpectation{column: b.column, completeness: b.completeness, op: "between", lo: lo, hi: hi}
 }

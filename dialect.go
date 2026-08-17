@@ -18,9 +18,16 @@ var identRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // Regex support is advertised through [RegexDialect]; dialects that omit it
 // fail [StringColumn.Regex] closed at suite preflight. Catalog nullability and
 // exact reported-type contracts are advertised through [SchemaMetadataDialect].
+// Exact population-standard-deviation support is advertised through
+// [AggregateMetricsDialect].
 type Dialect interface {
+	// QuoteIdent returns a dialect-quoted identifier for name.
+	// It must reject empty or invalid names.
 	QuoteIdent(name string) (string, error)
+	// Placeholder returns the nth bound-parameter placeholder.
+	// n is 1-based and matches the position of the corresponding argument.
 	Placeholder(n int) string
+	// StringLength returns a SQL expression for the character length of expr.
 	StringLength(expr string) string
 }
 
@@ -28,8 +35,11 @@ type Dialect interface {
 // quoted separately by the active [Dialect]; raw strings are never concatenated
 // into SQL unquoted.
 type TableRef struct {
+	// Schema is an optional schema qualifier. Empty means unqualified.
 	Schema string
-	Name   string
+	// Name is the table identifier. It must satisfy identifier validation when
+	// rendered.
+	Name string
 }
 
 // Table returns an unqualified table reference. Name must satisfy identifier

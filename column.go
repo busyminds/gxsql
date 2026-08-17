@@ -7,9 +7,11 @@ import (
 
 // ColumnBuilder is the entry point for column checks that apply to any SQL type.
 // Construct one with [Column]. Most methods return per-row [Expectation] values
-// evaluated with [RowDenominatorAvailable]; [ColumnBuilder.DistinctCount] returns
-// a table-level expectation evaluated with [RowDenominatorUnavailable]. Invalid
-// column identifiers fail suite preflight before SQL runs.
+// evaluated with [RowDenominatorAvailable]. Table-level builders such as
+// [ColumnBuilder.DistinctCount], [ColumnBuilder.CompletenessRate],
+// [ColumnBuilder.DuplicateRate], [ColumnBuilder.Frequency], and
+// [ColumnBuilder.DominantShare] use [RowDenominatorUnavailable]. Invalid column
+// identifiers fail suite preflight before SQL runs.
 type ColumnBuilder struct {
 	column string
 }
@@ -36,21 +38,25 @@ func Columns(names ...string) ColumnsBuilder {
 	return ColumnsBuilder{columns: append([]string(nil), names...)}
 }
 
-// NumberColumn is the entry point for ordered numeric comparisons and aggregates
-// on one column. Construct one with [Int] or [Float].
+// NumberColumn is the entry point for ordered numeric comparisons and
+// table-level aggregates on one column, including sum, average, min/max,
+// population standard deviation, and integer ratio equality. Construct one
+// with [Int] or [Float].
 type NumberColumn struct {
 	column  string
 	integer bool
 }
 
 // Int returns a builder for integer or general numeric column checks and
-// table-level aggregates on name.
+// table-level aggregates on name, including [NumberColumn.SumBetween] and
+// [NumberColumn.RatioEqual].
 func Int(name string) NumberColumn {
 	return NumberColumn{column: name, integer: true}
 }
 
 // Float returns a builder for floating-point column checks and table-level
 // aggregates on name. Aggregate comparisons use float64 thresholds.
+// [NumberColumn.RatioEqual] is available only from [Int].
 func Float(name string) NumberColumn {
 	return NumberColumn{column: name}
 }

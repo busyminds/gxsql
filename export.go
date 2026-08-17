@@ -145,22 +145,26 @@ type ExportedFacts struct {
 	ObservedTime *NormalizedValue `json:"observed_time,omitempty"`
 	// ConfiguredCount is the exact-count threshold for equal-style expectations.
 	ConfiguredCount *int `json:"configured_count,omitempty"`
-	// ConfiguredCountLower and ConfiguredCountUpper are inclusive integer bounds.
+	// ConfiguredCountLower is the inclusive lower integer bound.
 	ConfiguredCountLower *int `json:"configured_count_lower,omitempty"`
+	// ConfiguredCountUpper is the inclusive upper integer bound.
 	ConfiguredCountUpper *int `json:"configured_count_upper,omitempty"`
-	// ConfiguredFloatLower, ConfiguredFloatUpper, and ConfiguredFloatBound are
-	// thresholds for floating-point aggregate expectations.
+	// ConfiguredFloatLower is the inclusive lower floating-point bound.
 	ConfiguredFloatLower *NormalizedValue `json:"configured_float_lower,omitempty"`
+	// ConfiguredFloatUpper is the inclusive upper floating-point bound.
 	ConfiguredFloatUpper *NormalizedValue `json:"configured_float_upper,omitempty"`
+	// ConfiguredFloatBound is the single-sided floating-point threshold.
 	ConfiguredFloatBound *NormalizedValue `json:"configured_float_bound,omitempty"`
-	// ConfiguredBound, ConfiguredBoundLower, and ConfiguredBoundUpper hold
-	// per-row comparison thresholds with driver-bound types.
-	ConfiguredBound      *NormalizedValue `json:"configured_bound,omitempty"`
+	// ConfiguredBound is the per-row comparison threshold with a driver-bound type.
+	ConfiguredBound *NormalizedValue `json:"configured_bound,omitempty"`
+	// ConfiguredBoundLower is the inclusive per-row lower bound.
 	ConfiguredBoundLower *NormalizedValue `json:"configured_bound_lower,omitempty"`
+	// ConfiguredBoundUpper is the inclusive per-row upper bound.
 	ConfiguredBoundUpper *NormalizedValue `json:"configured_bound_upper,omitempty"`
-	// ConfiguredTimeStart and ConfiguredTimeEnd are half-open window bounds.
+	// ConfiguredTimeStart is the caller-configured half-open window start.
 	ConfiguredTimeStart *NormalizedValue `json:"configured_time_start,omitempty"`
-	ConfiguredTimeEnd   *NormalizedValue `json:"configured_time_end,omitempty"`
+	// ConfiguredTimeEnd is the caller-configured half-open window end.
+	ConfiguredTimeEnd *NormalizedValue `json:"configured_time_end,omitempty"`
 	// ConfiguredTimeCutoff is the freshness cutoff when set.
 	ConfiguredTimeCutoff *NormalizedValue `json:"configured_time_cutoff,omitempty"`
 	// ConfiguredMaxFailedCount is the inclusive WithMaxFailedCount bound when
@@ -212,58 +216,92 @@ type ExportedFacts struct {
 	ObservedReportedType string `json:"observed_reported_type,omitempty"`
 }
 
-// ExportedSumFacts is the encoded form of SumFacts.
+// ExportedSumFacts is the encoded form of [SumFacts].
 type ExportedSumFacts struct {
-	Observed             *int             `json:"observed,omitempty"`
-	ObservedFloat        *NormalizedValue `json:"observed_float,omitempty"`
-	ConfiguredLower      *int             `json:"configured_lower,omitempty"`
-	ConfiguredUpper      *int             `json:"configured_upper,omitempty"`
+	// Observed is the exact integer SUM when present.
+	Observed *int `json:"observed,omitempty"`
+	// ObservedFloat is the float64 SUM when present.
+	ObservedFloat *NormalizedValue `json:"observed_float,omitempty"`
+	// ConfiguredLower is the inclusive lower integer bound when set.
+	ConfiguredLower *int `json:"configured_lower,omitempty"`
+	// ConfiguredUpper is the inclusive upper integer bound when set.
+	ConfiguredUpper *int `json:"configured_upper,omitempty"`
+	// ConfiguredFloatLower is the inclusive lower float bound when set.
 	ConfiguredFloatLower *NormalizedValue `json:"configured_float_lower,omitempty"`
+	// ConfiguredFloatUpper is the inclusive upper float bound when set.
 	ConfiguredFloatUpper *NormalizedValue `json:"configured_float_upper,omitempty"`
-	Exactness            string           `json:"exactness,omitempty"`
+	// Exactness labels the observation path.
+	Exactness string `json:"exactness,omitempty"`
 }
 
-// ExportedPopulationStdDevFacts is the encoded form of PopulationStdDevFacts.
+// ExportedPopulationStdDevFacts is the encoded form of [PopulationStdDevFacts].
 type ExportedPopulationStdDevFacts struct {
-	Observed        *NormalizedValue `json:"observed,omitempty"`
+	// Observed is the population standard deviation when present.
+	Observed *NormalizedValue `json:"observed,omitempty"`
+	// ConfiguredLower is the inclusive lower float bound when set.
 	ConfiguredLower *NormalizedValue `json:"configured_lower,omitempty"`
+	// ConfiguredUpper is the inclusive upper float bound when set.
 	ConfiguredUpper *NormalizedValue `json:"configured_upper,omitempty"`
-	Algorithm       string           `json:"algorithm,omitempty"`
-	Exactness       string           `json:"exactness,omitempty"`
+	// Algorithm names the exact population algorithm used by the dialect.
+	Algorithm string `json:"algorithm,omitempty"`
+	// Exactness labels the observation contract.
+	Exactness string `json:"exactness,omitempty"`
 }
 
 // ExportedRateFacts is the encoded form of completeness or duplicate-rate
 // observations.
 type ExportedRateFacts struct {
-	NonNullCount    *int             `json:"non_null_count,omitempty"`
-	DuplicateCount  *int             `json:"duplicate_count,omitempty"`
-	TotalCount      *int             `json:"total_count,omitempty"`
-	Rate            *NormalizedValue `json:"rate,omitempty"`
+	// NonNullCount is the completeness numerator when observed.
+	NonNullCount *int `json:"non_null_count,omitempty"`
+	// DuplicateCount is the duplicate-rate numerator when observed.
+	DuplicateCount *int `json:"duplicate_count,omitempty"`
+	// TotalCount is the scoped-row denominator when observed.
+	TotalCount *int `json:"total_count,omitempty"`
+	// Rate is the derived rate when computable.
+	Rate *NormalizedValue `json:"rate,omitempty"`
+	// ConfiguredBound is the inclusive rate bound for single-sided checks.
 	ConfiguredBound *NormalizedValue `json:"configured_bound,omitempty"`
+	// ConfiguredLower is the inclusive lower rate bound for Between.
 	ConfiguredLower *NormalizedValue `json:"configured_lower,omitempty"`
+	// ConfiguredUpper is the inclusive upper rate bound for Between.
 	ConfiguredUpper *NormalizedValue `json:"configured_upper,omitempty"`
 }
 
-// ExportedFrequencyFacts is the encoded form of FrequencyFacts.
+// ExportedFrequencyFacts is the encoded form of [FrequencyFacts].
 type ExportedFrequencyFacts struct {
+	// ConfiguredValue is the requested category when non-NULL.
 	ConfiguredValue *NormalizedValue `json:"configured_value,omitempty"`
-	ConfiguredNull  bool             `json:"configured_null,omitempty"`
-	ValueCount      *int             `json:"value_count,omitempty"`
-	TotalCount      *int             `json:"total_count,omitempty"`
-	Share           *NormalizedValue `json:"share,omitempty"`
+	// ConfiguredNull marks SQL NULL as the requested category.
+	ConfiguredNull bool `json:"configured_null,omitempty"`
+	// ValueCount is the matching-category count when observed.
+	ValueCount *int `json:"value_count,omitempty"`
+	// TotalCount is the documented denominator when observed.
+	TotalCount *int `json:"total_count,omitempty"`
+	// Share is the category share when computable.
+	Share *NormalizedValue `json:"share,omitempty"`
+	// ConfiguredBound is the inclusive share bound for single-sided checks.
 	ConfiguredBound *NormalizedValue `json:"configured_bound,omitempty"`
+	// ConfiguredLower is the inclusive lower share bound for Between.
 	ConfiguredLower *NormalizedValue `json:"configured_lower,omitempty"`
+	// ConfiguredUpper is the inclusive upper share bound for Between.
 	ConfiguredUpper *NormalizedValue `json:"configured_upper,omitempty"`
 }
 
-// ExportedDominantShareFacts is the encoded form of DominantShareFacts.
+// ExportedDominantShareFacts is the encoded form of [DominantShareFacts].
 type ExportedDominantShareFacts struct {
-	DominantCount   *int             `json:"dominant_count,omitempty"`
-	TotalCount      *int             `json:"total_count,omitempty"`
-	Share           *NormalizedValue `json:"share,omitempty"`
-	TieCount        *int             `json:"tie_count,omitempty"`
+	// DominantCount is the maximum category count when observed.
+	DominantCount *int `json:"dominant_count,omitempty"`
+	// TotalCount is the documented denominator when observed.
+	TotalCount *int `json:"total_count,omitempty"`
+	// Share is the maximum category share when computable.
+	Share *NormalizedValue `json:"share,omitempty"`
+	// TieCount is the number of categories tied at the maximum share.
+	TieCount *int `json:"tie_count,omitempty"`
+	// ConfiguredBound is the inclusive share bound for single-sided checks.
 	ConfiguredBound *NormalizedValue `json:"configured_bound,omitempty"`
+	// ConfiguredLower is the inclusive lower share bound for Between.
 	ConfiguredLower *NormalizedValue `json:"configured_lower,omitempty"`
+	// ConfiguredUpper is the inclusive upper share bound for Between.
 	ConfiguredUpper *NormalizedValue `json:"configured_upper,omitempty"`
 }
 

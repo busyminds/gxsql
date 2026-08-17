@@ -90,15 +90,22 @@ Per-row checks set `RowDenominator` to `RowDenominatorAvailable` and populate:
   populations, and errors.
 - `Severity`, `Description`, and `Tags`: policy classification and metadata.
 
-Table-level checks—row count, distinct count, numeric aggregates, freshness,
-structural column contracts, and custom counts—use `RowDenominatorUnavailable`.
-Their `Total` remains zero because no per-row population is reported. Custom
-counts instead expose their complete `FailedCount`, including zero, and do not
-retain `FailedPercent`, samples, or failed keys. Structural `RequiredColumns` /
-`ExactColumns` results also omit samples and failed keys; remediate from
-`Facts.RequiredColumns`, `Facts.MissingColumns`, and `Facts.UnexpectedColumns`.
-Read the observed value and configured threshold from `Facts` for built-in
-table-level checks. `Name` is only human-facing display text.
+Table-level checks—row count, distinct count, numeric aggregates (including
+`SumBetween` / `StdDevBetween`), freshness, structural column contracts, catalog
+schema contracts, reconcile counts, broader rate/frequency metrics, and custom
+counts—use `RowDenominatorUnavailable`. Their `Total` remains zero because no
+per-row population is reported. Custom counts instead expose their complete
+`FailedCount`, including zero, and do not retain `FailedPercent`, samples, or
+failed keys. Reconcile counts expose `FailedCount` as `0` or `1`. Structural
+`RequiredColumns` / `ExactColumns` and catalog `ColumnNullability` /
+`ColumnType` results also omit samples and failed keys; remediate from
+`Facts.RequiredColumns`, `Facts.MissingColumns`, `Facts.UnexpectedColumns`, and
+the nullability/type fact fields. Broader metrics publish nested facts such as
+`Facts.Completeness`, `Facts.DuplicateRate`, `Facts.Frequency`,
+`Facts.DominantShare`, `Facts.Sum`, and `Facts.PopulationStdDev` instead of
+overloading `FailedPercent`. Read the observed value and configured threshold
+from `Facts` for built-in table-level checks. `Name` is only human-facing
+display text.
 
 `ID` and `Kind` are stable machine-facing identity fields. Use `WithID` to
 supply an ID and `Result.Kind` to classify a built-in expectation. See
@@ -167,10 +174,10 @@ if err := iter.Err(); err != nil {
 ```
 
 `FailingKeys` re-runs the selected read-only failure predicate from the plan
-attached during `ValidateTable` and orders rows by the selected key columns.
-SQL `NULL` key components appear as `nil` in `RowKey`. It supports ordinary
-per-row, unique, composite-unique, and local referential-orphan checks;
-table-level shapes return `CategoryUnsupported`. Select exactly one result with
+attached during `ValidateTable` and orders rows by the selected key columns. SQL
+`NULL` key components appear as `nil` in `RowKey`. It supports ordinary per-row,
+unique, composite-unique, and local referential-orphan checks; table-level
+shapes return `CategoryUnsupported`. Select exactly one result with
 `ForResultID`, `ForResultIndex`, or an unambiguous `ForKind`.
 
 Table and scope are bound at validation. The call-site table must match the

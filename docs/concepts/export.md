@@ -103,13 +103,13 @@ prior, err := history.Get(ctx, key)
 
 Join vocabulary:
 
-| Field                            | Role                                 |
-| -------------------------------- | ------------------------------------ |
-| result `id` / `ResultID`         | Primary lookup from `WithID`         |
-| `kind`                           | Optional series/conflict check       |
-| `scope.id`                       | Optional partition/scope check       |
-| `target.schema` / `target.table` | Contextual series/conflict identity  |
-| `data_time` / `evaluation_time`  | Caller-owned timeline fields         |
+| Field                            | Role                                |
+| -------------------------------- | ----------------------------------- |
+| result `id` / `ResultID`         | Primary lookup from `WithID`        |
+| `kind`                           | Optional series/conflict check      |
+| `scope.id`                       | Optional partition/scope check      |
+| `target.schema` / `target.table` | Contextual series/conflict identity |
+| `data_time` / `evaluation_time`  | Caller-owned timeline fields        |
 
 `WithID` stays optional for ordinary validation. History mapping requires
 non-blank, unique export result IDs. Kind, scope, and target checks on
@@ -120,10 +120,10 @@ identity explicitly outside gxsql.
 `MeasurementRecordsFromExport` copies structured counts, facts, verdicts, tags,
 and categorized errors after re-sanitizing messages to `gxsql: <category>`. It
 always omits samples, failed keys, caps, and diagnostics—even when those were
-opted into the export. ContinueOnError slots keep
-`policy_verdict=unevaluated` with a distinct `execution_outcome`; do not treat
-them as policy failures. Broader metric comparisons use existing structured
-facts such as `facts.frequency`; no extra series labels are required.
+opted into the export. ContinueOnError slots keep `policy_verdict=unevaluated`
+with a distinct `execution_outcome`; do not treat them as policy failures.
+Broader metric comparisons use existing structured facts such as
+`facts.frequency`; no extra series labels are required.
 
 `BaselineStore` is only the lookup shape (`Get`); callers implement append,
 windowing, comparison, and any enforcement. Encode JSON with
@@ -161,8 +161,8 @@ arguments. Opt in to each class separately:
 | `IncludeCapturedArguments()`   | `CaptureQueryDiagnostics()` during validation | Also exports normalized, count-capped arguments. |
 
 `IncludeFailedKeys()` exports only keys retained on the report (still subject to
-`WithFailedKeysCap`). It is not complete failure retrieval. For the full
-failing identity set, call `FailingKeys` at runtime; see
+`WithFailedKeysCap`). It is not complete failure retrieval. For the full failing
+identity set, call `FailingKeys` at runtime; see
 [Results and Remediation](results.md).
 
 Use `WithQueryRedactor`, `WithArgsRedactor`, `WithSampleRedactor`, and

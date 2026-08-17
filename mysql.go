@@ -4,7 +4,9 @@ type mysqlDialect struct{}
 
 // MySQL returns the MySQL [Dialect]. Identifiers are backtick-quoted after
 // validation; placeholders are ?; string length uses CHAR_LENGTH. It
-// advertises [RegexDialect] with the REGEXP substring operator. Pair with
+// advertises [RegexDialect] with the REGEXP substring operator,
+// [AggregateMetricsDialect] with exact STDDEV_POP, and [SchemaMetadataDialect]
+// with catalog nullability and exact reported-type support. Pair with
 // [WithDialect] when validating MySQL tables.
 func MySQL() Dialect { return mysqlDialect{} }
 

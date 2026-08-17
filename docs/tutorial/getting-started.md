@@ -2,7 +2,8 @@
 
 Use this guide to validate an existing table with `gxsql` and PostgreSQL. The
 same flow works with SQLite, DuckDB, or MySQL after you select the matching
-dialect.
+dialect. Some builders are capability-gated per dialect; see
+[Compatibility](../concepts/compatibility.md).
 
 ## Install
 
@@ -106,7 +107,10 @@ suite := gxsql.NewSuite(
 )
 ```
 
-Use the builders for the data type and assertion you need. The
+Use the builders for the data type and assertion you need. Numeric columns also
+expose table-level aggregates such as `SumBetween` and capability-gated
+`StdDevBetween`, and `Column(...)` exposes completeness, duplicate-rate,
+frequency, and dominant-share metrics. The
 [expectations reference](../reference/expectations.md) lists every builder.
 
 ## Gate Table Shape First
@@ -114,8 +118,11 @@ Use the builders for the data type and assertion you need. The
 Before content checks, confirm the target still exposes the expected columns.
 `RequiredColumns` and `ExactColumns` compare unordered physical column-name sets
 byte-for-byte against `Rows.Columns()`. They do not validate types, nullability,
-or column order. Run them in a separate unscoped suite; `WithScope` is rejected
-at preflight:
+or column order. For catalog nullability and exact driver-reported type names,
+use capability-gated `ColumnNullability` and `ColumnType` (see the
+[schema contracts reference](../reference/expectations.md#schema-contracts)).
+Run structural checks in a separate unscoped suite; `WithScope` is rejected at
+preflight for name contracts and catalog contracts alike:
 
 ```go
 structure := gxsql.NewSuite(
@@ -155,7 +162,7 @@ if err != nil {
     log.Fatalf("gxsql execution error: %v", err)
 }
 if err := report.Err(); err != nil {
-    // Expectations ran, but one or more data-quality policies failed.
+    // Expectations ran, but one or more hard-gating data-quality policies failed.
     log.Fatalf("data quality check failed: %v", err)
 }
 ```
@@ -163,12 +170,12 @@ if err := report.Err(); err != nil {
 Use `gxsql.SQLite()`, `gxsql.DuckDB()`, or `gxsql.MySQL()` for those engines.
 
 `WithKey("id")` retains the identities of failing rows, up to the failed-key
-cap. For complete remediation without growing report memory, use
-`SummaryOnly()` with `WithKey("id")`, then stream identities with `FailingKeys`.
-Omit `WithKey` when counts and sample values are enough. When neither `WithKey`
-nor `SummaryOnly()` is supplied, `ValidateTable` uses summary-only mode
-internally. See [results and remediation](../concepts/results.md) for retention
-and streaming controls.
+cap. For complete remediation without growing report memory, use `SummaryOnly()`
+with `WithKey("id")`, then stream identities with `FailingKeys`. Omit `WithKey`
+when counts and sample values are enough. When neither `WithKey` nor
+`SummaryOnly()` is supplied, `ValidateTable` uses summary-only mode internally.
+See [results and remediation](../concepts/results.md) for retention and
+streaming controls.
 
 ## Scope the Population
 
@@ -200,10 +207,14 @@ and exports omit the predicate text and bound arguments.
 
 `ValidateTable` exposes two independent signals:
 
-| Signal                | Meaning                                                              |
-| --------------------- | -------------------------------------------------------------------- |
-| `err != nil`          | A configuration or SQL execution failure prevented a complete report |
-| `report.Err() != nil` | Validation completed, but at least one expectation failed            |
+| Signal                | Meaning                                                                                   |
+| --------------------- | ----------------------------------------------------------------------------------------- |
+| `err != nil`          | A configuration or SQL execution failure prevented a complete report                      |
+| `report.Err() != nil` | Validation completed, but at least one hard-gating policy failure or result error remains |
+
+Warning and info policy failures stay in the report and do not make
+`report.Err()` non-nil. Use `report.Warnings()`, `report.Infos()`, and related
+filters when you need those advisory outcomes.
 
 `ValidateTable` collects all policy failures in declaration order. It stops on
 configuration and execution failures by default. `ContinueOnError()` records

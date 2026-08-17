@@ -26,14 +26,29 @@ func (c ColumnBuilder) DominantShare() frequencyBuilder {
 	return frequencyBuilder{column: c.column, dominant: true}
 }
 
+// GreaterOrEqual returns a table-level expectation that the category share is
+// >= bound. bound must be finite and in [0, 1]; invalid bounds fail suite
+// preflight. An empty scoped population passes vacuously. Results use
+// [RowDenominatorUnavailable] and publish [ResultFacts.Frequency] or
+// [ResultFacts.DominantShare].
 func (b frequencyBuilder) GreaterOrEqual(bound float64) Expectation {
 	return frequencyExpectation{column: b.column, value: b.value, null: b.null, dominant: b.dominant, op: ">=", lo: bound, hi: bound}
 }
 
+// LessOrEqual returns a table-level expectation that the category share is
+// <= bound. bound must be finite and in [0, 1]; invalid bounds fail suite
+// preflight. An empty scoped population passes vacuously. Results use
+// [RowDenominatorUnavailable] and publish [ResultFacts.Frequency] or
+// [ResultFacts.DominantShare].
 func (b frequencyBuilder) LessOrEqual(bound float64) Expectation {
 	return frequencyExpectation{column: b.column, value: b.value, null: b.null, dominant: b.dominant, op: "<=", lo: bound, hi: bound}
 }
 
+// Between returns a table-level expectation that the category share lies in
+// [lo, hi] inclusive. Bounds must be finite and in [0, 1] with lo <= hi;
+// invalid bounds fail suite preflight. An empty scoped population passes
+// vacuously. Results use [RowDenominatorUnavailable] and publish
+// [ResultFacts.Frequency] or [ResultFacts.DominantShare].
 func (b frequencyBuilder) Between(lo, hi float64) Expectation {
 	return frequencyExpectation{column: b.column, value: b.value, null: b.null, dominant: b.dominant, op: "between", lo: lo, hi: hi}
 }

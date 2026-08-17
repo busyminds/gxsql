@@ -30,17 +30,24 @@ const (
 	CategoryObserver ErrorCategory = "observer"
 )
 
-// ErrCategory* values are category markers for errors.Is against a typed
-// ErrorCategory. For example, errors.Is(err, ErrCategoryInvalidConfig) reports
-// whether err is or wraps a CategorizedError with that category.
+// Category sentinel values for errors.Is against a typed [ErrorCategory].
+// For example, errors.Is(err, ErrCategoryInvalidConfig) reports whether err is
+// or wraps a [CategorizedError] with that category.
 var (
+	// ErrCategoryInvalidConfig matches [CategoryInvalidConfig] failures.
 	ErrCategoryInvalidConfig = &categoryMarker{CategoryInvalidConfig}
-	ErrCategoryUnsupported   = &categoryMarker{CategoryUnsupported}
-	ErrCategoryRendering     = &categoryMarker{CategoryRendering}
-	ErrCategoryDatabase      = &categoryMarker{CategoryDatabase}
-	ErrCategoryScan          = &categoryMarker{CategoryScan}
-	ErrCategoryContext       = &categoryMarker{CategoryContext}
-	ErrCategoryObserver      = &categoryMarker{CategoryObserver}
+	// ErrCategoryUnsupported matches [CategoryUnsupported] failures.
+	ErrCategoryUnsupported = &categoryMarker{CategoryUnsupported}
+	// ErrCategoryRendering matches [CategoryRendering] failures.
+	ErrCategoryRendering = &categoryMarker{CategoryRendering}
+	// ErrCategoryDatabase matches [CategoryDatabase] failures.
+	ErrCategoryDatabase = &categoryMarker{CategoryDatabase}
+	// ErrCategoryScan matches [CategoryScan] failures.
+	ErrCategoryScan = &categoryMarker{CategoryScan}
+	// ErrCategoryContext matches [CategoryContext] failures.
+	ErrCategoryContext = &categoryMarker{CategoryContext}
+	// ErrCategoryObserver matches [CategoryObserver] failures.
+	ErrCategoryObserver = &categoryMarker{CategoryObserver}
 )
 
 type categoryMarker struct {
@@ -304,8 +311,9 @@ func unsupportedScopePredicateError(msg string) error {
 
 // UnsupportedCapabilityError identifies a capability the active dialect does
 // not advertise. It is returned (wrapped as [CategoryUnsupported]) when an
-// expectation such as [StringColumn.Regex] requires a dialect extension that is
-// missing. Use errors.As to inspect Kind, Dialect, and Capability.
+// expectation such as [StringColumn.Regex], [NumberColumn.StdDevBetween], or a
+// schema-metadata contract requires a dialect extension that is missing or
+// incomplete. Use errors.As to inspect Kind, Dialect, and Capability.
 type UnsupportedCapabilityError struct {
 	// Kind is the expectation kind that required the capability.
 	Kind ExpectationKind

@@ -204,9 +204,9 @@ on `Failures()` alone: tolerated results have `Success: true` and are omitted
 from that slice while remaining in `Results`, display text, and JSON. For the
 complete failing identity set, call `FailingKeys` with `ForResultID`,
 `ForResultIndex`, or `ForKind`, the original validated `TableRef`, and
-`Close`/`Err` handling; do not scrape `String()` output, mutate
-`Report.Target` to retarget retrieval, or treat `IncludeFailedKeys` export as a
-complete retrieval path.
+`Close`/`Err` handling; do not scrape `String()` output, mutate `Report.Target`
+to retarget retrieval, or treat `IncludeFailedKeys` export as a complete
+retrieval path.
 
 ## Limits
 

@@ -9,42 +9,64 @@ import (
 type QueryCategory string
 
 const (
-	QueryCategoryUnknown      QueryCategory = "unknown"
-	QueryCategoryTotalCount   QueryCategory = "total_count"
+	// QueryCategoryUnknown marks an unclassified statement category.
+	QueryCategoryUnknown QueryCategory = "unknown"
+	// QueryCategoryTotalCount identifies COUNT(*) statements used for total or
+	// numerator counts.
+	QueryCategoryTotalCount QueryCategory = "total_count"
+	// QueryCategoryFailureCount identifies failing-row COUNT(*) statements.
 	QueryCategoryFailureCount QueryCategory = "failure_count"
-	QueryCategorySample       QueryCategory = "sample"
-	QueryCategoryFailedKeys   QueryCategory = "failed_keys"
+	// QueryCategorySample identifies offending-value sample retrieval statements.
+	QueryCategorySample QueryCategory = "sample"
+	// QueryCategoryFailedKeys identifies capped in-report failed-key retrieval.
+	QueryCategoryFailedKeys QueryCategory = "failed_keys"
 	// QueryCategoryFailingKeys identifies complete failing-key retrieval
 	// statements issued by [FailingKeys], distinct from capped in-report keys.
-	QueryCategoryFailingKeys         QueryCategory = "failing_keys"
-	QueryCategoryAggregate           QueryCategory = "aggregate"
-	QueryCategoryDistinctCount       QueryCategory = "distinct_count"
-	QueryCategoryUniqueness          QueryCategory = "uniqueness"
+	QueryCategoryFailingKeys QueryCategory = "failing_keys"
+	// QueryCategoryAggregate identifies table-level aggregate statements.
+	QueryCategoryAggregate QueryCategory = "aggregate"
+	// QueryCategoryDistinctCount identifies distinct-count aggregate statements.
+	QueryCategoryDistinctCount QueryCategory = "distinct_count"
+	// QueryCategoryUniqueness identifies uniqueness and duplicate-rate statements.
+	QueryCategoryUniqueness QueryCategory = "uniqueness"
+	// QueryCategoryStructuralDiscovery identifies zero-row schema probe statements.
 	QueryCategoryStructuralDiscovery QueryCategory = "structural_discovery"
-	QueryCategoryCustomCount         QueryCategory = "custom_count"
-	QueryCategorySharedScalar        QueryCategory = "shared_scalar"
+	// QueryCategoryCustomCount identifies trusted custom-count statements.
+	QueryCategoryCustomCount QueryCategory = "custom_count"
+	// QueryCategorySharedScalar identifies combined per-row failure-count statements.
+	QueryCategorySharedScalar QueryCategory = "shared_scalar"
 )
 
 // QueryStatus describes the completed outcome of an attempted SQL statement.
 type QueryStatus string
 
 const (
-	QueryStatusUnknown       QueryStatus = "unknown"
-	QueryStatusSuccess       QueryStatus = "success"
+	// QueryStatusUnknown marks an unclassified statement outcome.
+	QueryStatusUnknown QueryStatus = "unknown"
+	// QueryStatusSuccess marks a completed statement with no error.
+	QueryStatusSuccess QueryStatus = "success"
+	// QueryStatusDatabaseError marks a database/sql execution failure.
 	QueryStatusDatabaseError QueryStatus = "database_error"
-	QueryStatusScanError     QueryStatus = "scan_error"
-	QueryStatusContextError  QueryStatus = "context_error"
+	// QueryStatusScanError marks a row iteration or column scan failure.
+	QueryStatusScanError QueryStatus = "scan_error"
+	// QueryStatusContextError marks context cancellation or deadline exceeded.
+	QueryStatusContextError QueryStatus = "context_error"
 )
 
 // QueryEvent contains privacy-safe metadata for one attempted SQL statement.
 // SQL text, bound arguments, predicates, samples, and failed keys are never
 // included.
 type QueryEvent struct {
-	ID       string
-	Kind     ExpectationKind
+	// ID is the caller-supplied expectation identifier from [WithID], when set.
+	ID string
+	// Kind is the library-defined expectation kind for the attempted statement.
+	Kind ExpectationKind
+	// Category identifies the purpose of the attempted SQL statement.
 	Category QueryCategory
+	// Duration is the monotonic elapsed time for the attempt.
 	Duration time.Duration
-	Status   QueryStatus
+	// Status is the completed outcome of the attempt.
+	Status QueryStatus
 }
 
 // ObserverFunc receives completed SQL statement events synchronously.

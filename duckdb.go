@@ -6,8 +6,10 @@ type duckdbDialect struct{}
 
 // DuckDB returns the DuckDB [Dialect]. Identifiers are double-quoted after
 // validation; placeholders are positional $n; string length uses LENGTH. It
-// advertises [RegexDialect] with the "~" substring operator. Pair with
-// [WithDialect] when validating DuckDB tables.
+// advertises [RegexDialect] with the "~" substring operator,
+// [AggregateMetricsDialect] with exact STDDEV_POP, and [SchemaMetadataDialect]
+// with exact reported-type support (catalog nullability is not advertised).
+// Pair with [WithDialect] when validating DuckDB tables.
 func DuckDB() Dialect { return duckdbDialect{} }
 
 func (duckdbDialect) QuoteIdent(name string) (string, error) {

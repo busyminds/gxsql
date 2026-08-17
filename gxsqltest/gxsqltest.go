@@ -12,8 +12,11 @@ import (
 // TestingT is the subset of *testing.T / *testing.B used by this package; both
 // satisfy it implicitly, so callers pass their *testing.T unchanged.
 type TestingT interface {
+	// Helper marks the calling helper as a test helper in the underlying test.
 	Helper()
+	// Errorf reports a formatted non-fatal test failure.
 	Errorf(format string, args ...any)
+	// Fatalf reports a formatted fatal test failure and stops the test.
 	Fatalf(format string, args ...any)
 }
 

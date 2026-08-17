@@ -13,19 +13,26 @@ import (
 const DefaultSampleCap = 20
 
 // DB is the narrow database interface [Suite.ValidateTable] executes against.
-// Implementations must honor context cancellation on [context.Context].
+// [*sql.DB] and [*sql.Tx] both satisfy it. Implementations must honor context
+// cancellation on [context.Context]. Callers own transaction begin, isolation,
+// commit, and rollback when passing a transaction.
 type DB interface {
+	// QueryContext executes a query that returns rows.
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	// QueryRowContext executes a query that is expected to return at most one row.
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
 // Expectation is the sealed unit of SQL validation over a table. Construct
-// expectations with the RowCount, RequiredColumns, ExactColumns, column,
-// aggregate, temporal, CustomCount, and ReconcileCounts builders; its unexported methods prevent
-// implementations outside package gxsql. The [Name] method supplies display
-// text, while [Suite.ValidateTable] reports a library-defined [Result.Kind].
-// Attach a stable result ID with [WithID].
+// expectations with the package builders (row-count, column, aggregate, rate,
+// frequency, temporal, structural, schema-contract, CustomCount, and
+// ReconcileCounts) and optional wrappers such as [WithID], [WithPolicy],
+// [WithMaxFailedCount], and [When]. Unexported methods prevent implementations
+// outside package gxsql. [Suite.ValidateTable] reports a library-defined
+// [Result.Kind]; attach a stable result ID with [WithID].
 type Expectation interface {
+	// Name returns human-oriented display text for the expectation.
+	// It is not machine identity; use [WithID] and [Result.Kind] for that.
 	Name() string
 	evaluateSQL(ctx context.Context, db DB, table TableRef, opts evalOptions) (Result, error)
 }

@@ -41,10 +41,15 @@ func MaxFailedPercent(percent float64) Tolerance {
 // one rate-based tolerance. WithMaxFailedCount remains the dedicated count
 // tolerance wrapper.
 type Policy struct {
-	Severity    Severity
+	// Severity classifies how a policy failure participates in report gating.
+	Severity Severity
+	// Description is optional human-oriented metadata. Blank values are omitted.
 	Description string
-	Tags        []string
-	Tolerance   Tolerance
+	// Tags are optional metadata labels. Values are trimmed, sorted, and
+	// rejected when blank or duplicated during preflight.
+	Tags []string
+	// Tolerance is an optional rate-based failed-row allowance.
+	Tolerance Tolerance
 }
 
 // WithPolicy decorates exp with an immutable copy of policy. Invalid policy

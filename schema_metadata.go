@@ -29,6 +29,8 @@ type SchemaMetadataCapability struct {
 // [Dialect]; dialects that omit a requested claim fail the corresponding
 // schema contract closed at suite preflight with [UnsupportedCapabilityError].
 type SchemaMetadataDialect interface {
+	// SchemaMetadataCapability returns the catalog claims this dialect can
+	// evaluate.
 	SchemaMetadataCapability() SchemaMetadataCapability
 }
 

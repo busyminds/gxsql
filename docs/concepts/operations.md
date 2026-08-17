@@ -55,12 +55,16 @@ conditional-aggregate SQL statement(s). Compatible slots are built-in per-row
 checks that admit a failure predicate, including nullability, membership, string
 and numeric predicates, cross-column checks, and `Timestamp(...).InWindow(...)`.
 `WithID`, `WithPolicy`, and `WithMaxFailedCount` wrappers do not block
-combination.
+combination. A `When(...)` / eligibility wrapper always opts the slot out and
+keeps it on the sequential path, because eligible rules use a per-rule effective
+population and total.
 
 Exact compatibility boundary:
 
 - Only contiguous declaration-order runs of length two or more combine.
 - A compatible expectation between incompatible neighbors stays sequential.
+- `When(...)` eligibility wrappers never combine, even around an otherwise
+  compatible per-row check.
 - Uniqueness, table-level, aggregate, distinct-count, custom-count, structural,
   and relation checks never combine.
 - Large contiguous runs split across multiple statements when needed to stay

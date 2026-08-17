@@ -304,6 +304,8 @@ type RegexCapability struct {
 // [StringColumn.Regex] closed at suite preflight with
 // [UnsupportedCapabilityError] naming the missing or unsupported field.
 type RegexDialect interface {
+	// RegexCapability returns the regex matching metadata this dialect
+	// advertises for [StringColumn.Regex].
 	RegexCapability() RegexCapability
 }
 

@@ -146,16 +146,22 @@ const (
 // ComparisonFacts identifies the operands and fixed relationship of a direct
 // same-row comparison.
 type ComparisonFacts struct {
-	LeftColumn   string
-	RightColumn  string
+	// LeftColumn is the left operand identifier.
+	LeftColumn string
+	// RightColumn is the right operand identifier.
+	RightColumn string
+	// Relationship is the fixed relationship name (for example "equal").
 	Relationship string
 }
 
 // RatioFacts identifies the operands and integral bound of a ratio equality.
 type RatioFacts struct {
-	LeftColumn  string
+	// LeftColumn is the actual-value operand identifier.
+	LeftColumn string
+	// RightColumn is the denominator operand identifier.
 	RightColumn string
-	Bound       int64
+	// Bound is the integral ratio multiplier in left == right * Bound.
+	Bound int64
 }
 
 // ReferenceFacts describes a local-to-parent column mapping for a referential
@@ -249,8 +255,9 @@ type CompletenessFacts struct {
 	Rate *float64
 	// ConfiguredBound is the inclusive rate bound for single-sided checks.
 	ConfiguredBound *float64
-	// ConfiguredLower and ConfiguredUpper are inclusive bounds for Between.
+	// ConfiguredLower is the inclusive lower rate bound for Between.
 	ConfiguredLower *float64
+	// ConfiguredUpper is the inclusive upper rate bound for Between.
 	ConfiguredUpper *float64
 }
 
@@ -267,8 +274,9 @@ type DuplicateRateFacts struct {
 	Rate *float64
 	// ConfiguredBound is the inclusive rate bound for single-sided checks.
 	ConfiguredBound *float64
-	// ConfiguredLower and ConfiguredUpper are inclusive bounds for Between.
+	// ConfiguredLower is the inclusive lower rate bound for Between.
 	ConfiguredLower *float64
+	// ConfiguredUpper is the inclusive upper rate bound for Between.
 	ConfiguredUpper *float64
 }
 
@@ -289,8 +297,9 @@ type FrequencyFacts struct {
 	// ConfiguredBound is the inclusive category-share bound for single-sided
 	// checks.
 	ConfiguredBound *float64
-	// ConfiguredLower and ConfiguredUpper are inclusive bounds for Between.
+	// ConfiguredLower is the inclusive lower share bound for Between.
 	ConfiguredLower *float64
+	// ConfiguredUpper is the inclusive upper share bound for Between.
 	ConfiguredUpper *float64
 }
 
@@ -300,8 +309,9 @@ type DominantShareFacts struct {
 	// ConfiguredBound is the inclusive dominant-share bound for single-sided
 	// checks.
 	ConfiguredBound *float64
-	// ConfiguredLower and ConfiguredUpper are inclusive bounds for Between.
+	// ConfiguredLower is the inclusive lower share bound for Between.
 	ConfiguredLower *float64
+	// ConfiguredUpper is the inclusive upper share bound for Between.
 	ConfiguredUpper *float64
 	// DominantCount is the maximum category count when observed.
 	DominantCount *int

@@ -9,15 +9,21 @@ import (
 const populationStdDevCapabilityName = "aggregate.population_stddev"
 
 // AggregateMetricsCapability describes optional exact aggregate algorithms
-// advertised by a dialect. It does not widen Dialect.
+// advertised by a dialect. It does not widen [Dialect].
 type AggregateMetricsCapability struct {
-	Name             string
+	// Name is the capability family label. Built-ins use "aggregate_metrics".
+	Name string
+	// PopulationStdDev reports whether the dialect advertises an exact
+	// STDDEV_POP algorithm for [NumberColumn.StdDevBetween].
 	PopulationStdDev bool
 }
 
 // AggregateMetricsDialect advertises exact aggregate algorithms supported by a
-// dialect. Unsupported metric claims fail during suite preflight.
+// dialect. Unsupported metric claims fail closed during suite preflight with
+// [UnsupportedCapabilityError].
 type AggregateMetricsDialect interface {
+	// AggregateMetricsCapability returns the exact aggregate algorithms this
+	// dialect advertises.
 	AggregateMetricsCapability() AggregateMetricsCapability
 }
 

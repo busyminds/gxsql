@@ -63,6 +63,27 @@
 // caps, [WithScope], [WithMaxFailedCount], declaration order, and privacy-safe
 // [ExportReport] defaults.
 //
+// Table-level numeric metrics use [NumberColumn] builders. [NumberColumn.SumBetween]
+// bounds SUM(column) inclusively: [Int] uses an exact integer path, [Float] uses
+// documented float64 observations, SQL NULL values are excluded, and empty or
+// all-NULL input passes with an absent observed sum. [NumberColumn.AverageBetween],
+// [NumberColumn.MinGreaterOrEqual], and [NumberColumn.MaxLessOrEqual] likewise
+// exclude NULLs and pass empty/all-NULL populations vacuously.
+// [NumberColumn.StdDevBetween] requires a dialect that advertises exact
+// STDDEV_POP through [AggregateMetricsDialect]; missing capability fails closed
+// at suite preflight with [UnsupportedCapabilityError]. Rate and category-share
+// metrics use [ColumnBuilder.CompletenessRate], [ColumnBuilder.DuplicateRate],
+// [ColumnBuilder.Frequency], and [ColumnBuilder.DominantShare] with inclusive
+// fraction bounds in [0, 1]. Completeness is non-NULL rows over scoped rows;
+// duplicate rate is duplicate rows over scoped rows (NULLs do not participate in
+// duplicate groups); frequency treats SQL NULL as one category; dominant share
+// publishes the maximum share and tie count without selecting a representative
+// value. Empty scoped populations pass vacuously. These metric results use
+// [RowDenominatorUnavailable], publish structured facts under kinds such as
+// [KindSumBetween], [KindPopulationStdDevBetween], [KindCompletenessRate],
+// [KindDuplicateRate], [KindValueFrequency], and [KindDominantShare], and are
+// not eligible for [WithMaxFailedCount] or [MaxFailedPercent].
+//
 // Portable string pattern checks use [StringColumn.HasPrefix],
 // [StringColumn.HasSuffix], [StringColumn.Contains], [StringColumn.Like], and
 // [StringColumn.NotLike]. Prefix, suffix, and contains bind literal fragments
@@ -151,6 +172,13 @@
 // bound arguments. Other report samples remain subject to their usual
 // redaction requirements. In production, use a read-only database role and a
 // context deadline for each validation.
+//
+// For caller-owned trend or baseline workflows, [ExportReport] can be mapped to
+// privacy-safe [MeasurementRecord] values with [MeasurementRecordsFromExport].
+// Every exported result must carry a non-blank [WithID]; blank and duplicate IDs
+// are rejected. Samples, failed keys, caps, and diagnostics are never copied.
+// gxsql does not persist history: callers implement [BaselineStore] lookup,
+// windowing, and any drift enforcement outside the library.
 //
 // Suite scope and rule eligibility are distinct. [TrustedScope] / [WithScope]
 // select the shared population for a validation call. [TrustedEligibility] with

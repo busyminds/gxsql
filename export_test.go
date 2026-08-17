@@ -520,6 +520,8 @@ func TestManualReportTargetUnavailable(t *testing.T) {
 
 func intPtr(v int) *int { return &v }
 
+func timePtr(v time.Time) *time.Time { return &v }
+
 func floatPtr(v float64) *float64 { return &v }
 
 func TestExportDisplayNameRedactsConfiguredBounds(t *testing.T) {
@@ -821,6 +823,251 @@ func TestExportDiagnosticQueryCapAfterRedaction(t *testing.T) {
 	}
 	if utf8.RuneCountInString(diag.Query) != MaxExportedQueryTextRunes {
 		t.Fatalf("query runes = %d, want %d", utf8.RuneCountInString(diag.Query), MaxExportedQueryTextRunes)
+	}
+}
+
+func TestExportCallerOwnedTimesUTCEncoding(t *testing.T) {
+	loc := time.FixedZone("UTC-8", -8*3600)
+	dataTime := time.Date(2026, 8, 17, 1, 2, 3, 123456789, loc)
+	evalTime := time.Date(2026, 8, 17, 4, 5, 6, 987654321, loc)
+
+	dto, err := ExportReport(Report{}, WithDataTime(dataTime), WithEvaluationTime(evalTime))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantData := dataTime.UTC()
+	wantEval := evalTime.UTC()
+	if dto.DataTime == nil || !dto.DataTime.Equal(wantData) {
+		t.Fatalf("DataTime = %v, want %v", dto.DataTime, wantData)
+	}
+	if dto.EvaluationTime == nil || !dto.EvaluationTime.Equal(wantEval) {
+		t.Fatalf("EvaluationTime = %v, want %v", dto.EvaluationTime, wantEval)
+	}
+	if dto.DataTime.Location() != time.UTC || dto.EvaluationTime.Location() != time.UTC {
+		t.Fatalf("expected UTC locations: data=%v eval=%v", dto.DataTime.Location(), dto.EvaluationTime.Location())
+	}
+	if dto.DataTime == dto.EvaluationTime {
+		t.Fatal("DataTime and EvaluationTime must be distinct pointers")
+	}
+
+	data, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	wantDataJSON, err := json.Marshal(wantData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantEvalJSON, err := json.Marshal(wantEval)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(raw["data_time"], wantDataJSON) {
+		t.Fatalf("data_time JSON = %s, want %s", raw["data_time"], wantDataJSON)
+	}
+	if !bytes.Equal(raw["evaluation_time"], wantEvalJSON) {
+		t.Fatalf("evaluation_time JSON = %s, want %s", raw["evaluation_time"], wantEvalJSON)
+	}
+	if !bytes.Contains(wantDataJSON, []byte("Z")) || !bytes.Contains(wantEvalJSON, []byte("Z")) {
+		t.Fatalf("expected UTC Z suffix: data=%s eval=%s", wantDataJSON, wantEvalJSON)
+	}
+}
+
+func TestExportCallerOwnedTimesMissingVersusPresent(t *testing.T) {
+	dataTime := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	evalTime := time.Date(2026, 1, 2, 6, 7, 8, 0, time.UTC)
+
+	t.Run("no_options", func(t *testing.T) {
+		dto, err := ExportReport(Report{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if dto.DataTime != nil || dto.EvaluationTime != nil {
+			t.Fatalf("unexpected times: data=%v eval=%v", dto.DataTime, dto.EvaluationTime)
+		}
+		data, err := json.Marshal(dto)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, key := range []string{`"data_time"`, `"evaluation_time"`} {
+			if bytes.Contains(data, []byte(key)) {
+				t.Fatalf("no-option export included %s: %s", key, data)
+			}
+		}
+	})
+
+	t.Run("data_only", func(t *testing.T) {
+		dto, err := ExportReport(Report{}, WithDataTime(dataTime))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if dto.DataTime == nil || !dto.DataTime.Equal(dataTime) {
+			t.Fatalf("DataTime = %v", dto.DataTime)
+		}
+		if dto.EvaluationTime != nil {
+			t.Fatalf("EvaluationTime = %v, want nil", dto.EvaluationTime)
+		}
+		data, err := json.Marshal(dto)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(data, []byte(`"data_time"`)) {
+			t.Fatalf("missing data_time: %s", data)
+		}
+		if bytes.Contains(data, []byte(`"evaluation_time"`)) {
+			t.Fatalf("unexpected evaluation_time: %s", data)
+		}
+	})
+
+	t.Run("evaluation_only", func(t *testing.T) {
+		dto, err := ExportReport(Report{}, WithEvaluationTime(evalTime))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if dto.EvaluationTime == nil || !dto.EvaluationTime.Equal(evalTime) {
+			t.Fatalf("EvaluationTime = %v", dto.EvaluationTime)
+		}
+		if dto.DataTime != nil {
+			t.Fatalf("DataTime = %v, want nil", dto.DataTime)
+		}
+		data, err := json.Marshal(dto)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(data, []byte(`"evaluation_time"`)) {
+			t.Fatalf("missing evaluation_time: %s", data)
+		}
+		if bytes.Contains(data, []byte(`"data_time"`)) {
+			t.Fatalf("unexpected data_time: %s", data)
+		}
+	})
+
+	t.Run("both", func(t *testing.T) {
+		dto, err := ExportReport(Report{}, WithDataTime(dataTime), WithEvaluationTime(evalTime))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if dto.DataTime == nil || dto.EvaluationTime == nil {
+			t.Fatalf("expected both times, got data=%v eval=%v", dto.DataTime, dto.EvaluationTime)
+		}
+	})
+
+	t.Run("zero_values_omit", func(t *testing.T) {
+		dto, err := ExportReport(Report{}, WithDataTime(time.Time{}), WithEvaluationTime(time.Time{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if dto.DataTime != nil || dto.EvaluationTime != nil {
+			t.Fatalf("zero times should omit: data=%v eval=%v", dto.DataTime, dto.EvaluationTime)
+		}
+		data, err := json.Marshal(dto)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, key := range []string{`"data_time"`, `"evaluation_time"`} {
+			if bytes.Contains(data, []byte(key)) {
+				t.Fatalf("zero-value export included %s: %s", key, data)
+			}
+		}
+	})
+}
+
+func TestExportCallerOwnedTimesDoNotLeakIntoFactsOrDiagnostics(t *testing.T) {
+	observed := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
+	dataTime := time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC)
+	evalTime := time.Date(2026, 8, 17, 11, 0, 0, 0, time.UTC)
+	rep := Report{
+		Target: &TableRef{Name: "events"},
+		Results: []Result{{
+			ID:             "fresh",
+			Kind:           KindTimestampFreshSince,
+			Name:           "event_at fresher than cutoff",
+			Column:         "event_at",
+			Success:        true,
+			RowDenominator: RowDenominatorUnavailable,
+			Facts: ResultFacts{
+				ObservedTime:         &observed,
+				ConfiguredTimeCutoff: timePtr(observed.Add(-time.Hour)),
+				ObservedTimePresent:  boolPtr(true),
+			},
+			diagnostics: &resultDiagnostics{
+				query: "SELECT MAX(event_at) FROM events WHERE tenant = $1",
+				args:  []any{"acme"},
+			},
+		}},
+	}
+
+	dto, err := ExportReport(rep,
+		WithDataTime(dataTime),
+		WithEvaluationTime(evalTime),
+		IncludeCapturedArguments(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dto.DataTime == nil || !dto.DataTime.Equal(dataTime) {
+		t.Fatalf("DataTime = %v", dto.DataTime)
+	}
+	if dto.EvaluationTime == nil || !dto.EvaluationTime.Equal(evalTime) {
+		t.Fatalf("EvaluationTime = %v", dto.EvaluationTime)
+	}
+	if len(dto.Results) != 1 {
+		t.Fatalf("results = %d", len(dto.Results))
+	}
+	res := dto.Results[0]
+	if res.Facts == nil || res.Facts.ObservedTime == nil {
+		t.Fatal("expected observed_time fact")
+	}
+	if res.Diagnostics == nil {
+		t.Fatal("expected diagnostics")
+	}
+
+	data, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(data, &top); err != nil {
+		t.Fatal(err)
+	}
+	var results []map[string]json.RawMessage
+	if err := json.Unmarshal(top["results"], &results); err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results len = %d", len(results))
+	}
+	if _, ok := results[0]["data_time"]; ok {
+		t.Fatalf("data_time leaked into result: %s", results[0]["data_time"])
+	}
+	if _, ok := results[0]["evaluation_time"]; ok {
+		t.Fatalf("evaluation_time leaked into result: %s", results[0]["evaluation_time"])
+	}
+
+	var facts map[string]json.RawMessage
+	if err := json.Unmarshal(results[0]["facts"], &facts); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := facts["data_time"]; ok {
+		t.Fatal("data_time leaked into facts")
+	}
+	if _, ok := facts["evaluation_time"]; ok {
+		t.Fatal("evaluation_time leaked into facts")
+	}
+
+	var diag map[string]json.RawMessage
+	if err := json.Unmarshal(results[0]["diagnostics"], &diag); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := diag["data_time"]; ok {
+		t.Fatal("data_time leaked into diagnostics")
+	}
+	if _, ok := diag["evaluation_time"]; ok {
+		t.Fatal("evaluation_time leaked into diagnostics")
 	}
 }
 

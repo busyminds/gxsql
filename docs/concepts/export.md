@@ -35,8 +35,10 @@ data, err := json.Marshal(exported)
 
 The schema version is `gxsql.report.v1`. Version 1 preserves result declaration
 order and exports IDs, kinds, display names, verdicts, counts, facts, and
-categorized errors. Only `id` and `kind` provide stable machine identity. The
-format does not promise a public decoder.
+categorized errors. Per-result machine identity starts with `id` and `kind`.
+Run-level joins also use `scope.id`, optional `target`, and caller-owned
+`data_time` / `evaluation_time` when present. Display names are not join keys.
+The format does not promise a public decoder.
 
 Custom-count results export only `counts.failed` when evaluation succeeds.
 `counts.total` and `counts.failed_percent` are omitted because no row
@@ -48,6 +50,84 @@ Structural column results likewise omit counts total/percent, samples, and
 failed keys. They export schema-name facts as `required_columns`,
 `missing_columns`, and `unexpected_columns` under `gxsql.report.v1`. Those names
 are metadata, not row values.
+
+## Attach Caller-Owned Run Times
+
+Pass explicit times at export when you need historical joins. gxsql does not
+infer watermarks or schedule runs:
+
+```go
+exported, err := gxsql.ExportReport(report,
+    gxsql.WithDataTime(partitionStart),
+    gxsql.WithEvaluationTime(time.Now().UTC()),
+)
+```
+
+- `data_time` is the business/as-of time of the validated population.
+- `evaluation_time` is when validation or export ran.
+- Non-zero values encode as UTC RFC3339Nano. Zero values omit the JSON field.
+- Observer timing is not evaluation-time and is not a history clock.
+
+## Join History Outside gxsql
+
+Use stable identity plus the privacy-safe mapper, then store and look up records
+in caller-owned code. Core ships no baseline store, scheduler, or drift
+enforcer.
+
+```go
+exported, err := gxsql.ExportReport(report,
+    gxsql.WithDataTime(partitionStart),
+    gxsql.WithEvaluationTime(time.Now().UTC()),
+)
+if err != nil {
+    return err
+}
+records, err := gxsql.MeasurementRecordsFromExport(exported)
+if err != nil {
+    return err
+}
+if err := history.Append(ctx, records); err != nil { // caller-owned
+    return err
+}
+
+key := gxsql.MeasurementKey{ResultID: "users.email.not-empty"}
+if exported.Scope != nil {
+    key.ScopeID = exported.Scope.ID
+}
+if exported.Target != nil {
+    key.TargetSchema = exported.Target.Schema
+    key.TargetTable = exported.Target.Table
+}
+prior, err := history.Get(ctx, key)
+```
+
+Join vocabulary:
+
+| Field                            | Role                                 |
+| -------------------------------- | ------------------------------------ |
+| result `id` / `ResultID`         | Primary lookup from `WithID`         |
+| `kind`                           | Optional series/conflict check       |
+| `scope.id`                       | Optional partition/scope check       |
+| `target.schema` / `target.table` | Contextual series/conflict identity  |
+| `data_time` / `evaluation_time`  | Caller-owned timeline fields         |
+
+`WithID` stays optional for ordinary validation. History mapping requires
+non-blank, unique export result IDs. Kind, scope, and target checks on
+`MeasurementKey` are optional when left empty, but do not join renamed targets
+silently—a changed target is a different series unless the caller remaps
+identity explicitly outside gxsql.
+
+`MeasurementRecordsFromExport` copies structured counts, facts, verdicts, tags,
+and categorized errors after re-sanitizing messages to `gxsql: <category>`. It
+always omits samples, failed keys, caps, and diagnostics—even when those were
+opted into the export. ContinueOnError slots keep
+`policy_verdict=unevaluated` with a distinct `execution_outcome`; do not treat
+them as policy failures. Broader metric comparisons use existing structured
+facts such as `facts.frequency`; no extra series labels are required.
+
+`BaselineStore` is only the lookup shape (`Get`); callers implement append,
+windowing, comparison, and any enforcement. Encode JSON with
+`json.Marshal(exported)` when you need an artifact; there is no public decoder.
 
 ## Understand Verdicts
 

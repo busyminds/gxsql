@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -52,6 +53,14 @@ const (
 type ExportedReport struct {
 	// SchemaVersion identifies the export contract. Always ExportSchemaVersion.
 	SchemaVersion string `json:"schema_version"`
+	// DataTime is the caller-owned business/as-of time of the validated
+	// population. Non-zero values are UTC copies; omitted when unset or zero.
+	// JSON encoding uses RFC3339Nano.
+	DataTime *time.Time `json:"data_time,omitempty"`
+	// EvaluationTime is the caller-owned time when validation or export ran.
+	// Non-zero values are UTC copies; omitted when unset or zero. JSON encoding
+	// uses RFC3339Nano.
+	EvaluationTime *time.Time `json:"evaluation_time,omitempty"`
 	// Target names the validated table when Report.Target is set; omitted when unavailable.
 	Target *ExportedTarget `json:"target,omitempty"`
 	// Scope names the validation scope when available; omitted when unavailable.
@@ -356,6 +365,8 @@ type exportConfig struct {
 	argsRedactor            Redactor
 	sampleRedactor          Redactor
 	keyRedactor             Redactor
+	dataTime                time.Time
+	evaluationTime          time.Time
 }
 
 // ExportOption configures ExportReport.
@@ -409,6 +420,20 @@ func WithKeyRedactor(fn Redactor) ExportOption {
 	return func(cfg *exportConfig) { cfg.keyRedactor = fn }
 }
 
+// WithDataTime sets the caller-owned data/as-of time on the exported report.
+// Non-zero values are copied and normalized to UTC. Zero values are omitted
+// from JSON. Encoding uses RFC3339Nano via encoding/json time.Time rules.
+func WithDataTime(t time.Time) ExportOption {
+	return func(cfg *exportConfig) { cfg.dataTime = t }
+}
+
+// WithEvaluationTime sets the caller-owned evaluation/run time on the exported
+// report. Non-zero values are copied and normalized to UTC. Zero values are
+// omitted from JSON. Encoding uses RFC3339Nano via encoding/json time.Time rules.
+func WithEvaluationTime(t time.Time) ExportOption {
+	return func(cfg *exportConfig) { cfg.evaluationTime = t }
+}
+
 // ExportReport converts report into a versioned JSON DTO. On error, no partial
 // DTO is returned. Query text, bound arguments, samples, and failed keys are
 // omitted unless explicitly enabled via ExportOption.
@@ -419,8 +444,10 @@ func ExportReport(report Report, opts ...ExportOption) (ExportedReport, error) {
 	}
 
 	out := ExportedReport{
-		SchemaVersion: ExportSchemaVersion,
-		Results:       make([]ExportedResult, 0, len(report.Results)),
+		SchemaVersion:  ExportSchemaVersion,
+		DataTime:       exportCallerTime(cfg.dataTime),
+		EvaluationTime: exportCallerTime(cfg.evaluationTime),
+		Results:        make([]ExportedResult, 0, len(report.Results)),
 	}
 	if report.Target != nil {
 		out.Target = &ExportedTarget{
@@ -440,6 +467,17 @@ func ExportReport(report Report, opts ...ExportOption) (ExportedReport, error) {
 		out.Results = append(out.Results, expRes)
 	}
 	return out, nil
+}
+
+// exportCallerTime returns a UTC copy of a caller-owned timestamp. Zero values
+// return nil so omitempty drops the JSON field. encoding/json encodes time.Time
+// as RFC3339Nano.
+func exportCallerTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	utc := t.UTC()
+	return &utc
 }
 
 func exportResult(res Result, target *TableRef, cfg exportConfig) (ExportedResult, error) {

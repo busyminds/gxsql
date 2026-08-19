@@ -41,8 +41,9 @@ func attachFailureKeyPlan(res *Result, target TableRef, fromSQL, tableAlias stri
 }
 
 // FailureKeyIterator streams complete failing row keys for one selected result.
-// Keys are yielded in deterministic ORDER BY key-column order. Callers must
-// Close the iterator. Mutating a [Key] return value must not affect later keys.
+// Keys are yielded in deterministic ORDER BY key-column order. Call [Close]
+// after iteration, including when the caller stops before [Next] returns false.
+// Mutating a [RowKey] return value does not affect later keys.
 type FailureKeyIterator struct {
 	ctx       context.Context
 	rows      *sql.Rows

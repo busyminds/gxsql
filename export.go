@@ -90,7 +90,8 @@ type ExportedResult struct {
 	ID string `json:"id,omitempty"`
 	// Kind is the library-defined expectation kind.
 	Kind ExpectationKind `json:"kind"`
-	// DisplayName is the human-oriented result name with configured bounds redacted.
+	// DisplayName is the human-oriented result name with configured bounds and
+	// pattern literals redacted.
 	DisplayName string `json:"display_name"`
 	// Column is the validated column when applicable; omitted when empty.
 	Column string `json:"column,omitempty"`

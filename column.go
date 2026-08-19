@@ -256,8 +256,8 @@ func (c NumberColumn) RatioEqual(right string, bound int64) Expectation {
 	return ratioEqualExpectation(c.column, right, bound, c.integer)
 }
 
-// NotEmpty returns a per-row expectation that the string is non-empty after
-// trimming is not applied—only SQL NULL and the empty string fail. An empty
+// NotEmpty returns a per-row expectation that the string is not empty. The
+// check does not trim whitespace. SQL NULL and the empty string fail. An empty
 // table passes vacuously. Results use [KindNotEmpty].
 func (c StringColumn) NotEmpty() Expectation {
 	return perRowExpectation{column: c.column, name: c.column + " not empty", kind: KindNotEmpty, build: notEmptyPredicate}

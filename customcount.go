@@ -25,11 +25,12 @@ func TrustedCountQuery(template string, args ...any) CountQuery {
 	}
 }
 
-// CustomCount returns an expectation that executes query and treats the
-// returned count as the expectation-specific failure count. Results use
-// [KindCustom] with [RowDenominatorUnavailable] and expose [Result.FailedCount]
-// without a row denominator, samples, or failed keys. name must be non-blank;
-// validation is deferred until [Suite.ValidateTable].
+// CustomCount returns an expectation that executes query and treats its returned
+// count as the expectation-specific failure count. The query must use the
+// [TrustedCountQuery] markers. Results use [KindCustom] with
+// [RowDenominatorUnavailable] and expose [Result.FailedCount] without a row
+// denominator, samples, or failed keys. name must be non-blank. Validation is
+// deferred until [Suite.ValidateTable].
 func CustomCount(name string, query CountQuery) Expectation {
 	return newCustomCountExpectation(name, query.template, query.args)
 }

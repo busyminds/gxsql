@@ -12,10 +12,11 @@ const (
 )
 
 // SchemaMetadataCapability describes which catalog schema claims a dialect can
-// evaluate. Built-ins advertise support only for claims proven via
-// database/sql.Rows.ColumnTypes on the existing zero-row structural probe.
+// evaluate. Built-in dialects advertise only claims proven through
+// database/sql.Rows.ColumnTypes on the zero-row structural probe.
 type SchemaMetadataCapability struct {
-	// Name is the capability family label. Built-ins use "schema_metadata".
+	// Name is the capability family label. The built-in lookup uses
+	// "schema_metadata".
 	Name string
 	// Nullability reports whether catalog nullability claims are supported.
 	Nullability bool

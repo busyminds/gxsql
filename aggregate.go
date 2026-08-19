@@ -8,9 +8,10 @@ import (
 )
 
 // SumBetween returns a table-level expectation that SUM(column) lies in
-// [lo, hi] (inclusive). Int columns use an exact integer result path; Float
-// columns compare documented float64 observations. SQL NULL values are
-// excluded. Empty/all-NULL input passes with an absent observed sum fact.
+// [lo, hi] (inclusive). Int columns require integer bounds and use an exact
+// integer result path. Float columns require finite numeric bounds and compare
+// documented float64 observations. SQL NULL values are excluded. Empty or
+// all-NULL input passes with no observed sum fact.
 func (c NumberColumn) SumBetween(lo, hi any) Expectation {
 	e := sumExpectation{column: c.column, integer: c.integer}
 	if c.integer {

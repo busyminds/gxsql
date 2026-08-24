@@ -2,11 +2,10 @@ package gxsql
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
-)
 
-var identRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	"github.com/busyminds/gxsql/internal/dialect"
+)
 
 // Dialect renders dialect-specific SQL fragments for identifiers, bound
 // parameters, and string-length expressions. Pass a concrete implementation to
@@ -55,13 +54,11 @@ func SchemaTable(schema, name string) TableRef {
 }
 
 func validateIdent(name string) error {
-	if name == "" {
-		return fmt.Errorf("gxsql: empty identifier")
-	}
-	if !identRE.MatchString(name) {
-		return fmt.Errorf("gxsql: invalid identifier %q", name)
-	}
-	return nil
+	return dialect.ValidateIdent(name)
+}
+
+func validIdent(name string) bool {
+	return dialect.ValidIdent(name)
 }
 
 func quoteIdent(d Dialect, name string) (string, error) {

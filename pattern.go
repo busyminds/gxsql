@@ -195,7 +195,7 @@ func validateRegexCapability(cap RegexCapability) error {
 		return err
 	}
 	if cap.Function {
-		if !identRE.MatchString(strings.TrimSpace(cap.Operator)) {
+		if !validIdent(strings.TrimSpace(cap.Operator)) {
 			return fmt.Errorf("regex.operator")
 		}
 		return nil

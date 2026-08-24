@@ -3,6 +3,8 @@ package gxsql
 import (
 	"fmt"
 	"strings"
+
+	"github.com/busyminds/gxsql/internal/sqltext"
 )
 
 // Scope is an immutable scope definition containing a caller identity, a
@@ -136,21 +138,21 @@ func walkNeutralPredicate(fragment string, d Dialect) (string, int, error) {
 
 func walkNeutralPredicateAt(fragment string, d Dialect, offset int) (string, int, error) {
 	render := d != nil
-	walker := newSQLTextWalker(fragment, render)
 	count := 0
-	err := walker.walk(sqlTextHandlers{
-		onQuestionMark: func(pos int) error {
-			walker.flush(pos)
+	rendered, err := sqltext.Walk(fragment, render, sqltext.Handlers{
+		RejectLiteral: func(msg string) error {
+			return unsupportedScopePredicateError(msg)
+		},
+		OnQuestionMark: func(pos int) (string, error) {
 			count++
-			if render {
-				walker.writeString(d.Placeholder(offset + count))
+			if !render {
+				return "", nil
 			}
-			walker.start = pos + 1
-			return nil
+			return d.Placeholder(offset + count), nil
 		},
 	})
 	if err != nil {
 		return "", 0, err
 	}
-	return walker.result(), count, nil
+	return rendered, count, nil
 }

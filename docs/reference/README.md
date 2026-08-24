@@ -4,6 +4,16 @@ This reference groups the public `github.com/busyminds/gxsql` API by task. Use
 `go doc` or pkg.go.dev with these guides for full Go doc comments and
 signatures.
 
+## Package boundaries
+
+Use these public packages in consumer code:
+
+- `github.com/busyminds/gxsql` — the stable public validation API.
+- `github.com/busyminds/gxsql/gxsqltest` — assertion helpers.
+
+Packages under `internal` are implementation details and cannot be imported by
+consumers.
+
 | Page                                                 | Covers                                                                                                                                                                                                                                                |
 | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [Suites, Options, and SQL Integration](suite.md)     | `Suite`, `Option`, `ValidateTable`, scope vs parent/secondary filter isolation, `gxsqltest`, `DB`, `Dialect`, `TableRef`, and sealed `Expectation`                                                                                                    |

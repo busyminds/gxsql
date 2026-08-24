@@ -3,6 +3,8 @@ package gxsql
 import (
 	"fmt"
 	"strings"
+
+	"github.com/busyminds/gxsql/internal/sqltext"
 )
 
 const (
@@ -121,53 +123,48 @@ func walkTrustedCountTemplate(
 	scopeSlots int,
 ) (string, trustedCountScan, error) {
 	render := d != nil
-	walker := newSQLTextWalker(template, render)
 	customRendered := 0
 
-	err := walker.walk(sqlTextHandlers{
-		onDoubleBrace: func(pos int) (int, error) {
+	rendered, err := sqltext.Walk(template, render, sqltext.Handlers{
+		RejectLiteral: func(msg string) error {
+			return unsupportedScopePredicateError(msg)
+		},
+		OnDoubleBrace: func(pos int) (string, int, error) {
 			marker, length, err := parseExecutableMarker(template, pos)
 			if err != nil {
-				return 0, err
+				return "", 0, err
 			}
 			if length == 0 {
-				return 0, nil
+				return "", 0, nil
 			}
-			walker.flush(pos)
+			var replacement string
 			switch marker {
 			case "target":
 				scan.targetCount++
-				if render {
-					walker.writeString(renderedTable)
-				}
+				replacement = renderedTable
 			case "scope":
 				scan.scopeCount++
 				scan.scopeMarkerEnd = pos + length
-				if render {
-					walker.writeString(scopeSQL)
-				}
+				replacement = scopeSQL
 			}
-			walker.start = pos + length
-			return length, nil
+			return replacement, length, nil
 		},
-		onQuestionMark: func(pos int) error {
+		OnQuestionMark: func(pos int) (string, error) {
 			if scan.scopeMarkerEnd < 0 || pos < scan.scopeMarkerEnd {
-				return newConfigError(errTrustedCountCustomPlaceholderBeforeScope)
+				return "", newConfigError(errTrustedCountCustomPlaceholderBeforeScope)
 			}
 			scan.customSlotCount++
-			walker.flush(pos)
-			if render {
-				customRendered++
-				walker.writeString(d.Placeholder(scopeSlots + customRendered))
+			if !render {
+				return "", nil
 			}
-			walker.start = pos + 1
-			return nil
+			customRendered++
+			return d.Placeholder(scopeSlots + customRendered), nil
 		},
 	})
 	if err != nil {
 		return "", scan, err
 	}
-	return walker.result(), scan, nil
+	return rendered, scan, nil
 }
 
 func parseExecutableMarker(fragment string, start int) (name string, length int, err error) {
@@ -202,14 +199,22 @@ func isTemplateMarkerName(name string) bool {
 	for i := 0; i < len(name); i++ {
 		c := name[i]
 		if i == 0 {
-			if !isDollarTagStart(c) {
+			if !isTemplateMarkerStart(c) {
 				return false
 			}
 			continue
 		}
-		if !isDollarTagPart(c) {
+		if !isTemplateMarkerPart(c) {
 			return false
 		}
 	}
 	return true
+}
+
+func isTemplateMarkerStart(c byte) bool {
+	return c == '_' || c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z'
+}
+
+func isTemplateMarkerPart(c byte) bool {
+	return isTemplateMarkerStart(c) || c >= '0' && c <= '9'
 }

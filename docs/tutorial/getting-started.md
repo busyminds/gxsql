@@ -11,7 +11,7 @@ dialect. Some builders are capability-gated per dialect; see
 go get github.com/busyminds/gxsql
 ```
 
-`gxsql` requires Go 1.24 or later. It does not bundle a database driver. You own
+`gxsql` requires Go 1.25 or later. It does not bundle a database driver. You own
 the `database/sql` driver and the connection settings.
 
 ## Open a Database

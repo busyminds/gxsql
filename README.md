@@ -11,7 +11,7 @@ declaration order.
 go get github.com/busyminds/gxsql github.com/jackc/pgx/v5
 ```
 
-`gxsql` requires Go 1.24 or newer. The core package is driver-neutral: open the
+`gxsql` requires Go 1.25 or newer. The core package is driver-neutral: open the
 database with your `database/sql` driver and select the matching dialect with
 `gxsql.WithDialect(...)`. The command above installs the PostgreSQL driver used
 by the example; choose the driver for your database instead.

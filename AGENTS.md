@@ -6,7 +6,7 @@
 Expectations render and execute in the database; the core package has no
 concrete-driver dependency. Drivers belong in `integration/`.
 
-- Require Go 1.24.0 or newer.
+- Require Go 1.25.0 or newer.
 - `Expectation` is sealed. Use the exported builders; do not implement it
   outside package `gxsql`.
 - Callers own the `*sql.DB` and should pass `WithDialect(...)` explicitly.

@@ -22,7 +22,7 @@ newer patch releases.
 
 | Area         | Support   | Active coverage                                              | Notes                                                         |
 | ------------ | --------- | ------------------------------------------------------------ | ------------------------------------------------------------- |
-| Go toolchain | Supported | Go 1.24.x and 1.26.x                                         | Go 1.24 or newer is required.                                 |
+| Go toolchain | Supported | Go 1.25.x and 1.27.x                                         | Go 1.25 or newer is required.                                 |
 | Ubuntu       | Supported | `ubuntu-24.04`                                               | CI target.                                                    |
 | PostgreSQL   | Supported | PostgreSQL 16 via `github.com/jackc/pgx/v5/stdlib`           | Use `gxsql.Postgres()`.                                       |
 | SQLite       | Supported | SQLite 3.50.4 via `modernc.org/sqlite` v1.39.1               | Use `gxsql.SQLite()`.                                         |

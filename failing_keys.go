@@ -40,19 +40,17 @@ func attachFailureKeyPlan(res *Result, target TableRef, fromSQL, tableAlias stri
 	}
 }
 
-// FailureKeyIterator streams complete failing row keys for one selected result.
-// Keys are yielded in deterministic ORDER BY key-column order. Call [Close]
-// after iteration, including when the caller stops before [Next] returns false.
-// Mutating a [RowKey] return value does not affect later keys.
-type FailureKeyIterator struct {
+// rowStream owns row advancement and the single terminal transition shared by
+// failure-key retrieval. A terminal transition releases rows and completes the
+// privacy-safe observer event exactly once.
+type rowStream struct {
 	ctx       context.Context
 	rows      *sql.Rows
-	width     int
-	current   RowKey
+	values    []any
+	ptrs      []any
 	err       error
 	closed    bool
 	exhausted bool
-	started   bool
 	start     time.Time
 	observer  *observerState
 	checkID   string
@@ -60,54 +58,132 @@ type FailureKeyIterator struct {
 	observed  bool
 }
 
+func newRowStream(
+	ctx context.Context,
+	rows *sql.Rows,
+	width int,
+	start time.Time,
+	observer *observerState,
+	checkID string,
+	checkKind ExpectationKind,
+) *rowStream {
+	values := make([]any, width)
+	ptrs := make([]any, width)
+	for i := range values {
+		ptrs[i] = &values[i]
+	}
+	return &rowStream{
+		ctx:       ctx,
+		rows:      rows,
+		values:    values,
+		ptrs:      ptrs,
+		start:     start,
+		observer:  observer,
+		checkID:   checkID,
+		checkKind: checkKind,
+	}
+}
+
+func (s *rowStream) nextValues() ([]any, bool) {
+	if s == nil || s.closed || s.err != nil || s.rows == nil {
+		return nil, false
+	}
+	if s.ctx != nil && s.ctx.Err() != nil {
+		s.err = categorizeExecutionError(s.ctx, s.ctx.Err())
+		_ = s.rows.Close()
+		s.rows = nil
+		s.observeTerminal()
+		return nil, false
+	}
+	if !s.rows.Next() {
+		iterErr := s.rows.Err()
+		closeErr := s.rows.Close()
+		s.rows = nil
+		switch {
+		case iterErr != nil:
+			s.err = categorizeScanError(s.ctx, iterErr)
+		case closeErr != nil:
+			s.err = categorizeScanError(s.ctx, closeErr)
+		case s.ctx != nil && s.ctx.Err() != nil:
+			s.err = categorizeExecutionError(s.ctx, s.ctx.Err())
+		}
+		if s.err == nil {
+			s.exhausted = true
+		}
+		s.observeTerminal()
+		return nil, false
+	}
+	if err := s.rows.Scan(s.ptrs...); err != nil {
+		s.err = categorizeScanError(s.ctx, err)
+		_ = s.rows.Close()
+		s.rows = nil
+		s.observeTerminal()
+		return nil, false
+	}
+	return s.values, true
+}
+
+func (s *rowStream) close() error {
+	if s == nil {
+		return nil
+	}
+	if s.closed {
+		return s.err
+	}
+	s.closed = true
+	if s.rows != nil {
+		closeErr := s.rows.Close()
+		s.rows = nil
+		if s.err == nil && closeErr != nil {
+			s.err = categorizeScanError(s.ctx, closeErr)
+		}
+	}
+	if s.err == nil && !s.exhausted && s.ctx != nil && s.ctx.Err() != nil {
+		s.err = categorizeExecutionError(s.ctx, s.ctx.Err())
+	}
+	s.observeTerminal()
+	return s.err
+}
+
+func (s *rowStream) observeTerminal() {
+	if s == nil || s.observed || s.observer == nil {
+		return
+	}
+	s.observed = true
+	start := s.start
+	if start.IsZero() {
+		start = time.Now()
+	}
+	if obsErr := s.observer.observe(start, s.checkID, s.checkKind, QueryCategoryFailingKeys, s.err); obsErr != nil && s.err == nil {
+		s.err = obsErr
+	}
+}
+
+// FailureKeyIterator streams complete failing row keys for one selected result.
+// Keys are yielded in deterministic ORDER BY key-column order. Call [Close]
+// after iteration, including when the caller stops before [Next] returns false.
+// Mutating a [RowKey] return value does not affect later keys.
+type FailureKeyIterator struct {
+	stream  *rowStream
+	current RowKey
+}
+
 // Next advances to the next failing key. It returns false when iteration is
 // exhausted, cancelled, closed, or an error occurs. Inspect [Err] after false.
 func (it *FailureKeyIterator) Next() bool {
-	if it == nil || it.closed || it.err != nil || it.rows == nil {
+	if it == nil || it.stream == nil {
 		return false
 	}
-	if !it.started {
-		it.started = true
-		it.start = time.Now()
-	}
-	if it.ctx != nil && it.ctx.Err() != nil {
-		it.err = categorizeExecutionError(it.ctx, it.ctx.Err())
-		_ = it.rows.Close()
-		it.rows = nil
-		it.observeTerminal()
+	values, ok := it.stream.nextValues()
+	if !ok {
 		return false
 	}
-	if !it.rows.Next() {
-		iterErr := it.rows.Err()
-		closeErr := it.rows.Close()
-		it.rows = nil
-		switch {
-		case iterErr != nil:
-			it.err = categorizeScanError(it.ctx, iterErr)
-		case closeErr != nil:
-			it.err = categorizeScanError(it.ctx, closeErr)
-		case it.ctx != nil && it.ctx.Err() != nil:
-			it.err = categorizeExecutionError(it.ctx, it.ctx.Err())
-		}
-		if it.err == nil {
-			it.exhausted = true
-		}
-		it.observeTerminal()
-		return false
+	if cap(it.current) < len(values) {
+		it.current = make(RowKey, len(values))
+	} else {
+		it.current = it.current[:len(values)]
 	}
-	vals := make([]any, it.width)
-	ptrs := make([]any, it.width)
-	for i := range vals {
-		ptrs[i] = &vals[i]
-	}
-	if err := it.rows.Scan(ptrs...); err != nil {
-		it.err = categorizeScanError(it.ctx, err)
-		_ = it.rows.Close()
-		it.rows = nil
-		it.observeTerminal()
-		return false
-	}
-	it.current = RowKey(vals)
+	copy(it.current, values)
 	return true
 }
 
@@ -124,55 +200,20 @@ func (it *FailureKeyIterator) Key() RowKey {
 
 // Err returns the first iteration, scan, database, or context error.
 func (it *FailureKeyIterator) Err() error {
-	if it == nil {
+	if it == nil || it.stream == nil {
 		return nil
 	}
-	return it.err
+	return it.stream.err
 }
 
 // Close releases the underlying rows. It is safe to call multiple times.
 // Close after a successful drain is a no-op success; Close after cancellation
 // may surface the context error.
 func (it *FailureKeyIterator) Close() error {
-	if it == nil {
+	if it == nil || it.stream == nil {
 		return nil
 	}
-	if it.closed {
-		return it.err
-	}
-	it.closed = true
-	if it.rows != nil {
-		closeErr := it.rows.Close()
-		it.rows = nil
-		if it.err == nil && closeErr != nil {
-			it.err = categorizeScanError(it.ctx, closeErr)
-		}
-	}
-	if it.err == nil && !it.exhausted && it.ctx != nil && it.ctx.Err() != nil {
-		it.err = categorizeExecutionError(it.ctx, it.ctx.Err())
-	}
-	it.observeTerminal()
-	return it.err
-}
-
-func (it *FailureKeyIterator) finishObserve(err error) error {
-	if it == nil || it.observed || it.observer == nil {
-		return nil
-	}
-	it.observed = true
-	start := it.start
-	if start.IsZero() {
-		start = time.Now()
-	}
-	return it.observer.observe(start, it.checkID, it.checkKind, QueryCategoryFailingKeys, err)
-}
-
-// observeTerminal records the observer event for a terminal iterator path.
-// Existing context/database/scan errors take precedence over observer errors.
-func (it *FailureKeyIterator) observeTerminal() {
-	if obsErr := it.finishObserve(it.err); obsErr != nil && it.err == nil {
-		it.err = obsErr
-	}
+	return it.stream.close()
 }
 
 // ForResultID selects the report result with the given stable [Result.ID].
@@ -294,14 +335,15 @@ func FailingKeys(
 	}
 
 	return &FailureKeyIterator{
-		ctx:       ctx,
-		rows:      rows,
-		width:     len(keyColumns),
-		start:     start,
-		started:   true,
-		observer:  observer,
-		checkID:   res.ID,
-		checkKind: res.Kind,
+		stream: newRowStream(
+			ctx,
+			rows,
+			len(keyColumns),
+			start,
+			observer,
+			res.ID,
+			res.Kind,
+		),
 	}, nil
 }
 

@@ -2,11 +2,15 @@ package gxsql
 
 import (
 	"context"
+	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -398,6 +402,40 @@ func TestFailingKeysCancellationCloseAndNoWrite(t *testing.T) {
 	assertNoWriteSQL(t, db.queries[validateQueries:])
 }
 
+func TestFailureKeyIteratorCancellationBeforeNext(t *testing.T) {
+	setHarnessData(t, harnessUsers(
+		map[string]any{"id": int64(1), "age": int64(200)},
+	))
+	db := openHarnessDB(t)
+	table := Table("users")
+	report, err := NewSuite(WithID("users.age.between", Int("age").Between(0, 120))).ValidateTable(
+		context.Background(), db, table,
+		WithDialect(Postgres()), WithKey("id"), SummaryOnly(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	iter, err := FailingKeys(
+		ctx,
+		db,
+		table,
+		report,
+		ForResultID("users.age.between"),
+		WithDialect(Postgres()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if iter.Next() {
+		t.Fatal("cancelled iterator must not yield a key")
+	}
+	assertFailingKeysCategorized(t, iter.Err(), CategoryContext)
+	assertFailingKeysCategorized(t, iter.Close(), CategoryContext)
+}
+
 func TestFailingKeysCloseAfterDrainIgnoresLaterCancellation(t *testing.T) {
 	setHarnessData(t, harnessUsers(map[string]any{"id": int64(1), "age": int64(200)}))
 	db := openHarnessDB(t)
@@ -650,6 +688,49 @@ func TestFailingKeysKeyCopyIsIndependent(t *testing.T) {
 	}
 	if !reflect.DeepEqual(second, RowKey{int64(3)}) {
 		t.Fatalf("second key = %#v, want [3]", second)
+	}
+}
+
+// TestFailingKeysByteAndNullCompositeKeyComponents locks that FailingKeys
+// streams composite RowKeys whose selected components retain []byte contents
+// and NULL/nil values in stable order when a passing row is also present.
+func TestFailingKeysByteAndNullCompositeKeyComponents(t *testing.T) {
+	setHarnessData(t, harnessUsers(
+		map[string]any{"token": []byte{0x01, 0x02}, "region": nil, "age": int64(200)},
+		map[string]any{"token": []byte{0x03}, "region": "eu", "age": int64(25)},
+		map[string]any{"token": []byte{0xaa, 0xbb}, "region": nil, "age": int64(300)},
+	))
+	db := openHarnessDB(t)
+	table := Table("users")
+
+	rep, err := NewSuite(WithID("users.age.between", Int("age").Between(0, 120))).ValidateTable(
+		context.Background(), db, table,
+		WithDialect(Postgres()),
+		WithKey("token", "region"),
+		SummaryOnly(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := rep.Results[0]
+	if res.FailedCount != 2 {
+		t.Fatalf("FailedCount = %d, want 2 failing rows with passing row excluded", res.FailedCount)
+	}
+
+	iter, err := FailingKeys(context.Background(), db, table, rep,
+		ForResultID("users.age.between"),
+		WithDialect(Postgres()),
+	)
+	if err != nil {
+		t.Fatalf("FailingKeys byte/null composite keys: %v", err)
+	}
+	got := collectFailingKeys(t, iter)
+	want := []RowKey{
+		{[]byte{0x01, 0x02}, nil},
+		{[]byte{0xaa, 0xbb}, nil},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("FailingKeys RowKeys = %#v, want %#v ([]byte contents + nil, stable order)", got, want)
 	}
 }
 
@@ -972,7 +1053,6 @@ func TestFailingKeysObserverFailureSurfacesThroughIteratorErr(t *testing.T) {
 	))
 	db := openHarnessDB(t)
 	table := Table("users")
-
 	rep, err := NewSuite(WithID("users.age.between", Int("age").Between(0, 120))).ValidateTable(
 		context.Background(), db, table,
 		WithDialect(Postgres()),
@@ -1005,4 +1085,256 @@ func TestFailingKeysObserverFailureSurfacesThroughIteratorErr(t *testing.T) {
 		err = closeErr
 	}
 	assertFailingKeysCategorized(t, err, CategoryObserver)
+}
+
+const failureKeyLifecycleDriverName = "gxsqlfailingkeyslifecycle"
+
+var failureKeyLifecycleCloseCalls atomic.Int32
+
+func init() {
+	sql.Register(failureKeyLifecycleDriverName, failureKeyLifecycleDriver{})
+}
+
+type failureKeyLifecycleDriver struct{}
+
+func (failureKeyLifecycleDriver) Open(name string) (driver.Conn, error) {
+	return &failureKeyLifecycleConn{mode: name}, nil
+}
+
+type failureKeyLifecycleConn struct {
+	mode string
+}
+
+func (c *failureKeyLifecycleConn) Prepare(string) (driver.Stmt, error) {
+	return nil, driver.ErrSkip
+}
+
+func (c *failureKeyLifecycleConn) Close() error { return nil }
+
+func (c *failureKeyLifecycleConn) Begin() (driver.Tx, error) {
+	return nil, fmt.Errorf("gxsqltest: transactions not supported")
+}
+
+func (c *failureKeyLifecycleConn) QueryContext(
+	context.Context,
+	string,
+	[]driver.NamedValue,
+) (driver.Rows, error) {
+	columns := []string{"id"}
+	if c.mode == "close-explicit" {
+		columns = []string{"id", "age"}
+	}
+	return &failureKeyLifecycleRows{mode: c.mode, columns: columns}, nil
+}
+
+type failureKeyLifecycleRows struct {
+	mode    string
+	columns []string
+	index   int
+}
+
+func (r *failureKeyLifecycleRows) Columns() []string { return r.columns }
+
+func (r *failureKeyLifecycleRows) Next(dest []driver.Value) error {
+	switch r.mode {
+	case "iteration":
+		if r.index == 0 {
+			dest[0] = int64(1)
+			r.index++
+			return nil
+		}
+		return errors.New("gxsqltest: injected row iteration error")
+	case "scan", "close-exhaustion", "close-explicit":
+		if r.index == 0 {
+			dest[0] = int64(1)
+			if len(dest) > 1 {
+				dest[1] = int64(200)
+			}
+			r.index++
+			return nil
+		}
+		return io.EOF
+	default:
+		return io.EOF
+	}
+}
+
+func (r *failureKeyLifecycleRows) Close() error {
+	failureKeyLifecycleCloseCalls.Add(1)
+	if r.mode == "close-exhaustion" || r.mode == "close-explicit" {
+		return errors.New("gxsqltest: injected row close error")
+	}
+	return nil
+}
+
+func openFailureKeyLifecycleDB(t *testing.T, mode string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open(failureKeyLifecycleDriverName, mode)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
+func TestFailureKeyIteratorDriverIterationErrorClosesRows(t *testing.T) {
+	failureKeyLifecycleCloseCalls.Store(0)
+	setHarnessData(t, harnessUsers(
+		map[string]any{"id": int64(1), "age": int64(200)},
+	))
+	validationDB := openHarnessDB(t)
+	table := Table("users")
+	report, err := NewSuite(WithID("users.age.between", Int("age").Between(0, 120))).ValidateTable(
+		context.Background(), validationDB, table,
+		WithDialect(Postgres()), WithKey("id"), SummaryOnly(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	iter, err := FailingKeys(
+		context.Background(),
+		openFailureKeyLifecycleDB(t, "iteration"),
+		table,
+		report,
+		ForResultID("users.age.between"),
+		WithDialect(Postgres()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !iter.Next() {
+		t.Fatal("expected first key")
+	}
+	if got := iter.Key(); !reflect.DeepEqual(got, RowKey{int64(1)}) {
+		t.Fatalf("first key = %#v, want %#v", got, RowKey{int64(1)})
+	}
+	if iter.Next() {
+		t.Fatal("Next after row iteration failure must be false")
+	}
+	if failureKeyLifecycleCloseCalls.Load() == 0 {
+		t.Fatal("row iteration terminal path must close rows")
+	}
+	assertFailingKeysCategorized(t, iter.Err(), CategoryScan)
+	if err := iter.Close(); err != nil {
+		assertFailingKeysCategorized(t, err, CategoryScan)
+	}
+}
+
+func TestFailureKeyIteratorDriverScanAndCloseErrorsAreTerminal(t *testing.T) {
+	failureKeyLifecycleCloseCalls.Store(0)
+	setHarnessData(t, harnessUsers(
+		map[string]any{"id": int64(1), "age": int64(200)},
+	))
+	validationDB := openHarnessDB(t)
+	table := Table("users")
+	report, err := NewSuite(WithID("users.age.between", Int("age").Between(0, 120))).ValidateTable(
+		context.Background(), validationDB, table,
+		WithDialect(Postgres()), WithKey("id", "age"), SummaryOnly(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The one-column fake result makes database/sql.Scan fail when the
+	// iterator requests both configured key columns.
+
+	scanIter, err := FailingKeys(
+		context.Background(),
+		openFailureKeyLifecycleDB(t, "scan"),
+		table,
+		report,
+		ForResultID("users.age.between"),
+		WithKey("id", "age"),
+		WithDialect(Postgres()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scanIter.Next() {
+		t.Fatal("scan failure must stop iteration")
+	}
+	if failureKeyLifecycleCloseCalls.Load() == 0 {
+		t.Fatal("scan terminal path must close rows")
+	}
+	assertFailingKeysCategorized(t, scanIter.Err(), CategoryScan)
+	if err := scanIter.Close(); err != nil {
+		assertFailingKeysCategorized(t, err, CategoryScan)
+	}
+
+	failureKeyLifecycleCloseCalls.Store(0)
+	closeIter, err := FailingKeys(
+		context.Background(),
+		openFailureKeyLifecycleDB(t, "close-explicit"),
+		table,
+		report,
+		ForResultID("users.age.between"),
+		WithKey("id", "age"),
+		WithDialect(Postgres()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !closeIter.Next() {
+		t.Fatal("expected key before explicit close")
+	}
+	assertFailingKeysCategorized(t, closeIter.Close(), CategoryScan)
+	if failureKeyLifecycleCloseCalls.Load() == 0 {
+		t.Fatal("explicit Close must close rows")
+	}
+	if closeIter.Next() {
+		t.Fatal("Next after explicit close must be false")
+	}
+	assertFailingKeysCategorized(t, closeIter.Close(), CategoryScan)
+}
+
+func TestFailureKeyIteratorDriverExhaustionCloseErrorAndObserverOnce(t *testing.T) {
+	failureKeyLifecycleCloseCalls.Store(0)
+	setHarnessData(t, harnessUsers(
+		map[string]any{"id": int64(1), "age": int64(200)},
+	))
+	validationDB := openHarnessDB(t)
+	table := Table("users")
+	report, err := NewSuite(WithID("users.age.between", Int("age").Between(0, 120))).ValidateTable(
+		context.Background(), validationDB, table,
+		WithDialect(Postgres()), WithKey("id"), SummaryOnly(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var events []QueryEvent
+	iter, err := FailingKeys(
+		context.Background(),
+		openFailureKeyLifecycleDB(t, "close-exhaustion"),
+		table,
+		report,
+		ForResultID("users.age.between"),
+		WithDialect(Postgres()),
+		WithObserver(func(event QueryEvent) { events = append(events, event) }),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !iter.Next() {
+		t.Fatal("expected key before exhaustion")
+	}
+	if iter.Next() {
+		t.Fatal("close failure on exhaustion must stop iteration")
+	}
+	if failureKeyLifecycleCloseCalls.Load() == 0 {
+		t.Fatal("exhaustion terminal path must close rows")
+	}
+	assertFailingKeysCategorized(t, iter.Err(), CategoryScan)
+	if err := iter.Close(); err != nil {
+		assertFailingKeysCategorized(t, err, CategoryScan)
+	}
+	if err := iter.Close(); err == nil {
+		t.Fatal("second Close must preserve terminal close error")
+	}
+	if len(events) != 1 {
+		t.Fatalf("observer events = %d, want 1", len(events))
+	}
+	if events[0].Category != QueryCategoryFailingKeys || events[0].Status != QueryStatusScanError {
+		t.Fatalf("observer event = %#v, want failing-keys scan error", events[0])
+	}
 }

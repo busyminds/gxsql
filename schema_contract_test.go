@@ -311,7 +311,7 @@ func TestSchemaContractScopeAndToleranceRejected(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected scope preflight error")
 	}
-	if !strings.Contains(err.Error(), "WithScope is incompatible with structural column expectations") {
+	if !strings.Contains(err.Error(), "population filters are incompatible with structural column expectations") {
 		t.Fatalf("message = %v", err)
 	}
 	if counter.queries != 0 {

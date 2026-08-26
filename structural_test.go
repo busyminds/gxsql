@@ -261,7 +261,7 @@ func TestStructuralScopePreflightDefaultAndContinueOnError(t *testing.T) {
 	if !errors.Is(err, ErrCategoryInvalidConfig) {
 		t.Fatalf("category = %v", err)
 	}
-	if !strings.Contains(err.Error(), "WithScope is incompatible with structural column expectations") {
+	if !strings.Contains(err.Error(), "population filters are incompatible with structural column expectations") {
 		t.Fatalf("message = %v", err)
 	}
 	if counter.queries != 0 {

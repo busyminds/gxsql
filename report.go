@@ -354,6 +354,9 @@ const (
 type Result struct {
 	// ID is the optional caller-supplied stable identifier from WithID.
 	ID string
+	// SegmentID is the normalized declared segment identity. It is empty for
+	// unsegmented validation results.
+	SegmentID string
 	// Kind is the library-defined machine identifier for the expectation.
 	Kind ExpectationKind
 	// Name is human-readable display text and is not machine identity.
@@ -404,8 +407,9 @@ type RowKey []any
 
 // Report aggregates the results of every expectation in a suite.
 type Report struct {
-	// Results preserves declaration order, including slots recorded under
-	// ContinueOnError.
+	// Results preserve expectation declaration order when unsegmented.
+	// WithSegments, results are segment-major then expectation declaration
+	// order, including slots recorded under ContinueOnError.
 	Results []Result
 	// Target names the validated table. Set by ValidateTable; nil when unavailable
 	// (for example when a Report is assembled manually).
@@ -452,7 +456,7 @@ func (r Report) PolicyFailures() []Result {
 }
 
 // Warnings returns every result decorated with warning severity, preserving
-// declaration order. It includes passing and failing warning results.
+// Report.Results order. It includes passing and failing warning results.
 func (r Report) Warnings() []Result {
 	return filterResults(r.Results, func(res Result) bool {
 		return res.Severity == SeverityWarning
@@ -460,7 +464,7 @@ func (r Report) Warnings() []Result {
 }
 
 // Infos returns every result decorated with info severity, preserving
-// declaration order. It includes passing and failing info results.
+// Report.Results order. It includes passing and failing info results.
 func (r Report) Infos() []Result {
 	return filterResults(r.Results, func(res Result) bool {
 		return res.Severity == SeverityInfo
@@ -476,7 +480,7 @@ func (r Report) Unexpected() []Result {
 }
 
 // ToleratedResults returns results whose nonzero raw failure count passed an
-// allowance. It preserves declaration order.
+// allowance, preserving Report.Results order.
 func (r Report) ToleratedResults() []Result {
 	return filterResults(r.Results, func(res Result) bool {
 		return res.Tolerated

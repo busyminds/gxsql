@@ -17,6 +17,11 @@ one query each. Structural column contracts run one read-only zero-row discovery
 query (`SELECT * FROM <quoted target> WHERE 1 = 0`) and read `Rows.Columns()`;
 they do not scan row values or write schema.
 
+With `WithSegments`, the same plan runs once per declared segment. Query costs
+for per-row checks, samples, and failed keys therefore multiply by the segment
+count. Denominator and shared-scalar caches are reset for each segment, so one
+population cannot affect another.
+
 ## Observe Query Cost Safely
 
 Attach `WithObserver(gxsql.ObserverFunc(...))` when a caller needs statement

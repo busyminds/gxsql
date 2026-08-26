@@ -8,12 +8,17 @@ import (
 )
 
 // MeasurementKey identifies a measurement series for [BaselineStore] lookup.
-// ResultID is the primary join field from [WithID]. Kind, ScopeID, TargetSchema,
-// and TargetTable are optional conflict checks callers may use when selecting
-// prior records; empty optional fields do not constrain a caller-owned store.
+// (ResultID, SegmentID) identifies a series; SegmentID is empty for
+// unsegmented reports. ResultID is the primary join field from [WithID]. Kind,
+// ScopeID, TargetSchema, and TargetTable are optional conflict checks callers
+// may use when selecting prior records; empty optional fields do not constrain
+// a caller-owned store.
 type MeasurementKey struct {
 	// ResultID is the primary join field from [WithID].
 	ResultID string
+	// SegmentID is the segment identity for the series. Empty for unsegmented
+	// reports. Together with ResultID it identifies a measurement series.
+	SegmentID string
 	// Kind is an optional expectation-kind conflict check.
 	Kind ExpectationKind
 	// ScopeID is an optional scope-identity conflict check.
@@ -35,6 +40,10 @@ type MeasurementKey struct {
 type MeasurementRecord struct {
 	// ResultID is the stable expectation identifier from [WithID].
 	ResultID string
+	// SegmentID is the segment identity when the export is segmented. Empty for
+	// unsegmented reports. Together with ResultID it identifies a measurement
+	// series.
+	SegmentID string
 	// Kind is the library-defined expectation kind.
 	Kind ExpectationKind
 	// ScopeID is the validation scope identity when scoped.
@@ -83,8 +92,10 @@ type BaselineStore interface {
 // MeasurementRecordsFromExport maps an [ExportedReport] into privacy-safe
 // [MeasurementRecord] values for caller-owned history storage.
 //
-// Every result must carry a non-blank [ExportedResult.ID]; blank and duplicate
-// IDs are rejected with [CategoryInvalidConfig]. Report-level target, scope,
+// Every result must carry a non-blank [ExportedResult.ID]; blank IDs and
+// duplicate (ResultID, SegmentID) pairs are rejected with
+// [CategoryInvalidConfig]. SegmentID is empty for unsegmented reports, so
+// unsegmented duplicate ResultIDs remain rejected. Report-level target, scope,
 // data-time, and evaluation-time are applied to each record. Tags, errors,
 // counts, and facts are copied. Samples, failed keys, caps, and diagnostics
 // are never copied, even when present on the export. [PolicyVerdictUnevaluated]
@@ -102,22 +113,33 @@ func MeasurementRecordsFromExport(report ExportedReport) ([]MeasurementRecord, e
 		scopeID = report.Scope.ID
 	}
 
-	seen := make(map[string]int, len(report.Results))
+	type measurementIdentity struct {
+		id, segment string
+	}
+	seen := make(map[measurementIdentity]int, len(report.Results))
 	out := make([]MeasurementRecord, 0, len(report.Results))
 	for i, res := range report.Results {
 		id := strings.TrimSpace(res.ID)
 		if id == "" {
 			return nil, newConfigError(fmt.Errorf("measurement result id is required"))
 		}
-		if prev, ok := seen[id]; ok {
+		identity := measurementIdentity{id: id, segment: res.SegmentID}
+		if prev, ok := seen[identity]; ok {
+			if res.SegmentID == "" {
+				return nil, newConfigError(fmt.Errorf(
+					"duplicate measurement result id %q (also at index %d)", id, prev,
+				))
+			}
 			return nil, newConfigError(fmt.Errorf(
-				"duplicate measurement result id %q (also at index %d)", id, prev,
+				"duplicate measurement result id %q segment %q (also at index %d)",
+				id, res.SegmentID, prev,
 			))
 		}
-		seen[id] = i
+		seen[identity] = i
 
 		out = append(out, MeasurementRecord{
 			ResultID:         res.ID,
+			SegmentID:        res.SegmentID,
 			Kind:             res.Kind,
 			ScopeID:          scopeID,
 			TargetSchema:     targetSchema,

@@ -518,6 +518,84 @@ func TestManualReportTargetUnavailable(t *testing.T) {
 	}
 }
 
+func TestExportReportPreservesSegmentIdentity(t *testing.T) {
+	rep := Report{
+		Results: []Result{
+			{
+				ID:             "rows",
+				SegmentID:      "eu",
+				Kind:           KindRowCountEqual,
+				Name:           "row count = 1: got 1",
+				Success:        true,
+				RowDenominator: RowDenominatorUnavailable,
+				Facts: ResultFacts{
+					ObservedCount:   intPtr(1),
+					ConfiguredCount: intPtr(1),
+				},
+			},
+			{
+				ID:             "rows",
+				SegmentID:      "us",
+				Kind:           KindRowCountEqual,
+				Name:           "row count = 2: got 2",
+				Success:        true,
+				RowDenominator: RowDenominatorUnavailable,
+				Facts: ResultFacts{
+					ObservedCount:   intPtr(2),
+					ConfiguredCount: intPtr(2),
+				},
+			},
+			{
+				ID:             "rows",
+				Kind:           KindRowCountEqual,
+				Name:           "row count = 3: got 3",
+				Success:        true,
+				RowDenominator: RowDenominatorUnavailable,
+				Facts: ResultFacts{
+					ObservedCount:   intPtr(3),
+					ConfiguredCount: intPtr(3),
+				},
+			},
+		},
+	}
+
+	dto, err := ExportReport(rep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dto.SchemaVersion != ExportSchemaVersion {
+		t.Fatalf("SchemaVersion = %q, want %q", dto.SchemaVersion, ExportSchemaVersion)
+	}
+	if len(dto.Results) != 3 {
+		t.Fatalf("len = %d, want 3", len(dto.Results))
+	}
+	if dto.Results[0].ID != "rows" || dto.Results[0].SegmentID != "eu" {
+		t.Fatalf("result[0] identity = %q / %q", dto.Results[0].ID, dto.Results[0].SegmentID)
+	}
+	if dto.Results[1].ID != "rows" || dto.Results[1].SegmentID != "us" {
+		t.Fatalf("result[1] identity = %q / %q", dto.Results[1].ID, dto.Results[1].SegmentID)
+	}
+	if dto.Results[2].ID != "rows" || dto.Results[2].SegmentID != "" {
+		t.Fatalf("result[2] identity = %q / %q", dto.Results[2].ID, dto.Results[2].SegmentID)
+	}
+
+	segJSON, err := json.Marshal(dto.Results[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(segJSON, []byte(`"segment_id":"eu"`)) {
+		t.Fatalf("segmented JSON missing segment_id: %s", segJSON)
+	}
+
+	unsegJSON, err := json.Marshal(dto.Results[2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(unsegJSON, []byte("segment_id")) {
+		t.Fatalf("empty SegmentID must omit segment_id: %s", unsegJSON)
+	}
+}
+
 func intPtr(v int) *int { return &v }
 
 func timePtr(v time.Time) *time.Time { return &v }

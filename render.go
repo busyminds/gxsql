@@ -55,7 +55,7 @@ func (r Result) String() string {
 
 // String renders a [Report] summary header ("gxsql report: passed/total
 // expectations passed") followed by one indented [Result.String] line per
-// entry in declaration order.
+// entry in Report.Results order.
 func (r Report) String() string {
 	passed := 0
 	for _, res := range r.Results {

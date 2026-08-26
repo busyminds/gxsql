@@ -57,6 +57,8 @@ type validateConfig struct {
 	observer               ObserverFunc
 	scope                  Scope
 	hasScope               bool
+	segments               []Segment
+	hasSegments            bool
 
 	// FailingKeys result selectors. Exactly one must be set for retrieval.
 	failingKeysID       string
@@ -73,6 +75,18 @@ func WithScope(scope Scope) Option {
 	return func(cfg *validateConfig) {
 		cfg.scope = scope
 		cfg.hasScope = true
+	}
+}
+
+// WithSegments evaluates every scope-compatible expectation once per named
+// segment in declaration order. WithSegments with no arguments is invalid.
+func WithSegments(segments ...Segment) Option {
+	return func(cfg *validateConfig) {
+		cfg.segments = append([]Segment(nil), segments...)
+		for i := range cfg.segments {
+			cfg.segments[i].values = copyScopeValues(cfg.segments[i].values)
+		}
+		cfg.hasSegments = true
 	}
 }
 
@@ -117,9 +131,10 @@ func SummaryOnly() Option {
 // ContinueOnError records expectation preflight issues and execution errors on
 // individual results and keeps evaluating later expectations. Preflight issues
 // occupy their declaration-order slots with Result.Err set. Run-level option
-// errors (invalid dialect, caps, key columns, or scope) still abort ValidateTable
-// with a top-level error before evaluation starts. By default, the first
-// preflight or execution error aborts ValidateTable with a zero report.
+// errors (invalid dialect, caps, key columns, scope, or segments) still abort
+// ValidateTable with a top-level error before evaluation starts. By default,
+// the first preflight or execution error aborts ValidateTable with a zero
+// report.
 func ContinueOnError() Option {
 	return func(cfg *validateConfig) { cfg.continueOnError = true }
 }
@@ -146,17 +161,19 @@ func WithObserver(observer ObserverFunc) Option {
 }
 
 // ValidateTable runs every expectation in declaration order (collect-all, never
-// fail-fast on policy failures) and returns the aggregated Report. It uses
+// fail-fast on policy failures) and returns the aggregated Report. WithSegments
+// evaluates scope-compatible expectations in segment-major order. It uses
 // Postgres when WithDialect is not supplied.
 //
 // Validation-policy failures are returned as (report, nil); gate with
 // report.Err(), which yields a *ValidationError recoverable via errors.As.
-// Run-level option errors (including invalid scope) abort with (zero Report, err)
-// before evaluation starts. Expectation preflight failures collected before SQL
-// starts return a zero Report and *PreflightErrors unless ContinueOnError is set,
-// each affected slot records Result.Err. The first database, rendering, scan,
-// or context error aborts with a zero Report and error unless ContinueOnError
-// is set, when the error is recorded on that result and evaluation continues.
+// Run-level option errors (including invalid scope or segments) abort with
+// (zero Report, err) before evaluation starts. Expectation preflight failures
+// collected before SQL starts return a zero Report and *PreflightErrors unless
+// ContinueOnError is set, each affected slot records Result.Err. The first
+// database, rendering, scan, or context error aborts with a zero Report and
+// error unless ContinueOnError is set, when the error is recorded on that
+// result and evaluation continues.
 // Observer panics are recovered as typed observer errors and always abort with
 // a zero Report, including when ContinueOnError is set.
 func (s *Suite) ValidateTable(
@@ -182,6 +199,7 @@ func (s *Suite) ValidateTable(
 	if cfg.failedKeysCap < 0 {
 		return Report{}, newConfigError(fmt.Errorf("failed keys cap must be non-negative"))
 	}
+
 	var validatedScope *trustedScope
 	if cfg.hasScope {
 		scope, err := validateScope(cfg.scope)
@@ -189,6 +207,14 @@ func (s *Suite) ValidateTable(
 			return Report{}, err
 		}
 		validatedScope = &scope
+	}
+	var validatedSegments []Segment
+	if cfg.hasSegments {
+		segments, err := validateSegments(cfg.segments)
+		if err != nil {
+			return Report{}, err
+		}
+		validatedSegments = segments
 	}
 
 	if !cfg.summaryOnly && len(cfg.keyColumns) == 0 {
@@ -255,7 +281,7 @@ func (s *Suite) ValidateTable(
 			})
 		}
 	}
-	if cfg.hasScope {
+	if cfg.hasScope || cfg.hasSegments {
 		for i, exp := range s.expectations {
 			if !isStructuralExpectation(exp) || pf.hasIssueAt(i) {
 				continue
@@ -271,15 +297,12 @@ func (s *Suite) ValidateTable(
 		return Report{}, &PreflightErrors{Issues: pf.issues}
 	}
 
-	var scopedTotal *scopedTotalCache
-	for _, exp := range s.expectations {
-		if usesRowDenominator(exp) {
-			scopedTotal = &scopedTotalCache{}
-			break
-		}
+	segmentCount := 1
+	if cfg.hasSegments {
+		segmentCount = len(validatedSegments)
 	}
-
-	evalOpts := evalOptions{
+	results := make([]Result, 0, len(s.expectations)*segmentCount)
+	baseEvalOpts := evalOptions{
 		dialect:            cfg.dialect,
 		sampleCap:          cfg.sampleCap,
 		failedKeysCap:      cfg.failedKeysCap,
@@ -287,118 +310,146 @@ func (s *Suite) ValidateTable(
 		summaryOnly:        cfg.summaryOnly,
 		captureDiagnostics: cfg.captureDiagnostics,
 		continueOnError:    cfg.continueOnError,
-		scope:              validatedScope,
 		observer:           &observerState{observer: cfg.observer},
-		scopedTotal:        scopedTotal,
+	}
+	usesScopedTotal := false
+	for _, exp := range s.expectations {
+		if usesRowDenominator(exp) {
+			usesScopedTotal = true
+			break
+		}
 	}
 
-	results := make([]Result, len(s.expectations))
+	for segmentIndex := range segmentCount {
+		segmentID := ""
+		activeScope := validatedScope
+		if cfg.hasSegments {
+			segment := validatedSegments[segmentIndex]
+			segmentID = segment.identity
+			combined := composeSegmentScope(validatedScope, segment)
+			activeScope = &combined
+		}
 
-	var sharedBatches []sharedScalarBatch
-	indexBatch := map[int]int{}
-	if cfg.sharedScalarEvaluation {
-		sharedPlans := make(map[int]sharedScalarPlan)
-		var sharedOrder []int
+		var scopedTotal *scopedTotalCache
+		if usesScopedTotal {
+			scopedTotal = &scopedTotalCache{}
+		}
+		evalOpts := baseEvalOpts
+		evalOpts.scope = activeScope
+		evalOpts.scopedTotal = scopedTotal
+
+		var sharedBatches []sharedScalarBatch
+		indexBatch := map[int]int{}
+		if cfg.sharedScalarEvaluation {
+			sharedPlans := make(map[int]sharedScalarPlan)
+			var sharedOrder []int
+			for i, exp := range s.expectations {
+				if pf.hasIssueAt(i) || exp == nil {
+					continue
+				}
+				plan, ok, err := sharedScalarPlanFor(exp, evalOpts)
+				if err != nil || !ok {
+					continue
+				}
+				sharedPlans[i] = plan
+				sharedOrder = append(sharedOrder, i)
+			}
+			sharedBatches = groupContiguousSharedBatches(sharedOrder, sharedPlans)
+			for bi, batch := range sharedBatches {
+				for _, idx := range batch.indices {
+					indexBatch[idx] = bi
+				}
+			}
+		}
+
+		batchEvaluated := make([]bool, len(sharedBatches))
+		batchResults := make([]map[int]Result, len(sharedBatches))
+		batchErrs := make([]error, len(sharedBatches))
+		evaluateBatch := func(bi int) {
+			batch := sharedBatches[bi]
+			values, err := evalSharedScalarCounts(ctx, db, table, evalOpts, batch.plans)
+			batchErrs[bi] = err
+			batchResults[bi] = make(map[int]Result, len(batch.indices))
+			for i, index := range batch.indices {
+				batchResults[bi][index] = values[i]
+			}
+			batchEvaluated[bi] = true
+		}
+		appendResult := func(res Result) {
+			if cfg.hasSegments {
+				res.SegmentID = segmentID
+			}
+			results = append(results, res)
+		}
+
 		for i, exp := range s.expectations {
-			if pf.hasIssueAt(i) || exp == nil {
+			if pf.hasIssueAt(i) {
+				appendResult(configErrorResult(exp, pf.errAt(i)))
 				continue
 			}
-			plan, ok, err := sharedScalarPlanFor(exp, evalOpts)
-			if err != nil || !ok {
+			if exp == nil {
+				appendResult(configErrorResult(nil, newConfigError(fmt.Errorf("nil expectation at index %d", i))))
 				continue
 			}
-			sharedPlans[i] = plan
-			sharedOrder = append(sharedOrder, i)
-		}
-		sharedBatches = groupContiguousSharedBatches(sharedOrder, sharedPlans)
-		for bi, batch := range sharedBatches {
-			for _, idx := range batch.indices {
-				indexBatch[idx] = bi
-			}
-		}
-	}
-
-	batchEvaluated := make([]bool, len(sharedBatches))
-	batchResults := make([]map[int]Result, len(sharedBatches))
-	batchErrs := make([]error, len(sharedBatches))
-
-	evaluateBatch := func(bi int) {
-		batch := sharedBatches[bi]
-		values, err := evalSharedScalarCounts(ctx, db, table, evalOpts, batch.plans)
-		batchErrs[bi] = err
-		batchResults[bi] = make(map[int]Result, len(batch.indices))
-		for i, index := range batch.indices {
-			batchResults[bi][index] = values[i]
-		}
-		batchEvaluated[bi] = true
-	}
-
-	for i, exp := range s.expectations {
-		if pf.hasIssueAt(i) {
-			results[i] = configErrorResult(exp, pf.errAt(i))
-			continue
-		}
-		if exp == nil {
-			results[i] = configErrorResult(nil, newConfigError(fmt.Errorf("nil expectation at index %d", i)))
-			continue
-		}
-		if bi, ok := indexBatch[i]; ok {
-			if !batchEvaluated[bi] {
-				evaluateBatch(bi)
-			}
-			res := batchResults[bi][i]
-			if batchErrs[bi] != nil {
-				if errors.Is(batchErrs[bi], ErrCategoryObserver) {
+			if bi, ok := indexBatch[i]; ok {
+				if !batchEvaluated[bi] {
+					evaluateBatch(bi)
+				}
+				res := batchResults[bi][i]
+				if batchErrs[bi] != nil {
+					if errors.Is(batchErrs[bi], ErrCategoryObserver) {
+						return Report{}, batchErrs[bi]
+					}
+					if cfg.continueOnError {
+						if res.Err == nil {
+							res.Err = batchErrs[bi]
+						}
+						res.Success = false
+						appendResult(res)
+						continue
+					}
 					return Report{}, batchErrs[bi]
+				}
+				if res.Err != nil {
+					res.Success = false
+					if !cfg.continueOnError {
+						return Report{}, res.Err
+					}
+				}
+				appendResult(res)
+				continue
+			}
+			expOpts := evalOpts
+			expOpts.checkID = expectationID(exp)
+			expOpts.checkKind = expectationKind(exp)
+			res, err := exp.evaluateSQL(ctx, db, table, expOpts)
+			if res.Kind == "" {
+				res.Kind = expectationKind(exp)
+			}
+			if id := expectationID(exp); id != "" && res.ID == "" {
+				res.ID = id
+			}
+			if err != nil {
+				if errors.Is(err, ErrCategoryObserver) {
+					return Report{}, err
 				}
 				if cfg.continueOnError {
 					if res.Err == nil {
-						res.Err = batchErrs[bi]
+						res.Err = err
 					}
 					res.Success = false
-					results[i] = res
+					appendResult(res)
 					continue
 				}
-				return Report{}, batchErrs[bi]
+				return Report{}, err
 			}
 			if res.Err != nil {
 				res.Success = false
-				if !cfg.continueOnError {
-					return Report{}, res.Err
-				}
 			}
-			results[i] = res
-			continue
+			appendResult(res)
 		}
-		opts := evalOpts
-		opts.checkID = expectationID(exp)
-		opts.checkKind = expectationKind(exp)
-		res, err := exp.evaluateSQL(ctx, db, table, opts)
-		if res.Kind == "" {
-			res.Kind = expectationKind(exp)
-		}
-		if id := expectationID(exp); id != "" && res.ID == "" {
-			res.ID = id
-		}
-		if err != nil {
-			if errors.Is(err, ErrCategoryObserver) {
-				return Report{}, err
-			}
-			if cfg.continueOnError {
-				if res.Err == nil {
-					res.Err = err
-				}
-				res.Success = false
-				results[i] = res
-				continue
-			}
-			return Report{}, err
-		}
-		if res.Err != nil {
-			res.Success = false
-		}
-		results[i] = res
 	}
+
 	scopeID := ""
 	if validatedScope != nil {
 		scopeID = validatedScope.identity

@@ -102,10 +102,10 @@ func usesRowDenominator(exp Expectation) bool {
 	}
 }
 
-// rejectsScope marks expectations that cannot run under WithScope. Structural
-// column contracts implement this so suite preflight can peel WithID,
-// WithMaxFailedCount, WithPolicy, and When wrappers before rejecting the
-// combination.
+// rejectsScope marks expectations that cannot run under population filters
+// (WithScope / WithSegments). Structural column contracts implement this so
+// suite preflight can peel WithID, WithMaxFailedCount, WithPolicy, and When
+// wrappers before rejecting the combination.
 type rejectsScope interface {
 	rejectsScope()
 }
@@ -119,7 +119,7 @@ func isStructuralExpectation(exp Expectation) bool {
 }
 
 func structuralScopeIncompatibleError() error {
-	return newConfigError(fmt.Errorf("WithScope is incompatible with structural column expectations"))
+	return newConfigError(fmt.Errorf("population filters are incompatible with structural column expectations"))
 }
 
 func configErrorResult(exp Expectation, err error) Result {

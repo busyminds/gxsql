@@ -108,8 +108,9 @@ table-level results with structured facts. A missing target or a permission
 denial is a typed execution error, not a content-policy failure. These builders
 do not validate types, nullability, or ordinal position.
 
-`WithScope` is incompatible and fails preflight. Prefer a separate structural
-suite when fail-fast shape gating matters:
+Population filters (`WithScope` / `WithSegments`) are incompatible and fail
+preflight. Prefer a separate structural suite when fail-fast shape gating
+matters:
 
 ```go
 structure := gxsql.NewSuite(
@@ -205,6 +206,44 @@ publish identity only—never predicate text or arguments. See the
 In production, pass a context with a deadline to every `ValidateTable` call. Use
 a read-only database role. Prefer a role that is restricted to the validation
 tables or views.
+
+## Segmented Validation
+
+Use `TrustedSegment` and `WithSegments` when one suite must evaluate the same
+expectations over named populations:
+
+```go
+segments := []gxsql.Segment{
+	gxsql.TrustedSegment("eu", "region = ?", "EU"),
+	gxsql.TrustedSegment("us", "region = ?", "US"),
+}
+report, err := suite.ValidateTable(
+	ctx, db, gxsql.Table("orders"),
+	gxsql.WithDialect(gxsql.Postgres()),
+	gxsql.WithSegments(segments...),
+)
+```
+
+Segment predicates are trusted Go-code SQL fragments. Keep their text fixed in
+application code. Pass dynamic values through `?` placeholders. `gxsql` copies
+segment values, including `[]byte`, validates every segment before SQL, trims
+each ID once, rejects blank or duplicate IDs, and accepts at most 32 segments.
+`WithSegments()` with no arguments is invalid. A segment cannot change the
+validated table.
+
+Results use segment-major order: declared segment order, then expectation order
+within each segment. `Result.ID` remains the expectation ID. `Result.SegmentID`
+contains the normalized segment ID; it is blank for an unsegmented run.
+`Report.ScopeID` remains the run-wide scope identity. When both options are set,
+population values bind in scope, segment, eligibility, and expectation order.
+
+Each segment has independent denominator and shared-scalar caches. Empty
+segments use zero-population semantics: per-row results pass with `Total == 0`,
+`FailedCount == 0`, `FailedPercent == 0`, and no tolerance mark. Structural
+expectations are incompatible with segmented populations and fail preflight.
+Other scope-compatible expectations run once per segment. Continue-on-error
+records expectation errors in each segment's result slots; invalid segment
+configuration remains a run-level error with no report.
 
 ## Suite Scope Versus Rule Eligibility
 

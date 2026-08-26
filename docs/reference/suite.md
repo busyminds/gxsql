@@ -29,18 +29,19 @@ per-expectation failure in the report.
 `Option` is an opaque function that configures one validation run. Per-run
 options override suite-level caps.
 
-| API                            | Effect                                                                                                                                                            |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `WithDialect(d Dialect)`       | Selects the SQL renderer. Defaults to `Postgres()`.                                                                                                               |
-| `WithSampleCap(n int)`         | Overrides the maximum retained sample values; `0` disables sample collection.                                                                                     |
-| `WithFailedKeysCap(n int)`     | Overrides the maximum retained failed keys; `0` is unlimited in-report retention (not streaming).                                                                 |
-| `WithKey(columns ...string)`   | Retains supplied row-key columns and disables summary-only mode; with `SummaryOnly`, preserves columns for later `FailingKeys`.                                   |
-| `SummaryOnly()`                | Suppresses failed-row identity retention; with `WithKey`, preserves key-column selection for later retrieval.                                                     |
-| `ContinueOnError()`            | Records preflight and execution errors on results and continues.                                                                                                  |
-| `CaptureQueryDiagnostics()`    | Records SQL and arguments for optional export only.                                                                                                               |
-| `WithObserver(observer)`       | Emits synchronous privacy-safe `QueryEvent` values; observer panics abort with a typed observer error.                                                            |
-| `WithSharedScalarEvaluation()` | Combines contiguous compatible built-in per-row failure counts into conditional-aggregate statement(s). Disabled by default.                                      |
-| `WithScope(scope Scope)`       | Limits every expectation to rows that match the scope predicate; validates the scope when the run starts. Incompatible with `RequiredColumns` and `ExactColumns`. |
+| API                                 | Effect                                                                                                                                                                                                                                                                                |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WithDialect(d Dialect)`            | Selects the SQL renderer. Defaults to `Postgres()`.                                                                                                                                                                                                                                   |
+| `WithSampleCap(n int)`              | Overrides the maximum retained sample values; `0` disables sample collection.                                                                                                                                                                                                         |
+| `WithFailedKeysCap(n int)`          | Overrides the maximum retained failed keys; `0` is unlimited in-report retention (not streaming).                                                                                                                                                                                     |
+| `WithKey(columns ...string)`        | Retains supplied row-key columns and disables summary-only mode; with `SummaryOnly`, preserves columns for later `FailingKeys`.                                                                                                                                                       |
+| `SummaryOnly()`                     | Suppresses failed-row identity retention; with `WithKey`, preserves key-column selection for later retrieval.                                                                                                                                                                         |
+| `ContinueOnError()`                 | Records preflight and execution errors on results and continues.                                                                                                                                                                                                                      |
+| `CaptureQueryDiagnostics()`         | Records SQL and arguments for optional export only.                                                                                                                                                                                                                                   |
+| `WithObserver(observer)`            | Emits synchronous privacy-safe `QueryEvent` values; observer panics abort with a typed observer error.                                                                                                                                                                                |
+| `WithSharedScalarEvaluation()`      | Combines contiguous compatible built-in per-row failure counts into conditional-aggregate statement(s). Disabled by default.                                                                                                                                                          |
+| `WithScope(scope Scope)`            | Limits every expectation to rows that match the scope predicate; validates the scope when the run starts. Incompatible with structural column expectations.                                                                                                                           |
+| `WithSegments(segments ...Segment)` | Evaluates scope-compatible expectations once per segment in declared order (segment-major results); trims and validates IDs and predicates before SQL. `WithSegments()` is invalid and at most `MaxSegments` segments are accepted. Incompatible with structural column expectations. |
 
 When the run supplies neither `WithKey` nor `SummaryOnly`, results contain
 counts and capped samples but no failed-row identities. Invalid run-level
@@ -52,12 +53,15 @@ scopes—always prevent evaluation.
 `FailingKeys(ctx, db, table, report, opts...)` returns a `FailureKeyIterator`.
 Select exactly one result with `ForResultID`, `ForResultIndex`, or an
 unambiguous `ForKind`; pass `WithDialect` and supply `WithKey` or reuse key
-columns retained from validation. The iterator exposes `Next`, `Key`, `Err`, and
-`Close`, orders keys deterministically, honors cancellation, re-runs the
-validate-time failure predicate as read-only SQL, and represents SQL `NULL` key
-components as `nil`. It supports ordinary per-row, unique, composite-unique, and
-local referential-orphan checks; other shapes return `CategoryUnsupported`. It
-does not mutate or retain the complete key set on `Report` / `Result`.
+columns retained from validation. Segmented reports repeat expectation IDs and
+kinds once per segment, so `ForResultID` and `ForKind` are typically ambiguous;
+`ForResultIndex` selects the segment-major slot in `Report.Results`. The
+iterator exposes `Next`, `Key`, `Err`, and `Close`, orders keys
+deterministically, honors cancellation, re-runs the validate-time failure
+predicate as read-only SQL, and represents SQL `NULL` key components as `nil`.
+It supports ordinary per-row, unique, composite-unique, and local
+referential-orphan checks; other shapes return `CategoryUnsupported`. It does
+not mutate or retain the complete key set on `Report` / `Result`.
 
 `table` must match the original validated `TableRef` stored on the selected
 result's retrieval plan. Mutating `Report.Target` cannot redirect retrieval.
@@ -168,9 +172,10 @@ SQL and arguments require explicit diagnostic capture and export options; treat
 them as sensitive.
 
 `RequiredColumns` and `ExactColumns` have no row population. Pairing either
-expectation with `WithScope` fails `ValidateTable` preflight with an
-`invalid_config` error rather than ignoring scope. Run a separate unscoped
-structural suite when shape checks must gate content validation.
+expectation with population filters (`WithScope` or `WithSegments`) fails
+`ValidateTable` preflight with an `invalid_config` error rather than ignoring
+the filter. Run a separate unscoped, unsegmented structural suite when shape
+checks must gate content validation.
 
 Suite scope never becomes a parent or secondary filter. Use distinct trusted
 constructors when a cross-table check needs a non-local predicate:
@@ -199,6 +204,50 @@ report, err := suite.ValidateTable(ctx, readOnlyDB, gxsql.Table("events"),
 
 Check both `err` and `report.Err()` according to the run and policy failure
 rules described above.
+
+## Segmented Validation
+
+`TrustedSegment(id, predicate string, args ...any) Segment` constructs an
+immutable trusted population definition. Attach one or more definitions with
+`WithSegments`. Segment IDs are trimmed during validation and must be nonblank
+and unique after trimming. The neutral `?` placeholder count must match the
+bound values. Malformed neutral predicate syntax is unsupported. Segment
+configuration is validated for every declared segment before the first SQL
+statement; invalid configuration returns a zero `Report`, including with
+`ContinueOnError`. The hard limit is `MaxSegments` (32).
+
+```go
+segments := []gxsql.Segment{
+	gxsql.TrustedSegment("eu", "region = ?", "EU"),
+	gxsql.TrustedSegment("us", "region = ?", "US"),
+}
+report, err := suite.ValidateTable(
+	ctx, readOnlyDB, gxsql.Table("orders"),
+	gxsql.WithDialect(gxsql.Postgres()),
+	gxsql.WithSegments(segments...),
+)
+```
+
+Segment predicates are trusted fixed SQL fragments. Do not pass user-authored
+SQL. Values are bound, not interpolated. With `WithScope` and `When`, binding
+order is run-wide scope, segment, eligibility, then expectation. Segment
+predicates filter the validated table population and cannot retarget it.
+
+Completed results are ordered by segment, then expectation declaration
+(segment-major). A segmented result keeps the expectation `ID` and stores the
+normalized segment identity in `Result.SegmentID`. Unsegmented results keep
+`SegmentID` blank. Because IDs and kinds repeat across segments, `FailingKeys`
+selection with `ForResultID` or `ForKind` is ambiguous; use `ForResultIndex` to
+address a specific segment-major slot. `Report.ScopeID` remains the run-wide
+scope identity.
+
+Each segment receives a fresh denominator cache and shared-scalar evaluation
+state. Empty segments pass per-row checks with zero totals and no fabricated
+percentage or tolerance. Structural expectations remain incompatible with
+population filters and fail preflight. Other scope-compatible expectations run
+once per segment. Query events remain privacy-safe: they do not expose segment
+predicates or bound values. Query cost, including optional samples and failed
+keys, scales with the declared segment count.
 
 ## Rule Eligibility
 

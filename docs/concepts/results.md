@@ -178,7 +178,9 @@ attached during `ValidateTable` and orders rows by the selected key columns. SQL
 `NULL` key components appear as `nil` in `RowKey`. It supports ordinary per-row,
 unique, composite-unique, and local referential-orphan checks; table-level
 shapes return `CategoryUnsupported`. Select exactly one result with
-`ForResultID`, `ForResultIndex`, or an unambiguous `ForKind`.
+`ForResultID`, `ForResultIndex`, or an unambiguous `ForKind`. Segmented reports
+repeat IDs and kinds per segment, so prefer `ForResultIndex` for a specific
+segment-major slot.
 
 Table and scope are bound at validation. The call-site table must match the
 original validated `TableRef` stored on that plan; mutating `Report.Target`

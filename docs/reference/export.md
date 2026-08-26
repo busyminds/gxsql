@@ -22,8 +22,8 @@ metric kinds are `KindSumBetween` (`sum_between`), `KindPopulationStdDevBetween`
 (`value_frequency`), and `KindDominantShare` (`dominant_share`). Those kinds are
 distinct from `KindNotNull` and `KindUnique` / `KindCompositeUnique`.
 `KindCustom` marks custom counts from `CustomCount`. Other expectations may
-still use `KindCustom` when built-in metadata is unavailable. Use `Kind` and
-`ID` for machine joins, not display text.
+still use `KindCustom` when built-in metadata is unavailable. Use `Kind`, `ID`,
+and `SegmentID` (empty when unsegmented) for machine joins, not display text.
 
 Structural column results use `KindRequiredColumns` (`required_columns`) or
 `KindExactColumns` (`exact_columns`). They export ordered `required_columns` /
@@ -194,7 +194,7 @@ A redactor error or panic fails export closed.
 | `ExportedReport`                | Schema version, optional caller-owned `data_time` / `evaluation_time`, optional target/scope, and declaration-ordered results.                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `ExportedTarget`                | Optional schema and table name.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `ExportedScope`                 | Optional stable caller scope identity as `scope.id`; predicate and bound values are not included.                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `ExportedResult`                | Identity, verdicts, optional `tolerated`, counts, facts, caps, opted-in diagnostics, and categorized errors.                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `ExportedResult`                | Identity (`id` plus optional `segment_id`), verdicts, optional `tolerated`, counts, facts, caps, opted-in diagnostics, and categorized errors.                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `ExportedCounts`                | Optional total, failed count, and failed percentage.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `ExportedFacts`                 | Observations and configured thresholds, including optional `configured_max_failed_count`, `configured_max_failed_percent`, temporal `configured_time_*` / `observed_time` fields, `key_columns`, `comparison`, `ratio`, `reference`, `reconcile`, broader-metric `sum` / `population_stddev` / `completeness` / `duplicate_rate` / `frequency` / `dominant_share`, structural `required_columns` / `missing_columns` / `unexpected_columns`, and schema-contract `configured_nullability` / `observed_nullability` / `configured_reported_type` / `observed_reported_type`. |
 | `ExportedSumFacts`              | Nested SUM observation and bounds (`observed` / `observed_float`, configured bounds, `exactness`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
@@ -218,34 +218,37 @@ execution, policy failure, execution failure, and configuration failure.
 
 `MeasurementRecordsFromExport(report ExportedReport) ([]MeasurementRecord, error)`
 maps an encode-only export into privacy-safe history snapshots for caller-owned
-storage. Every result must carry a non-blank unique `id`; blank and duplicate
-IDs fail with `CategoryInvalidConfig`.
+storage. Every result must carry a non-blank `id`; blank IDs and duplicate
+`(ResultID, SegmentID)` pairs fail with `CategoryInvalidConfig`. `SegmentID` is
+empty for unsegmented reports, so unsegmented duplicate result IDs remain
+rejected. The same result ID may appear once per distinct segment.
 
-| Type / API                     | Role                                                                                          |
-| ------------------------------ | --------------------------------------------------------------------------------------------- |
-| `MeasurementKey`               | Lookup key: `ResultID` plus optional `Kind`, `ScopeID`, `TargetSchema`, `TargetTable`.        |
-| `MeasurementRecord`            | Privacy-safe snapshot: identity, times, verdicts, tags, counts, facts, and errors.            |
-| `BaselineStore`                | Caller-implemented `Get(ctx, key) ([]MeasurementRecord, error)` lookup shape only.            |
-| `MeasurementRecordsFromExport` | Maps report-level target/scope/times onto each record; never copies samples/keys/diagnostics. |
+| Type / API                     | Role                                                                                                |
+| ------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `MeasurementKey`               | Lookup key: `(ResultID, SegmentID)` plus optional `Kind`, `ScopeID`, `TargetSchema`, `TargetTable`. |
+| `MeasurementRecord`            | Privacy-safe snapshot: composite identity, times, verdicts, tags, counts, facts, and errors.        |
+| `BaselineStore`                | Caller-implemented `Get(ctx, key) ([]MeasurementRecord, error)` lookup shape only.                  |
+| `MeasurementRecordsFromExport` | Maps report-level target/scope/times onto each record; never copies samples/keys/diagnostics.       |
 
-`ResultID` is the primary join field. Kind, scope id, and target schema/table
-are included on `MeasurementKey` as optional series/conflict checks when set;
-empty optional fields do not constrain a caller-owned store. Do not join renamed
-targets silently. Report-level `DataTime` / `EvaluationTime` are copied onto
-each `MeasurementRecord` when present; evaluation-time comes only from
-caller-owned `WithEvaluationTime` (Spec 03 observer duration is not
-evaluation-time). ContinueOnError slots keep `PolicyVerdictUnevaluated` with a
-distinct `ExecutionOutcome` rather than a policy failure. History mapping
-retains categorized `errors[]` while applying export-safe messages
+`(ResultID, SegmentID)` identifies a measurement series; `SegmentID` is empty
+for unsegmented reports. Kind, scope id, and target schema/table are included on
+`MeasurementKey` as optional series/conflict checks when set; empty optional
+fields do not constrain a caller-owned store. Do not join renamed targets
+silently. Report-level `DataTime` / `EvaluationTime` are copied onto each
+`MeasurementRecord` when present; evaluation-time comes only from caller-owned
+`WithEvaluationTime` (Spec 03 observer duration is not evaluation-time).
+ContinueOnError slots keep `PolicyVerdictUnevaluated` with a distinct
+`ExecutionOutcome` rather than a policy failure. History mapping retains
+categorized `errors[]` while applying export-safe messages
 (`gxsql: <category>`); it does not pass through arbitrary `Message` text from a
 hand-built DTO. Existing structured `Facts` are the metric comparison shape;
 category and share stay inside nested facts such as `facts.frequency`.
 
-`WithID` remains the existing optional API. The mapper rejects blank and
-duplicate export IDs. gxsql does not persist, window, compare, or enforce
-baselines, and ships no storage implementation, scheduler, or anomaly helper.
-Callers own append and lookup. Encode JSON with `json.Marshal`; there is no
-public decoder.
+`WithID` remains the existing optional API. The mapper rejects blank result IDs
+and duplicate `(ResultID, SegmentID)` pairs. gxsql does not persist, window,
+compare, or enforce baselines, and ships no storage implementation, scheduler,
+or anomaly helper. Callers own append and lookup. Encode JSON with
+`json.Marshal`; there is no public decoder.
 
 ## Broader Metric Facts
 

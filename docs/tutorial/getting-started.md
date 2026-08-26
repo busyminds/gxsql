@@ -121,8 +121,9 @@ byte-for-byte against `Rows.Columns()`. They do not validate types, nullability,
 or column order. For catalog nullability and exact driver-reported type names,
 use capability-gated `ColumnNullability` and `ColumnType` (see the
 [schema contracts reference](../reference/expectations.md#schema-contracts)).
-Run structural checks in a separate unscoped suite; `WithScope` is rejected at
-preflight for name contracts and catalog contracts alike:
+Run structural checks in a separate unscoped, unsegmented suite; population
+filters (`WithScope` / `WithSegments`) are rejected at preflight for name
+contracts and catalog contracts alike:
 
 ```go
 structure := gxsql.NewSuite(

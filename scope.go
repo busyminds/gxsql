@@ -1,6 +1,7 @@
 package gxsql
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -15,6 +16,102 @@ type Scope struct {
 	identity  string
 	predicate string
 	values    []any
+}
+
+// MaxSegments is the maximum number of named populations in one validation run.
+const MaxSegments = 32
+
+// Segment is an immutable named population definition containing a trusted
+// dialect-neutral predicate and its bound values.
+type Segment struct {
+	identity  string
+	predicate string
+	values    []any
+}
+
+// TrustedSegment constructs a Segment from trusted Go-code predicate input.
+// Validation is deferred until the segment is attached to ValidateTable.
+func TrustedSegment(id, predicate string, args ...any) Segment {
+	return Segment{
+		identity:  id,
+		predicate: predicate,
+		values:    copyScopeValues(args),
+	}
+}
+
+// validateSegments normalizes and validates every segment before evaluation.
+// The returned values are independent of the caller's Segment storage.
+func validateSegments(segments []Segment) ([]Segment, error) {
+	if len(segments) == 0 {
+		return nil, newConfigError(errors.New("at least one segment is required"))
+	}
+	if len(segments) > MaxSegments {
+		return nil, newConfigError(fmt.Errorf("at most %d segments are allowed", MaxSegments))
+	}
+
+	validated := make([]Segment, len(segments))
+	seen := make(map[string]int, len(segments))
+	var validationErrs []error
+	for i, segment := range segments {
+		id := strings.TrimSpace(segment.identity)
+		if id == "" {
+			validationErrs = append(validationErrs,
+				newConfigError(errors.New("segment identity is required")))
+		} else if previous, ok := seen[id]; ok {
+			validationErrs = append(validationErrs, newConfigError(fmt.Errorf(
+				"duplicate segment id %q (also at index %d)", id, previous,
+			)))
+		} else {
+			seen[id] = i
+		}
+
+		trimmedPredicate := strings.TrimSpace(segment.predicate)
+		if trimmedPredicate == "" {
+			if len(segment.values) > 0 {
+				validationErrs = append(validationErrs,
+					newConfigError(errors.New("segment values require a predicate")))
+			} else {
+				validationErrs = append(validationErrs,
+					newConfigError(errors.New("segment predicate is required")))
+			}
+		} else {
+			slots, err := scanNeutralSlots(segment.predicate)
+			if err != nil {
+				validationErrs = append(validationErrs, err)
+			} else if slots != len(segment.values) {
+				validationErrs = append(validationErrs, newConfigError(fmt.Errorf(
+					"segment predicate has %d placeholders but %d values",
+					slots, len(segment.values),
+				)))
+			}
+		}
+
+		validated[i] = Segment{
+			identity:  id,
+			predicate: segment.predicate,
+			values:    copyScopeValues(segment.values),
+		}
+	}
+	if len(validationErrs) > 0 {
+		return nil, errors.Join(validationErrs...)
+	}
+	return validated, nil
+}
+
+// composeSegmentScope adds one segment population after the run-wide scope.
+// The run-wide identity remains the only scope identity published by reports.
+func composeSegmentScope(scope *trustedScope, segment Segment) trustedScope {
+	if scope == nil {
+		return trustedScope{
+			predicate: segment.predicate,
+			values:    copyScopeValues(segment.values),
+		}
+	}
+	return trustedScope{
+		identity:  scope.identity,
+		predicate: "(" + scope.predicate + ") AND (" + segment.predicate + ")",
+		values:    append(append([]any(nil), scope.values...), segment.values...),
+	}
 }
 
 // trustedScope preserves the internal Spec 05 scope name while exposing the

@@ -217,6 +217,8 @@ func (it *FailureKeyIterator) Close() error {
 }
 
 // ForResultID selects the report result with the given stable [Result.ID].
+// Segmented reports repeat IDs across segments, so ID selection is ambiguous
+// there; use [ForResultIndex] to pick a segment-major result slot.
 func ForResultID(id string) Option {
 	return func(cfg *validateConfig) {
 		cfg.failingKeysID = id
@@ -224,7 +226,9 @@ func ForResultID(id string) Option {
 	}
 }
 
-// ForResultIndex selects the report result at the given declaration-order index.
+// ForResultIndex selects the report result at the given index into
+// [Report.Results]. Unsegmented reports use expectation declaration order;
+// segmented reports use segment-major then expectation order.
 func ForResultIndex(index int) Option {
 	return func(cfg *validateConfig) {
 		cfg.failingKeysIndex = index
@@ -233,7 +237,9 @@ func ForResultIndex(index int) Option {
 }
 
 // ForKind selects the sole report result with the given [ExpectationKind].
-// Multiple matches are rejected as ambiguous.
+// Multiple matches are rejected as ambiguous. Segmented reports repeat kinds
+// across segments, so kind selection is ambiguous there; use [ForResultIndex]
+// to pick a segment-major result slot.
 func ForKind(kind ExpectationKind) Option {
 	return func(cfg *validateConfig) {
 		cfg.failingKeysKind = kind
@@ -246,8 +252,10 @@ func ForKind(kind ExpectationKind) Option {
 // deterministic SELECT ... ORDER BY key columns and never retains the full set
 // on [Report]. [WithKey] (or retained report key columns from ValidateTable
 // [WithKey]) is required. Target binding via [ForResultID], [ForResultIndex],
-// or [ForKind] is required and must be unambiguous. Unsupported expectations
-// return [CategoryUnsupported].
+// or [ForKind] is required and must be unambiguous. Segmented reports repeat
+// expectation IDs and kinds per segment, so [ForResultID] and [ForKind] are
+// typically ambiguous; [ForResultIndex] selects the segment-major result slot.
+// Unsupported expectations return [CategoryUnsupported].
 func FailingKeys(
 	ctx context.Context,
 	db DB,

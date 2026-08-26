@@ -276,6 +276,94 @@ func TestFailingKeysSelectsStableIDAndIndexInMultiExpectationSuite(t *testing.T)
 	}
 }
 
+// TestFailingKeysSegmentedIDKindAmbiguousButIndexSelectsSegment locks that
+// segmented reports repeat IDs/kinds across segments (so ForResultID/ForKind
+// are ambiguous) while ForResultIndex addresses the segment-major result slot.
+func TestFailingKeysSegmentedIDKindAmbiguousButIndexSelectsSegment(t *testing.T) {
+	setHarnessData(t, harnessUsers(
+		map[string]any{"id": int64(1), "region": "EU", "age": int64(200)},
+		map[string]any{"id": int64(2), "region": "EU", "age": int64(25)},
+		map[string]any{"id": int64(3), "region": "US", "age": int64(300)},
+		map[string]any{"id": int64(4), "region": "US", "age": int64(30)},
+	))
+	db := openHarnessDB(t)
+	table := Table("users")
+	segments := []Segment{
+		TrustedSegment("eu", "region = ?", "EU"),
+		TrustedSegment("us", "region = ?", "US"),
+	}
+
+	rep, err := NewSuite(
+		WithID("users.age.between", Int("age").Between(0, 120)),
+	).ValidateTable(
+		context.Background(), db, table,
+		WithDialect(Postgres()),
+		WithSegments(segments...),
+		WithKey("id"),
+		SummaryOnly(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Results) != 2 {
+		t.Fatalf("results len = %d, want 2 (segment-major)", len(rep.Results))
+	}
+	if rep.Results[0].SegmentID != "eu" || rep.Results[1].SegmentID != "us" {
+		t.Fatalf("segment order = %q/%q, want eu/us",
+			rep.Results[0].SegmentID, rep.Results[1].SegmentID)
+	}
+	if rep.Results[0].ID != "users.age.between" || rep.Results[1].ID != "users.age.between" {
+		t.Fatalf("repeated IDs = %q/%q", rep.Results[0].ID, rep.Results[1].ID)
+	}
+	if rep.Results[0].Kind != KindBetween || rep.Results[1].Kind != KindBetween {
+		t.Fatalf("repeated kinds = %q/%q", rep.Results[0].Kind, rep.Results[1].Kind)
+	}
+
+	_, err = FailingKeys(context.Background(), db, table, rep,
+		ForResultID("users.age.between"),
+		WithDialect(Postgres()),
+	)
+	assertFailingKeysCategorized(t, err, CategoryInvalidConfig)
+	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("ForResultID err = %v, want ambiguous", err)
+	}
+
+	_, err = FailingKeys(context.Background(), db, table, rep,
+		ForKind(KindBetween),
+		WithDialect(Postgres()),
+	)
+	assertFailingKeysCategorized(t, err, CategoryInvalidConfig)
+	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("ForKind err = %v, want ambiguous", err)
+	}
+
+	euKeys, err := FailingKeys(context.Background(), db, table, rep,
+		ForResultIndex(0),
+		WithDialect(Postgres()),
+	)
+	if err != nil {
+		t.Fatalf("ForResultIndex(0): %v", err)
+	}
+	gotEU := collectFailingKeys(t, euKeys)
+	wantEU := []RowKey{{int64(1)}}
+	if !reflect.DeepEqual(gotEU, wantEU) {
+		t.Fatalf("ForResultIndex(0) keys = %#v, want %#v (EU segment)", gotEU, wantEU)
+	}
+
+	usKeys, err := FailingKeys(context.Background(), db, table, rep,
+		ForResultIndex(1),
+		WithDialect(Postgres()),
+	)
+	if err != nil {
+		t.Fatalf("ForResultIndex(1): %v", err)
+	}
+	gotUS := collectFailingKeys(t, usKeys)
+	wantUS := []RowKey{{int64(3)}}
+	if !reflect.DeepEqual(gotUS, wantUS) {
+		t.Fatalf("ForResultIndex(1) keys = %#v, want %#v (US segment)", gotUS, wantUS)
+	}
+}
+
 func TestFailingKeysHonorsWhenEligibilityAndScopeIdentity(t *testing.T) {
 	setHarnessData(t, scopedHarnessUsers("tenant_id", "t1",
 		map[string]any{"id": int64(1), "status": "shipped", "age": int64(25)},

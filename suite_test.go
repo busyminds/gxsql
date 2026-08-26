@@ -862,3 +862,409 @@ func TestSharedScalarEvaluationScanErrorContinueOnErrorAffectsOnlyCompatibleSlot
 	}
 	assertSharedScalarNoSequentialFallback(t, db.queries)
 }
+
+func TestSegmentedValidationPreservesOrderAndIdentity(t *testing.T) {
+	setHarnessData(t, harnessUsers(
+		map[string]any{"id": int64(1), "region": "EU", "age": int64(25)},
+		map[string]any{"id": int64(2), "region": "EU", "age": int64(200)},
+		map[string]any{"id": int64(3), "region": "US", "age": int64(30)},
+	))
+	suite := NewSuite(
+		WithID("age-valid", Int("age").Between(0, 120)),
+		WithID("rows", RowCount().Equal(2)),
+	)
+	segments := []Segment{
+		TrustedSegment(" eu ", "region = ?", "EU"),
+		TrustedSegment("us", "region = ?", "US"),
+	}
+
+	rep, err := suite.ValidateTable(
+		context.Background(), openHarnessDB(t), Table("users"),
+		WithDialect(Postgres()), WithSegments(segments...),
+	)
+	if err != nil {
+		t.Fatalf("ValidateTable error = %v", err)
+	}
+	if len(rep.Results) != 4 {
+		t.Fatalf("results len = %d, want 4", len(rep.Results))
+	}
+	wantSegments := []string{"eu", "eu", "us", "us"}
+	wantIDs := []string{"age-valid", "rows", "age-valid", "rows"}
+	for i, result := range rep.Results {
+		if result.SegmentID != wantSegments[i] || result.ID != wantIDs[i] {
+			t.Fatalf("result[%d] = %#v, want segment=%q id=%q",
+				i, result, wantSegments[i], wantIDs[i])
+		}
+	}
+	if rep.Results[0].Success || !rep.Results[1].Success {
+		t.Fatal("EU segment should fail age and pass row-count policy")
+	}
+	if !rep.Results[2].Success || rep.Results[3].Success {
+		t.Fatal("US segment should pass age and fail row-count policy")
+	}
+	if rep.Results[0].Total != 2 || rep.Results[2].Total != 1 {
+		t.Fatalf("segment totals = %d/%d, want 2/1",
+			rep.Results[0].Total, rep.Results[2].Total)
+	}
+
+	control, err := suite.ValidateTable(
+		context.Background(), openHarnessDB(t), Table("users"),
+		WithDialect(Postgres()),
+	)
+	if err != nil {
+		t.Fatalf("unsegmented ValidateTable error = %v", err)
+	}
+	if len(control.Results) != 2 || control.Results[0].SegmentID != "" ||
+		control.Results[1].SegmentID != "" {
+		t.Fatalf("unsegmented results = %#v, want blank SegmentID", control.Results)
+	}
+}
+
+func TestTrustedSegmentDefensivelyCopiesByteArguments(t *testing.T) {
+	setHarnessData(t, harnessUsers(
+		map[string]any{"id": int64(1), "region": []byte("EU")},
+	))
+	segmentArgs := []any{[]byte("EU")}
+	segment := TrustedSegment("eu", "region = ?", segmentArgs...)
+	segmentArgs[0].([]byte)[0] = 'X'
+
+	rep, err := NewSuite(RowCount().Equal(1)).ValidateTable(
+		context.Background(), openHarnessDB(t), Table("users"),
+		WithDialect(Postgres()), WithSegments(segment),
+	)
+	if err != nil {
+		t.Fatalf("ValidateTable error = %v", err)
+	}
+	if len(rep.Results) != 1 || !rep.Results[0].Success {
+		t.Fatalf("result = %#v, want copied EU argument to pass", rep.Results)
+	}
+}
+
+func TestSegmentedValidationEnforcesMaxSegmentsBeforeSQL(t *testing.T) {
+	setHarnessData(t, harnessUsers(
+		map[string]any{"id": int64(1), "region": "EU"},
+	))
+	segments := make([]Segment, MaxSegments)
+	for i := range segments {
+		segments[i] = TrustedSegment(fmt.Sprintf("segment-%d", i), "region = ?", "EU")
+	}
+	rep, err := NewSuite(RowCount().Equal(1)).ValidateTable(
+		context.Background(), openHarnessDB(t), Table("users"),
+		WithDialect(Postgres()), WithSegments(segments...),
+	)
+	if err != nil {
+		t.Fatalf("exact maximum should be accepted: %v", err)
+	}
+	if len(rep.Results) != MaxSegments {
+		t.Fatalf("results len = %d, want %d", len(rep.Results), MaxSegments)
+	}
+
+	counter := openCountingHarnessDB(t)
+	segments = append(segments, TrustedSegment("too-many", "region = ?", "EU"))
+	rep, err = NewSuite(RowCount().Equal(1)).ValidateTable(
+		context.Background(), counter, Table("users"),
+		WithDialect(Postgres()), WithSegments(segments...),
+	)
+	if err == nil || !errors.Is(err, ErrCategoryInvalidConfig) {
+		t.Fatalf("33 segments error = %v, want invalid_config", err)
+	}
+	if len(rep.Results) != 0 || counter.queries != 0 {
+		t.Fatalf("33-segment run = report=%#v queries=%d, want zero report and SQL",
+			rep, counter.queries)
+	}
+}
+
+func TestSegmentConfigurationFailsBeforeSQLRegardlessOfContinueOnError(t *testing.T) {
+	tests := []struct {
+		name     string
+		segments []Segment
+		category error
+	}{
+		{
+			name:     "blank id",
+			segments: []Segment{TrustedSegment(" ", "region = ?", "EU")},
+			category: ErrCategoryInvalidConfig,
+		},
+		{
+			name: "duplicate trimmed id",
+			segments: []Segment{
+				TrustedSegment(" eu ", "region = ?", "EU"),
+				TrustedSegment("eu", "region = ?", "EU"),
+			},
+			category: ErrCategoryInvalidConfig,
+		},
+		{
+			name:     "blank predicate",
+			segments: []Segment{TrustedSegment("eu", " ")},
+			category: ErrCategoryInvalidConfig,
+		},
+		{
+			name:     "too few values",
+			segments: []Segment{TrustedSegment("eu", "region = ? AND id = ?", "EU")},
+			category: ErrCategoryInvalidConfig,
+		},
+		{
+			name:     "too many values",
+			segments: []Segment{TrustedSegment("eu", "region = ?", "EU", "extra")},
+			category: ErrCategoryInvalidConfig,
+		},
+		{
+			name:     "unsupported neutral syntax",
+			segments: []Segment{TrustedSegment("eu", "note = 'what?'")},
+			category: ErrCategoryUnsupported,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			setHarnessData(t, harnessUsers(map[string]any{"id": int64(1), "region": "EU"}))
+			counter := openCountingHarnessDB(t)
+			for _, opts := range [][]Option{{WithSegments(tc.segments...)}, {
+				WithSegments(tc.segments...), ContinueOnError(),
+			}} {
+				rep, err := NewSuite(RowCount().Equal(1)).ValidateTable(
+					context.Background(), counter, Table("users"),
+					append([]Option{WithDialect(Postgres())}, opts...)...,
+				)
+				if err == nil || !errors.Is(err, tc.category) {
+					t.Fatalf("error = %v, want category %v", err, tc.category)
+				}
+				if len(rep.Results) != 0 {
+					t.Fatalf("report = %#v, want zero report", rep)
+				}
+				if counter.queries != 0 {
+					t.Fatalf("queries = %d, want zero before segment error", counter.queries)
+				}
+			}
+		})
+	}
+
+	setHarnessData(t, harnessUsers(map[string]any{"id": int64(1), "region": "EU"}))
+	counter := openCountingHarnessDB(t)
+	rep, err := NewSuite(RowCount().Equal(1)).ValidateTable(
+		context.Background(), counter, Table("users"),
+		WithDialect(Postgres()), WithSegments(), ContinueOnError(),
+	)
+	if err == nil || !errors.Is(err, ErrCategoryInvalidConfig) ||
+		len(rep.Results) != 0 || counter.queries != 0 {
+		t.Fatalf("empty WithSegments = report=%#v err=%v queries=%d",
+			rep, err, counter.queries)
+	}
+}
+
+func TestSegmentedValidationRejectsStructuralExpectationsDuringPreflight(t *testing.T) {
+	setHarnessData(t, harnessUsers(map[string]any{"id": int64(1), "region": "EU"}))
+	segments := []Segment{
+		TrustedSegment("eu", "region = ?", "EU"),
+		TrustedSegment("us", "region = ?", "US"),
+	}
+	counter := openCountingHarnessDB(t)
+	_, err := NewSuite(RequiredColumns("id")).ValidateTable(
+		context.Background(), counter, Table("users"),
+		WithDialect(Postgres()), WithSegments(segments...),
+	)
+	var preflight *PreflightErrors
+	if err == nil || !errors.As(err, &preflight) ||
+		!errors.Is(err, ErrCategoryInvalidConfig) || counter.queries != 0 {
+		t.Fatalf("structural preflight = err=%v queries=%d, want invalid_config without SQL",
+			err, counter.queries)
+	}
+	if !strings.Contains(err.Error(), "population filters are incompatible with structural column expectations") {
+		t.Fatalf("structural diagnostic = %v, want population-filter message", err)
+	}
+	if strings.Contains(err.Error(), "WithScope is incompatible") {
+		t.Fatalf("structural diagnostic = %v, must not hard-code WithScope", err)
+	}
+
+	counter = openCountingHarnessDB(t)
+	rep, err := NewSuite(
+		RequiredColumns("id"),
+		RowCount().Equal(1),
+	).ValidateTable(
+		context.Background(), counter, Table("users"),
+		WithDialect(Postgres()), WithSegments(segments...), ContinueOnError(),
+	)
+	if err != nil || len(rep.Results) != 4 {
+		t.Fatalf("ContinueOnError structural report = %#v err=%v", rep, err)
+	}
+	for i := range rep.Results {
+		if i%2 == 0 {
+			if rep.Results[i].Err == nil || rep.Results[i].SegmentID == "" {
+				t.Fatalf("structural slot[%d] = %#v, want segment error", i, rep.Results[i])
+			}
+		} else if rep.Results[i].Err != nil {
+			t.Fatalf("compatible slot[%d] = %#v, want no execution error", i, rep.Results[i])
+		}
+	}
+	if counter.queries == 0 {
+		t.Fatal("compatible expectations should execute under ContinueOnError")
+	}
+}
+
+func TestSegmentedValidationIsolatesDenominatorAndSharedScalarCaches(t *testing.T) {
+	setHarnessData(t, harnessUsers(
+		map[string]any{"id": int64(1), "region": "EU", "age": int64(25)},
+		map[string]any{"id": int64(2), "region": "EU", "age": int64(200)},
+		map[string]any{"id": int64(3), "region": "US", "age": int64(30)},
+	))
+	db := openRecordingHarnessDB(t)
+	rep, err := NewSuite(
+		Int("age").Between(0, 120),
+		Column("age").NotNull(),
+	).ValidateTable(
+		context.Background(), db, Table("users"),
+		WithDialect(Postgres()),
+		WithSegments(
+			TrustedSegment("eu", "region = ?", "EU"),
+			TrustedSegment("us", "region = ?", "US"),
+		),
+		SummaryOnly(), WithSampleCap(0), WithSharedScalarEvaluation(),
+	)
+	if err != nil {
+		t.Fatalf("ValidateTable error = %v", err)
+	}
+	if len(rep.Results) != 4 {
+		t.Fatalf("results len = %d, want 4", len(rep.Results))
+	}
+	if rep.Results[0].Total != 2 || rep.Results[2].Total != 1 {
+		t.Fatalf("shared segment totals = %d/%d, want 2/1",
+			rep.Results[0].Total, rep.Results[2].Total)
+	}
+	if len(db.queries) != 4 {
+		t.Fatalf("queries = %d, want one total and one shared batch per segment", len(db.queries))
+	}
+}
+
+func TestSegmentedValidationEmptyPopulationUsesZeroSemantics(t *testing.T) {
+	setHarnessData(t, harnessUsers(
+		map[string]any{"id": int64(1), "region": "EU", "age": int64(25)},
+	))
+	rep, err := NewSuite(
+		WithMaxFailedCount(1, Int("age").Between(0, 120)),
+	).ValidateTable(
+		context.Background(), openHarnessDB(t), Table("users"),
+		WithDialect(Postgres()),
+		WithSegments(TrustedSegment("empty", "region = ?", "missing")),
+	)
+	if err != nil {
+		t.Fatalf("ValidateTable error = %v", err)
+	}
+	res := rep.Results[0]
+	if res.Total != 0 || res.FailedCount != 0 || res.FailedPercent != 0 ||
+		!res.Success || res.Tolerated {
+		t.Fatalf("empty segment result = %#v, want zero passing semantics", res)
+	}
+}
+
+func TestSegmentedValidationContinueOnErrorRunsLaterSegments(t *testing.T) {
+	db := &recordingDB{DB: openErrorDB(t)}
+	suite := NewSuite(
+		Int("age").Between(0, 120),
+		String("email").NotEmpty(),
+	)
+	segments := []Segment{
+		TrustedSegment("eu", "region = ?", "EU"),
+		TrustedSegment("us", "region = ?", "US"),
+	}
+	rep, err := suite.ValidateTable(
+		context.Background(), db, Table("users"),
+		WithDialect(Postgres()), WithSegments(segments...), ContinueOnError(),
+	)
+	if err != nil || len(rep.Results) != 4 {
+		t.Fatalf("ContinueOnError report = %#v err=%v, want four segment slots", rep, err)
+	}
+	for i, result := range rep.Results {
+		if result.Err == nil || result.SegmentID != segments[i/2].identity ||
+			result.Success {
+			t.Fatalf("result[%d] = %#v, want execution failure for segment %q",
+				i, result, segments[i/2].identity)
+		}
+	}
+	if len(db.queries) != 2 {
+		t.Fatalf("queries = %d, want one shared denominator attempt per segment", len(db.queries))
+	}
+
+	defaultDB := &recordingDB{DB: openErrorDB(t)}
+
+	rep, err = suite.ValidateTable(
+		context.Background(), defaultDB, Table("users"),
+		WithDialect(Postgres()), WithSegments(segments...),
+	)
+	if err == nil || len(rep.Results) != 0 || len(defaultDB.queries) != 1 {
+		t.Fatalf("default execution error = report=%#v err=%v queries=%d",
+			rep, err, len(defaultDB.queries))
+	}
+}
+func TestSegmentedValidationBindsScopeSegmentEligibilityAndExpectationOrder(t *testing.T) {
+	setHarnessData(t, harnessUsers(
+		map[string]any{
+			"id": int64(1), "tenant_id": "tenant-a", "region": "EU",
+			"status": "shipped", "age": int64(25),
+		},
+		map[string]any{
+			"id": int64(2), "tenant_id": "tenant-a", "region": "EU",
+			"status": "shipped", "age": int64(200),
+		},
+	))
+	exp := When(
+		TrustedEligibility("shipped", "status = ?", "shipped"),
+		Int("age").Between(0, 120),
+	)
+	for _, tc := range []struct {
+		name    string
+		dialect Dialect
+	}{
+		{name: "postgres", dialect: Postgres()},
+		{name: "sqlite", dialect: SQLite()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dialect := tc.dialect
+			db := openRecordingHarnessDB(t)
+			rep, err := NewSuite(exp).ValidateTable(
+				context.Background(), db, Table("users"),
+				WithDialect(dialect),
+				WithScope(TrustedScope("tenant", "tenant_id = ?", "tenant-a")),
+				WithSegments(TrustedSegment(" eu ", "region = ?", "EU")),
+			)
+			if err != nil {
+				t.Fatalf("ValidateTable error = %v", err)
+			}
+			if len(rep.Results) != 1 || rep.Results[0].SegmentID != "eu" {
+				t.Fatalf("results = %#v, want one eu result", rep.Results)
+			}
+			if len(db.queries) < 2 {
+				t.Fatalf("queries = %d, want total and failure statements", len(db.queries))
+			}
+			total, failure := db.queries[0], db.queries[1]
+			assertQueryArgs(t, total, []any{"tenant-a", "EU", "shipped"})
+			assertQueryArgs(t, failure, []any{"tenant-a", "EU", "shipped", 0, 120})
+			for _, query := range []recordedQuery{total, failure} {
+				for _, value := range []string{"tenant-a", "EU", "shipped"} {
+					if strings.Contains(query.text, value) {
+						t.Fatalf("query %q interpolates bound value %q", query.text, value)
+					}
+				}
+			}
+			if dialect == Postgres() {
+				if !strings.Contains(total.text, "$1") ||
+					!strings.Contains(total.text, "$2") ||
+					!strings.Contains(total.text, "$3") {
+					t.Fatalf("postgres total placeholders = %q", total.text)
+				}
+			} else if strings.Contains(total.text, "$") {
+				t.Fatalf("sqlite query contains numbered placeholder: %q", total.text)
+			}
+		})
+	}
+}
+
+func assertQueryArgs(t *testing.T, query recordedQuery, want []any) {
+	t.Helper()
+	if len(query.args) != len(want) {
+		t.Fatalf("query args = %#v, want %#v", query.args, want)
+	}
+	for i := range want {
+		if !valuesEqual(query.args[i], want[i]) {
+			t.Fatalf("query arg[%d] = %#v, want %#v", i, query.args[i], want[i])
+		}
+	}
+}

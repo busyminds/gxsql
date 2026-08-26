@@ -38,6 +38,9 @@ func TestMeasurementRecordsFromExportIdentityMapping(t *testing.T) {
 	if rec.ResultID != "rows.equal" {
 		t.Fatalf("ResultID = %q", rec.ResultID)
 	}
+	if rec.SegmentID != "" {
+		t.Fatalf("SegmentID = %q, want empty for unsegmented", rec.SegmentID)
+	}
 	if rec.Kind != KindRowCountEqual {
 		t.Fatalf("Kind = %q, want %q", rec.Kind, KindRowCountEqual)
 	}
@@ -261,6 +264,86 @@ func TestMeasurementRecordsFromExportBlankAndDuplicateIDRejected(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 	if !strings.Contains(err.Error(), `duplicate measurement result id "same"`) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestMeasurementRecordsFromExportSegmentedCompositeIdentity(t *testing.T) {
+	ok := ExportedReport{
+		SchemaVersion: ExportSchemaVersion,
+		Results: []ExportedResult{
+			{
+				ID:               "rows",
+				SegmentID:        "eu",
+				Kind:             KindRowCountEqual,
+				Severity:         "error",
+				PolicyVerdict:    PolicyVerdictPass,
+				ExecutionOutcome: ExecutionOutcomeOK,
+				RowDenominator:   RowDenominatorUnavailable,
+			},
+			{
+				ID:               "rows",
+				SegmentID:        "us",
+				Kind:             KindRowCountEqual,
+				Severity:         "error",
+				PolicyVerdict:    PolicyVerdictPass,
+				ExecutionOutcome: ExecutionOutcomeOK,
+				RowDenominator:   RowDenominatorUnavailable,
+			},
+		},
+	}
+	recs, err := MeasurementRecordsFromExport(ok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 2 {
+		t.Fatalf("len = %d, want 2", len(recs))
+	}
+	if recs[0].ResultID != "rows" || recs[0].SegmentID != "eu" {
+		t.Fatalf("rec[0] = %q / %q", recs[0].ResultID, recs[0].SegmentID)
+	}
+	if recs[1].ResultID != "rows" || recs[1].SegmentID != "us" {
+		t.Fatalf("rec[1] = %q / %q", recs[1].ResultID, recs[1].SegmentID)
+	}
+	keyEU := MeasurementKey{ResultID: recs[0].ResultID, SegmentID: recs[0].SegmentID}
+	keyUS := MeasurementKey{ResultID: recs[1].ResultID, SegmentID: recs[1].SegmentID}
+	keyUnseg := MeasurementKey{ResultID: "rows"}
+	if keyEU == keyUS || keyEU == keyUnseg || keyUS == keyUnseg {
+		t.Fatalf("segmented keys must stay distinct: %#v %#v %#v", keyEU, keyUS, keyUnseg)
+	}
+
+	dup := ExportedReport{
+		Results: []ExportedResult{
+			{
+				ID:               "rows",
+				SegmentID:        "eu",
+				Kind:             KindRowCountEqual,
+				Severity:         "error",
+				PolicyVerdict:    PolicyVerdictPass,
+				ExecutionOutcome: ExecutionOutcomeOK,
+				RowDenominator:   RowDenominatorUnavailable,
+			},
+			{
+				ID:               "rows",
+				SegmentID:        "eu",
+				Kind:             KindNotNull,
+				Column:           "email",
+				Severity:         "error",
+				PolicyVerdict:    PolicyVerdictPass,
+				ExecutionOutcome: ExecutionOutcomeOK,
+				RowDenominator:   RowDenominatorAvailable,
+			},
+		},
+	}
+	_, err = MeasurementRecordsFromExport(dup)
+	if err == nil {
+		t.Fatal("expected duplicate id+segment error")
+	}
+	var ce *CategorizedError
+	if !errors.As(err, &ce) || ce.Category != CategoryInvalidConfig {
+		t.Fatalf("got %v", err)
+	}
+	if !strings.Contains(err.Error(), `duplicate measurement result id "rows" segment "eu"`) {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -553,9 +636,13 @@ func TestBaselineStoreIsCallerOwnedInterfaceOnly(t *testing.T) {
 		t.Fatalf("BaselineStore methods = %+v", typ.Method(0))
 	}
 	keyTyp := reflect.TypeOf(MeasurementKey{})
-	for _, name := range []string{"ResultID", "Kind", "ScopeID", "TargetSchema", "TargetTable"} {
+	for _, name := range []string{"ResultID", "SegmentID", "Kind", "ScopeID", "TargetSchema", "TargetTable"} {
 		if _, ok := keyTyp.FieldByName(name); !ok {
 			t.Fatalf("MeasurementKey missing %s", name)
 		}
+	}
+	recTyp := reflect.TypeOf(MeasurementRecord{})
+	if _, ok := recTyp.FieldByName("SegmentID"); !ok {
+		t.Fatal("MeasurementRecord missing SegmentID")
 	}
 }

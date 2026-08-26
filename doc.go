@@ -22,9 +22,11 @@
 //		// Validation completed, but one or more policies failed.
 //	}
 //
-// ValidateTable evaluates expectations in declaration order. A policy failure
-// is part of the returned Report, not the returned error. Configuration and
-// execution failures return an error unless [ContinueOnError] is selected.
+// ValidateTable evaluates expectations in declaration order when unsegmented.
+// WithSegments evaluates scope-compatible expectations in segment-major order.
+// A policy failure is part of the returned Report, not the returned error.
+// Configuration and execution failures return an error unless
+// [ContinueOnError] is selected.
 // The default dialect is [Postgres]; pass [WithDialect] explicitly when the
 // database uses another engine.
 //
@@ -49,9 +51,11 @@
 // [MaxFailedPercent] add failure tolerance only to eligible row-based
 // expectations.
 //
-// Reports preserve declaration order. Use [Report.OK], [Report.Err], and the
-// report filter methods to inspect outcomes. Use [WithID] for stable machine
-// identity; [Result.Name] is display text and is not an identifier.
+// Reports preserve their evaluation order: expectation declaration order when
+// unsegmented, and segment-major order with [WithSegments]. Use [Report.OK],
+// [Report.Err], and the report filter methods to inspect outcomes. Use [WithID]
+// for stable machine identity; [Result.Name] is display text and is not an
+// identifier.
 //
 // [ExportReport] creates a versioned, privacy-safe data transfer object.
 // Samples, failed keys, SQL text, and bound arguments are omitted by default.

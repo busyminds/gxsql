@@ -35,10 +35,11 @@ data, err := json.Marshal(exported)
 
 The schema version is `gxsql.report.v1`. Version 1 preserves result declaration
 order and exports IDs, kinds, display names, verdicts, counts, facts, and
-categorized errors. Per-result machine identity starts with `id` and `kind`.
-Run-level joins also use `scope.id`, optional `target`, and caller-owned
-`data_time` / `evaluation_time` when present. Display names are not join keys.
-The format does not promise a public decoder.
+categorized errors. Per-result machine identity starts with `id`, optional
+`segment_id`, and `kind`. `segment_id` is present only for segmented runs and is
+omitted when empty. Run-level joins also use `scope.id`, optional `target`, and
+caller-owned `data_time` / `evaluation_time` when present. Display names are not
+join keys. The format does not promise a public decoder.
 
 Custom-count results export only `counts.failed` when evaluation succeeds.
 `counts.total` and `counts.failed_percent` are omitted because no row
@@ -90,7 +91,10 @@ if err := history.Append(ctx, records); err != nil { // caller-owned
     return err
 }
 
-key := gxsql.MeasurementKey{ResultID: "users.email.not-empty"}
+key := gxsql.MeasurementKey{
+    ResultID:  "users.email.not-empty",
+    SegmentID: "eu", // empty for unsegmented reports
+}
 if exported.Scope != nil {
     key.ScopeID = exported.Scope.ID
 }
@@ -103,19 +107,21 @@ prior, err := history.Get(ctx, key)
 
 Join vocabulary:
 
-| Field                            | Role                                |
-| -------------------------------- | ----------------------------------- |
-| result `id` / `ResultID`         | Primary lookup from `WithID`        |
-| `kind`                           | Optional series/conflict check      |
-| `scope.id`                       | Optional partition/scope check      |
-| `target.schema` / `target.table` | Contextual series/conflict identity |
-| `data_time` / `evaluation_time`  | Caller-owned timeline fields        |
+| Field                            | Role                                            |
+| -------------------------------- | ----------------------------------------------- |
+| result `id` / `ResultID`         | Expectation identity from `WithID`              |
+| `segment_id` / `SegmentID`       | Segment identity; empty for unsegmented reports |
+| `kind`                           | Optional series/conflict check                  |
+| `scope.id`                       | Optional partition/scope check                  |
+| `target.schema` / `target.table` | Contextual series/conflict identity             |
+| `data_time` / `evaluation_time`  | Caller-owned timeline fields                    |
 
-`WithID` stays optional for ordinary validation. History mapping requires
-non-blank, unique export result IDs. Kind, scope, and target checks on
-`MeasurementKey` are optional when left empty, but do not join renamed targets
-silently—a changed target is a different series unless the caller remaps
-identity explicitly outside gxsql.
+`WithID` stays optional for ordinary validation. A measurement series is
+identified by `(ResultID, SegmentID)`. History mapping requires non-blank result
+IDs and unique `(ResultID, SegmentID)` pairs; the same result ID may appear once
+per segment. Kind, scope, and target checks on `MeasurementKey` are optional
+when left empty, but do not join renamed targets silently—a changed target is a
+different series unless the caller remaps identity explicitly outside gxsql.
 
 `MeasurementRecordsFromExport` copies structured counts, facts, verdicts, tags,
 and categorized errors after re-sanitizing messages to `gxsql: <category>`. It

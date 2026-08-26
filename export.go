@@ -65,7 +65,8 @@ type ExportedReport struct {
 	Target *ExportedTarget `json:"target,omitempty"`
 	// Scope names the validation scope when available; omitted when unavailable.
 	Scope *ExportedScope `json:"scope,omitempty"`
-	// Results preserves declaration order from Report.Results.
+	// Results preserves Report.Results order: expectation declaration order
+	// when unsegmented, segment-major order with WithSegments.
 	Results []ExportedResult `json:"results"`
 }
 
@@ -88,6 +89,10 @@ type ExportedScope struct {
 type ExportedResult struct {
 	// ID is the caller-supplied stable result identifier; omitted when empty.
 	ID string `json:"id,omitempty"`
+	// SegmentID is the normalized segment identity when validation was
+	// segmented. Empty for unsegmented reports; omitted from JSON when empty.
+	// Together with ID it identifies an exported series.
+	SegmentID string `json:"segment_id,omitempty"`
 	// Kind is the library-defined expectation kind.
 	Kind ExpectationKind `json:"kind"`
 	// DisplayName is the human-oriented result name with configured bounds and
@@ -522,6 +527,7 @@ func exportCallerTime(t time.Time) *time.Time {
 func exportResult(res Result, target *TableRef, cfg exportConfig) (ExportedResult, error) {
 	out := ExportedResult{
 		ID:               res.ID,
+		SegmentID:        res.SegmentID,
 		Kind:             res.Kind,
 		DisplayName:      exportDisplayName(res),
 		Column:           res.Column,

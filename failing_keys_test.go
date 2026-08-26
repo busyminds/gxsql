@@ -43,6 +43,58 @@ func assertNoWriteSQL(t *testing.T, queries []recordedQuery) {
 	}
 }
 
+func TestFailingKeysRetrievalSQLUsesValidateDialectAndKeyOrder(t *testing.T) {
+	setHarnessData(t, harnessUsers(
+		map[string]any{"id": int64(2), "age": int64(200)},
+		map[string]any{"id": int64(1), "age": int64(25)},
+		map[string]any{"id": int64(3), "age": int64(300)},
+	))
+	db := openRecordingHarnessDB(t)
+	table := Table("users")
+
+	report, err := NewSuite(WithID("users.age.between", Int("age").Between(0, 120))).ValidateTable(
+		context.Background(), db, table,
+		WithDialect(Postgres()),
+		WithKey("id", "age"),
+		SummaryOnly(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	retrievalStart := len(db.queries)
+	iter, err := FailingKeys(
+		context.Background(),
+		db,
+		table,
+		report,
+		ForResultID("users.age.between"),
+		// The retrieval option must remain non-nil without replacing the
+		// validate-time dialect captured by the failure plan.
+		WithDialect(MySQL()),
+	)
+	if err != nil {
+		t.Fatalf("FailingKeys: %v", err)
+	}
+	got := collectFailingKeys(t, iter)
+	wantKeys := []RowKey{{int64(2), int64(200)}, {int64(3), int64(300)}}
+	if !reflect.DeepEqual(got, wantKeys) {
+		t.Fatalf("retrieved keys = %#v, want %#v", got, wantKeys)
+	}
+
+	if len(db.queries) != retrievalStart+1 {
+		t.Fatalf("retrieval queries = %d, want exactly one", len(db.queries)-retrievalStart)
+	}
+	gotQuery := db.queries[retrievalStart]
+	wantQuery := `SELECT "id", "age" FROM "users" WHERE "age" IS NULL OR "age" < $1 OR "age" > $2 ORDER BY "id", "age"`
+	if gotQuery.text != wantQuery {
+		t.Fatalf("retrieval SQL = %q, want %q", gotQuery.text, wantQuery)
+	}
+	if !reflect.DeepEqual(gotQuery.args, []any{0, 120}) {
+		t.Fatalf("retrieval args = %#v, want %#v", gotQuery.args, []any{0, 120})
+	}
+}
+
 func TestFailingKeysCompleteCardinalityVsDefaultFailedKeysCap(t *testing.T) {
 	const failCount = DefaultFailedKeysCap + 25
 	rows := make([]map[string]any, failCount)
